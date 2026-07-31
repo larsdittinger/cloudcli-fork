@@ -12,6 +12,7 @@ type MainContentTabSwitcherProps = {
   setActiveTab: Dispatch<SetStateAction<AppTab>>;
   shouldShowTasksTab: boolean;
   shouldShowBrowserTab: boolean;
+  restrictedMode?: boolean;
 };
 
 type BuiltInTab = {
@@ -57,25 +58,31 @@ export default function MainContentTabSwitcher({
   setActiveTab,
   shouldShowTasksTab,
   shouldShowBrowserTab,
+  restrictedMode = false,
 }: MainContentTabSwitcherProps) {
   const { t } = useTranslation();
   const { plugins } = usePlugins();
 
-  const builtInTabs: BuiltInTab[] = [
-    ...BASE_TABS,
-    ...(shouldShowBrowserTab ? [BROWSER_TAB] : []),
-    ...(shouldShowTasksTab ? [TASKS_TAB] : []),
-  ];
+  // Restricted users only get the chat tab.
+  const builtInTabs: BuiltInTab[] = restrictedMode
+    ? BASE_TABS.filter((tab) => tab.id === 'chat')
+    : [
+        ...BASE_TABS,
+        ...(shouldShowBrowserTab ? [BROWSER_TAB] : []),
+        ...(shouldShowTasksTab ? [TASKS_TAB] : []),
+      ];
 
-  const pluginTabs: PluginTab[] = plugins
-    .filter((p) => p.enabled)
-    .map((p) => ({
-      kind: 'plugin',
-      id: `plugin:${p.name}` as AppTab,
-      label: p.displayName,
-      pluginName: p.name,
-      iconFile: p.icon,
-    }));
+  const pluginTabs: PluginTab[] = restrictedMode
+    ? []
+    : plugins
+        .filter((p) => p.enabled)
+        .map((p) => ({
+          kind: 'plugin',
+          id: `plugin:${p.name}` as AppTab,
+          label: p.displayName,
+          pluginName: p.name,
+          iconFile: p.icon,
+        }));
 
   const tabs: TabDefinition[] = [...builtInTabs, ...pluginTabs];
 

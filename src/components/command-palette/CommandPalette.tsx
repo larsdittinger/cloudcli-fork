@@ -27,6 +27,7 @@ import {
   DialogTitle,
 } from '../../shared/view/ui';
 import { useTheme } from '../../contexts/ThemeContext';
+import { useIsAdmin } from '../../hooks/useIsAdmin';
 import { usePaletteOps } from '../../contexts/PaletteOpsContext';
 import { SETTINGS_MAIN_TABS } from '../settings/constants/constants';
 import type { AppTab, Project } from '../../types/app';
@@ -75,6 +76,8 @@ export default function CommandPalette({
   const { toggleDarkMode } = useTheme();
   const navigate = useNavigate();
   const ops = usePaletteOps();
+  const isAdmin = useIsAdmin();
+  const navTabs = isAdmin ? NAV_TABS : NAV_TABS.filter((tab) => tab.id === 'chat');
 
   const page = pages.at(-1);
 
@@ -208,10 +211,12 @@ export default function CommandPalette({
                     <span className="text-xs text-muted-foreground">Select a project first</span>
                   )}
                 </CommandItem>
-                <CommandItem value="Open settings" onSelect={() => run(() => onOpenSettings())}>
-                  <Settings className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
-                  <span className="flex-1">Open settings</span>
-                </CommandItem>
+                {isAdmin && (
+                  <CommandItem value="Open settings" onSelect={() => run(() => onOpenSettings())}>
+                    <Settings className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+                    <span className="flex-1">Open settings</span>
+                  </CommandItem>
+                )}
                 <CommandItem value="Toggle theme dark light mode" onSelect={() => run(toggleDarkMode)}>
                   <SunMoon className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
                   <span className="flex-1">Toggle theme</span>
@@ -221,7 +226,7 @@ export default function CommandPalette({
 
             {showActions && (
               <CommandGroup heading="Navigate">
-                {NAV_TABS.map((tab) => (
+                {navTabs.map((tab) => (
                   <CommandItem
                     key={tab.id as string}
                     value={`${tab.label} ${tab.keywords}`}
@@ -233,7 +238,7 @@ export default function CommandPalette({
               </CommandGroup>
             )}
 
-            {showActions && projectId && (
+            {showActions && projectId && isAdmin && (
               <CommandGroup heading="Git">
                 <CommandItem
                   value="Git Fetch remote"
@@ -259,7 +264,7 @@ export default function CommandPalette({
               </CommandGroup>
             )}
 
-            {showActions && (
+            {showActions && isAdmin && (
               <CommandGroup heading="Settings">
                 {SETTINGS_MAIN_TABS.map(({ id, label, keywords, icon: Icon }) => (
                   <CommandItem
@@ -300,7 +305,7 @@ export default function CommandPalette({
               </CommandGroup>
             )}
 
-            {showFiles && projectId && filesShown.length > 0 && (
+            {showFiles && projectId && isAdmin && filesShown.length > 0 && (
               <CommandGroup heading="Files">
                 {filesShown.map((f) => (
                   <CommandItem
@@ -319,7 +324,7 @@ export default function CommandPalette({
               </CommandGroup>
             )}
 
-            {showCommits && projectId && commitsShown.length > 0 && (
+            {showCommits && projectId && isAdmin && commitsShown.length > 0 && (
               <CommandGroup heading="Commits">
                 {commitsShown.map((c) => (
                   <CommandItem
@@ -339,7 +344,7 @@ export default function CommandPalette({
               </CommandGroup>
             )}
 
-            {showBranches && projectId && branchesShown.length > 0 && (
+            {showBranches && projectId && isAdmin && branchesShown.length > 0 && (
               <CommandGroup heading="Branches">
                 {branchesShown.map((b) => (
                   <CommandItem

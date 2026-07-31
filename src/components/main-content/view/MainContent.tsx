@@ -11,6 +11,7 @@ import { useTaskMaster } from '../../../contexts/TaskMasterContext';
 import { usePaletteOpsRegister } from '../../../contexts/PaletteOpsContext';
 import { useTasksSettings } from '../../../contexts/TasksSettingsContext';
 import { useUiPreferences } from '../../../hooks/useUiPreferences';
+import { useIsAdmin } from '../../../hooks/useIsAdmin';
 import { useFileOpenResolver } from '../../../hooks/useFileOpenResolver';
 import { authenticatedFetch } from '../../../utils/api';
 import { useEditorSidebar } from '../../code-editor/hooks/useEditorSidebar';
@@ -61,9 +62,10 @@ function MainContent({
   const { currentProject, setCurrentProject } = useTaskMaster() as TaskMasterContextValue;
   const { tasksEnabled, isTaskMasterInstalled } = useTasksSettings() as TasksSettingsContextValue;
   const [browserUseEnabled, setBrowserUseEnabled] = useState(false);
+  const isAdmin = useIsAdmin();
 
-  const shouldShowTasksTab = Boolean(tasksEnabled && isTaskMasterInstalled);
-  const shouldShowBrowserTab = browserUseEnabled;
+  const shouldShowTasksTab = Boolean(tasksEnabled && isTaskMasterInstalled) && isAdmin;
+  const shouldShowBrowserTab = browserUseEnabled && isAdmin;
 
   const {
     editingFile,
@@ -101,6 +103,13 @@ function MainContent({
     }
   }, [shouldShowTasksTab, activeTab, setActiveTab]);
 
+  // Restricted users only get the chat tab; bounce them off anything else.
+  useEffect(() => {
+    if (!isAdmin && activeTab !== 'chat') {
+      setActiveTab('chat');
+    }
+  }, [isAdmin, activeTab, setActiveTab]);
+
   const loadBrowserUseSettings = useCallback(async () => {
     try {
       const response = await authenticatedFetch('/api/browser-use/settings');
@@ -125,11 +134,13 @@ function MainContent({
 
   usePaletteOpsRegister({
     openFile: (filePath: string) => {
+      if (!isAdmin) return;
       setActiveTab('files');
       handleFileOpen(filePath);
     },
     // Opens the editor side panel in place, keeping the current tab (e.g. chat).
     openFileInEditor: (filePath: string) => {
+      if (!isAdmin) return;
       resolvedFileOpen(filePath);
     },
   });
@@ -151,6 +162,7 @@ function MainContent({
         selectedSession={selectedSession}
         shouldShowTasksTab={shouldShowTasksTab}
         shouldShowBrowserTab={shouldShowBrowserTab}
+        restrictedMode={!isAdmin}
         isMobile={isMobile}
         onMenuClick={onMenuClick}
       />
@@ -164,7 +176,7 @@ function MainContent({
                 selectedSession={selectedSession}
                 ws={ws}
                 sendMessage={sendMessage}
-                onFileOpen={handleFileOpen}
+                onFileOpen={isAdmin ? handleFileOpen : undefined}
                 onInputFocusChange={onInputFocusChange}
                 onSessionProcessing={onSessionProcessing}
                 onSessionIdle={onSessionIdle}
@@ -182,13 +194,13 @@ function MainContent({
             </ErrorBoundary>
           </div>
 
-          {activeTab === 'files' && (
+          {isAdmin && activeTab === 'files' && (
             <div className="h-full overflow-hidden">
               <FileTree selectedProject={selectedProject} onFileOpen={handleFileOpen} />
             </div>
           )}
 
-          {activeTab === 'shell' && (
+          {isAdmin && activeTab === 'shell' && (
             <div className="h-full w-full overflow-hidden">
               <StandaloneShell
                 project={selectedProject}
@@ -199,7 +211,7 @@ function MainContent({
             </div>
           )}
 
-          {activeTab === 'git' && (
+          {isAdmin && activeTab === 'git' && (
             <div className="h-full overflow-hidden">
               <GitPanel
                 selectedProject={selectedProject}
@@ -219,7 +231,7 @@ function MainContent({
             </div>
           )}
 
-          {activeTab.startsWith('plugin:') && (
+          {isAdmin && activeTab.startsWith('plugin:') && (
             <div className="h-full overflow-hidden">
               <PluginTabContent
                 pluginName={activeTab.replace('plugin:', '')}
@@ -230,6 +242,7 @@ function MainContent({
           )}
         </div>
 
+        {isAdmin && (
         <EditorSidebar
           editingFile={editingFile}
           isMobile={isMobile}
@@ -243,6 +256,7 @@ function MainContent({
           projectPath={selectedProject.path}
           fillSpace={activeTab === 'files'}
         />
+        )}
       </div>
     </div>
   );

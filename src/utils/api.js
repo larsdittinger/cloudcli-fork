@@ -326,6 +326,28 @@ export const api = {
       body: JSON.stringify({ path: folderPath }),
     }),
 
+  // Admin user-management endpoints (admin role only)
+  admin: {
+    listUsers: () => authenticatedFetch('/api/admin/users'),
+    createUser: (username, password) =>
+      authenticatedFetch('/api/admin/users', {
+        method: 'POST',
+        body: JSON.stringify({ username, password }),
+      }),
+    deleteUser: (userId) =>
+      authenticatedFetch(`/api/admin/users/${userId}`, { method: 'DELETE' }),
+    setUserPassword: (userId, password) =>
+      authenticatedFetch(`/api/admin/users/${userId}/password`, {
+        method: 'PUT',
+        body: JSON.stringify({ password }),
+      }),
+    setUserProjects: (userId, projectIds) =>
+      authenticatedFetch(`/api/admin/users/${userId}/projects`, {
+        method: 'PUT',
+        body: JSON.stringify({ projectIds }),
+      }),
+  },
+
   // User endpoints
   user: {
     gitConfig: () => authenticatedFetch('/api/user/git-config'),

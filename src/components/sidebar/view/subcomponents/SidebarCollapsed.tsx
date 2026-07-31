@@ -1,6 +1,7 @@
 import { Settings, Sparkles, PanelLeftOpen, Bug, AlertTriangle } from 'lucide-react';
 import type { TFunction } from 'i18next';
 import { SHOW_COMMUNITY_LINKS } from '../../../../constants/config';
+import { useIsAdmin } from '../../../../hooks/useIsAdmin';
 
 const DISCORD_INVITE_URL = 'https://discord.gg/buxwujPNRE';
 const GITHUB_ISSUES_URL = 'https://github.com/siteboon/claudecodeui/issues/new';
@@ -30,6 +31,7 @@ export default function SidebarCollapsed({
   onShowVersionModal,
   t,
 }: SidebarCollapsedProps) {
+  const isAdmin = useIsAdmin();
   return (
     <div className="flex h-full w-12 flex-col items-center gap-1 bg-background/80 py-3 backdrop-blur-sm">
       {/* Expand button with brand logo */}
@@ -45,14 +47,16 @@ export default function SidebarCollapsed({
       <div className="nav-divider my-1 w-6" />
 
       {/* Settings */}
-      <button
-        onClick={onShowSettings}
-        className="group flex h-8 w-8 items-center justify-center rounded-lg transition-colors hover:bg-accent/80"
-        aria-label={t('actions.settings')}
-        title={t('actions.settings')}
-      >
-        <Settings className="h-4 w-4 text-muted-foreground transition-colors group-hover:text-foreground" />
-      </button>
+      {isAdmin && (
+        <button
+          onClick={onShowSettings}
+          className="group flex h-8 w-8 items-center justify-center rounded-lg transition-colors hover:bg-accent/80"
+          aria-label={t('actions.settings')}
+          title={t('actions.settings')}
+        >
+          <Settings className="h-4 w-4 text-muted-foreground transition-colors group-hover:text-foreground" />
+        </button>
+      )}
 
       {/* Report Issue */}
       {SHOW_COMMUNITY_LINKS && (

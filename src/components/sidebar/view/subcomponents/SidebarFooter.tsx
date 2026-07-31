@@ -1,6 +1,7 @@
 import { Settings, ArrowUpCircle, Bug, AlertTriangle } from 'lucide-react';
 import type { TFunction } from 'i18next';
 import { IS_PLATFORM, SHOW_COMMUNITY_LINKS } from '../../../../constants/config';
+import { useIsAdmin } from '../../../../hooks/useIsAdmin';
 import type { ReleaseInfo } from '../../../../types/sharedTypes';
 
 const GITHUB_ISSUES_URL = 'https://github.com/siteboon/claudecodeui/issues/new';
@@ -37,6 +38,7 @@ export default function SidebarFooter({
   onShowSettings,
   t,
 }: SidebarFooterProps) {
+  const isAdmin = useIsAdmin();
   return (
     <div className="flex-shrink-0" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0)' }}>
       {/* Restart-required banner: the running server version differs from the
@@ -137,6 +139,7 @@ export default function SidebarFooter({
       )}
 
       {/* Desktop settings */}
+      {isAdmin && (
       <div className="hidden px-2 py-1.5 md:block">
         <button
           className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground"
@@ -146,6 +149,7 @@ export default function SidebarFooter({
           <span className="text-sm">{t('actions.settings')}</span>
         </button>
       </div>
+      )}
 
       {/* Desktop version brand line (OSS mode only) */}
       {!IS_PLATFORM && (
@@ -196,6 +200,7 @@ export default function SidebarFooter({
       )}
 
       {/* Mobile settings */}
+      {isAdmin && (
       <div className="px-3 pb-3 pt-2 md:hidden">
         <button
           className="flex h-10 w-full items-center gap-3 rounded-xl bg-muted/40 px-3.5 transition-all hover:bg-muted/60 active:scale-[0.98]"
@@ -207,6 +212,7 @@ export default function SidebarFooter({
           <span className="text-sm font-normal text-foreground">{t('actions.settings')}</span>
         </button>
       </div>
+      )}
     </div>
   );
 }
