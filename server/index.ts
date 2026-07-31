@@ -24,8 +24,10 @@ import {
     authenticateToken,
     authenticateWebSocket,
     authRoutes,
+    requireAdmin,
     validateApiKey,
 } from './modules/auth/index.js';
+import { adminRoutes } from './modules/admin/index.js';
 import { taskmasterRoutes } from './modules/taskmaster/index.js';
 import { commandsRoutes } from './modules/commands/index.js';
 import { settingsRoutes } from './modules/settings/index.js';
@@ -179,6 +181,9 @@ app.use('/api/notifications', authenticateToken, notificationRoutes);
 
 // User API Routes (protected)
 app.use('/api/user', authenticateToken, userRoutes);
+
+// Admin user-management API Routes (admin only)
+app.use('/api/admin', authenticateToken, requireAdmin, adminRoutes);
 
 // Plugins API Routes (protected)
 app.use('/api/plugins', authenticateToken, pluginsRoutes);
