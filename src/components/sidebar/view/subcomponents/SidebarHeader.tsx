@@ -3,7 +3,7 @@ import type { TFunction } from 'i18next';
 
 import { Button, Input, Tooltip } from '../../../../shared/view/ui';
 import { CLOUDCLI_WORDMARK_FONT_FAMILY } from '../../../../constants/branding';
-import { IS_PLATFORM } from '../../../../constants/config';
+import { IS_PLATFORM, SHOW_COMMUNITY_LINKS } from '../../../../constants/config';
 import { cn } from '../../../../lib/utils';
 import type { SidebarSearchMode } from '../../types/types';
 
@@ -133,7 +133,7 @@ export default function SidebarHeader({
           </div>
         </div>
 
-        <GitHubStarBadge />
+        {SHOW_COMMUNITY_LINKS && <GitHubStarBadge />}
 
         {/* Search bar */}
         {showSearchTools && (

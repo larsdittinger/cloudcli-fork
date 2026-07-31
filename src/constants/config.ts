@@ -5,6 +5,13 @@
 export const IS_PLATFORM = import.meta.env.VITE_IS_PLATFORM === 'true';
 
 /**
+ * Environment Flag: Hide Community Links
+ * When VITE_HIDE_COMMUNITY_LINKS=true, GitHub star/issues and Discord links
+ * are hidden across the UI (self-hosted white-label deployments).
+ */
+export const SHOW_COMMUNITY_LINKS = import.meta.env.VITE_HIDE_COMMUNITY_LINKS !== 'true';
+
+/**
  * For empty shell instances where no project is provided,
  * we use a default project object to ensure the shell can still function.
  * This prevents errors related to missing project data.

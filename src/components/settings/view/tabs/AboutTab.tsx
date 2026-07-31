@@ -2,7 +2,7 @@ import { Cloud, ExternalLink, MessageSquare, Star, Users } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import { CLOUDCLI_WORDMARK_FONT_FAMILY } from '../../../../constants/branding';
-import { IS_PLATFORM } from '../../../../constants/config';
+import { IS_PLATFORM, SHOW_COMMUNITY_LINKS } from '../../../../constants/config';
 import { useVersionCheck } from '../../../../hooks/useVersionCheck';
 import PremiumFeatureCard from '../PremiumFeatureCard';
 
@@ -74,16 +74,18 @@ export default function AboutTab() {
       </div>
 
       {/* Star on GitHub button */}
-      <a
-        href={GITHUB_REPO_URL}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="inline-flex items-center gap-2 rounded-lg border border-border/60 bg-background px-3.5 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
-      >
-        <GitHubIcon className="h-4 w-4" />
-        <Star className="h-3.5 w-3.5" />
-        <span>Star on GitHub</span>
-      </a>
+      {SHOW_COMMUNITY_LINKS && (
+        <a
+          href={GITHUB_REPO_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-2 rounded-lg border border-border/60 bg-background px-3.5 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+        >
+          <GitHubIcon className="h-4 w-4" />
+          <Star className="h-3.5 w-3.5" />
+          <span>Star on GitHub</span>
+        </a>
+      )}
 
       {/* Links */}
       <div className="flex flex-wrap gap-4 text-sm">
@@ -96,15 +98,17 @@ export default function AboutTab() {
           <GitHubIcon className="h-4 w-4" />
           GitHub
         </a>
-        <a
-          href={DISCORD_URL}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex items-center gap-1.5 text-muted-foreground transition-colors hover:text-foreground"
-        >
-          <DiscordIcon className="h-4 w-4" />
-          Discord
-        </a>
+        {SHOW_COMMUNITY_LINKS && (
+          <a
+            href={DISCORD_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1.5 text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <DiscordIcon className="h-4 w-4" />
+            Discord
+          </a>
+        )}
         <a
           href={DOCS_URL}
           target="_blank"
