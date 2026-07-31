@@ -7,6 +7,7 @@ import type {
   FileTreeUploadedFile,
 } from '@/shared/types.js';
 import { AppError } from '@/shared/utils.js';
+import { requireAdmin } from '@/modules/auth/index.js';
 
 type FileTreeUploadLimits = {
   maximumFileSizeMegabytes: number;
@@ -119,7 +120,7 @@ export function createFileTreeRouter(
     response.json(await services.browseWorkspace(readOptionalString(request.query.path)));
   }, logger));
 
-  router.post('/create-folder', createRouteHandler(async (request, response) => {
+  router.post('/create-folder', requireAdmin, createRouteHandler(async (request, response) => {
     const body = readBody(request);
     const folderPath = readRequiredString(body.path, 'path', 'Path is required');
     response.json(await services.createWorkspaceFolder(folderPath));
@@ -143,7 +144,7 @@ export function createFileTreeRouter(
     });
   }, logger));
 
-  router.put('/projects/:projectId/file', createRouteHandler(async (request, response) => {
+  router.put('/projects/:projectId/file', requireAdmin, createRouteHandler(async (request, response) => {
     const body = readBody(request);
     const filePath = readRequiredString(body.filePath, 'filePath', 'Invalid file path');
     if (body.content === undefined) {
@@ -167,7 +168,7 @@ export function createFileTreeRouter(
     }));
   }, logger));
 
-  router.post('/projects/:projectId/files/create', createRouteHandler(async (request, response) => {
+  router.post('/projects/:projectId/files/create', requireAdmin, createRouteHandler(async (request, response) => {
     const body = readBody(request);
     if (!body.name || !body.type) {
       throw new AppError('Name and type are required', {
@@ -186,7 +187,7 @@ export function createFileTreeRouter(
     }));
   }, logger));
 
-  router.put('/projects/:projectId/files/rename', createRouteHandler(async (request, response) => {
+  router.put('/projects/:projectId/files/rename', requireAdmin, createRouteHandler(async (request, response) => {
     const body = readBody(request);
     if (!body.oldPath || !body.newName) {
       throw new AppError('oldPath and newName are required', {
@@ -201,7 +202,7 @@ export function createFileTreeRouter(
     }));
   }, logger));
 
-  router.delete('/projects/:projectId/files', createRouteHandler(async (request, response) => {
+  router.delete('/projects/:projectId/files', requireAdmin, createRouteHandler(async (request, response) => {
     const body = readBody(request);
     const targetPath = readRequiredString(body.path, 'path', 'Path is required');
     response.json(await services.deleteEntry({
@@ -225,6 +226,7 @@ export function createFileTreeRouter(
 
   router.post(
     '/projects/:projectId/files/upload',
+    requireAdmin,
     (request: Request, response: Response, next: NextFunction) => {
       uploadFilesMiddleware(request, response, (error?: unknown) => {
         if (!error) {

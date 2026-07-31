@@ -3,6 +3,8 @@ import http from 'node:http';
 
 import express from 'express';
 
+import { requireAdmin } from '@/modules/auth/index.js';
+
 import type { createPluginsService } from './plugins.service.js';
 
 function wildcardPath(req: express.Request): string {
@@ -33,9 +35,9 @@ export function createPluginsRouter(service: ReturnType<typeof createPluginsServ
       stream.pipe(res);
     } catch (error) { next(error); }
   });
-  router.put('/:name/enable', respond((req) => service.setEnabled(routeParameter(req.params.name), req.body?.enabled)));
-  router.post('/install', respond((req) => service.install(req.body?.url)));
-  router.post('/:name/update', respond((req) => service.update(routeParameter(req.params.name))));
+  router.put('/:name/enable', requireAdmin, respond((req) => service.setEnabled(routeParameter(req.params.name), req.body?.enabled)));
+  router.post('/install', requireAdmin, respond((req) => service.install(req.body?.url)));
+  router.post('/:name/update', requireAdmin, respond((req) => service.update(routeParameter(req.params.name))));
   router.all('/:name/rpc/*', async (req, res, next) => {
     try {
       const { port, secrets } = await service.prepareRpc(routeParameter(req.params.name));
@@ -61,6 +63,6 @@ export function createPluginsRouter(service: ReturnType<typeof createPluginsServ
       proxyRequest.end();
     } catch (error) { next(error); }
   });
-  router.delete('/:name', respond((req) => service.uninstall(routeParameter(req.params.name))));
+  router.delete('/:name', requireAdmin, respond((req) => service.uninstall(routeParameter(req.params.name))));
   return router;
 }

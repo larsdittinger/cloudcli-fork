@@ -8,6 +8,7 @@ type WebSocketAuthDependencies = {
     id?: string | number;
     userId?: string | number;
     username?: string;
+    role?: 'admin' | 'restricted';
     [key: string]: unknown;
   } | null;
 };
@@ -50,6 +51,12 @@ export function verifyWebSocketClient(
   const user = dependencies.authenticateWebSocket(token);
   if (!user) {
     console.log('[WARN] WebSocket authentication failed');
+    return false;
+  }
+
+  // The terminal is admin-only; restricted users may only use the chat socket.
+  if (upgradeUrl.pathname === '/shell' && user.role === 'restricted') {
+    console.log('[WARN] Shell WebSocket denied for restricted user:', user.username);
     return false;
   }
 

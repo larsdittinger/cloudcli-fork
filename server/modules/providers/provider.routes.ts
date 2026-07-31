@@ -17,6 +17,7 @@ import type {
   UpsertProviderMcpServerInput,
 } from '@/shared/types.js';
 import { AppError, asyncHandler, createApiSuccessResponse } from '@/shared/utils.js';
+import { requireAdmin } from '@/modules/auth/index.js';
 
 const router = express.Router();
 
@@ -665,7 +666,7 @@ router.get(
   }),
 );
 
-router.get('/search/sessions', asyncHandler(async (req: Request, res: Response) => {
+router.get('/search/sessions', requireAdmin, asyncHandler(async (req: Request, res: Response) => {
   const query = parseSessionSearchQuery(req.query.q);
   const limit = parseSessionSearchLimit(req.query.limit);
 

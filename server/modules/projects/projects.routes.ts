@@ -7,12 +7,43 @@ import { AppError, asyncHandler, createApiSuccessResponse } from '@/shared/utils
 import { getArchivedProjectsWithSessions, getProjectSessionsPage, getProjectsWithSessions } from '@/modules/projects/services/projects-with-sessions-fetch.service.js';
 import { deleteOrArchiveProject, restoreArchivedProject } from '@/modules/projects/services/project-delete.service.js';
 import { applyLegacyStarredProjectIds, toggleProjectStar } from '@/modules/projects/services/project-star.service.js';
+import { userProjectAccessDb } from '@/modules/database/index.js';
 
 const router = express.Router();
 
 type AuthenticatedUser = {
   id?: number | string;
+  role?: 'admin' | 'restricted';
 };
+
+function readAuthenticatedUser(req: express.Request): AuthenticatedUser {
+  return (req as express.Request & { user?: AuthenticatedUser }).user ?? {};
+}
+
+function isRestrictedUser(user: AuthenticatedUser): boolean {
+  return user.role === 'restricted';
+}
+
+/** Throws 403 for restricted users; project management is admin-only. */
+function requireAdminUser(req: express.Request): void {
+  if (isRestrictedUser(readAuthenticatedUser(req))) {
+    throw new AppError('Admin access required', { code: 'ADMIN_REQUIRED', statusCode: 403 });
+  }
+}
+
+/** Throws 403 when a restricted user has no grant for the project. */
+function assertProjectAccess(req: express.Request, projectId: string): void {
+  const user = readAuthenticatedUser(req);
+  if (!isRestrictedUser(user)) {
+    return;
+  }
+  if (!userProjectAccessDb.canAccess(Number(user.id), projectId)) {
+    throw new AppError('Project access denied', {
+      code: 'PROJECT_ACCESS_DENIED',
+      statusCode: 403,
+    });
+  }
+}
 
 function readQueryStringValue(value: unknown): string {
   if (typeof value === 'string') {
@@ -78,13 +109,27 @@ router.get(
       sessionsLimit,
       sessionsOffset,
     });
+
+    const user = readAuthenticatedUser(req);
+    if (isRestrictedUser(user)) {
+      const allowedProjectIds = new Set(
+        userProjectAccessDb.listProjectIdsForUser(Number(user.id))
+      );
+      res.json(projects.filter((project) => allowedProjectIds.has(project.projectId)));
+      return;
+    }
+
     res.json(projects);
   }),
 );
 
 router.get(
   '/archived',
-  asyncHandler(async (_req, res) => {
+  asyncHandler(async (req, res) => {
+    if (isRestrictedUser(readAuthenticatedUser(req))) {
+      res.json(createApiSuccessResponse({ projects: [] }));
+      return;
+    }
     const projects = await getArchivedProjectsWithSessions();
     res.json(createApiSuccessResponse({ projects }));
   }),
@@ -94,6 +139,7 @@ router.get(
   '/:projectId/sessions',
   asyncHandler(async (req, res) => {
     const projectId = typeof req.params.projectId === 'string' ? req.params.projectId : '';
+    assertProjectAccess(req, projectId);
     const limit = parseNonNegativeIntQuery(req.query.limit, 'limit', 20);
     const offset = parseNonNegativeIntQuery(req.query.offset, 'offset', 0);
     const sessionsPage = await getProjectSessionsPage(projectId, { limit, offset });
@@ -104,6 +150,7 @@ router.get(
 router.post(
   '/create-project',
   asyncHandler(async (req, res) => {
+    requireAdminUser(req);
     const requestBody = req.body as Record<string, unknown>;
     const projectPath = typeof requestBody.path === 'string' ? requestBody.path : '';
     const customName = typeof requestBody.customName === 'string' ? requestBody.customName : null;
@@ -145,6 +192,7 @@ router.post(
 router.post(
   '/migrate-legacy-stars',
   asyncHandler(async (req, res) => {
+    requireAdminUser(req);
     const projectIds = Array.isArray((req.body as { projectIds?: unknown })?.projectIds)
       ? ((req.body as { projectIds: unknown[] }).projectIds as unknown[]).map((x) => String(x))
       : [];
@@ -154,6 +202,10 @@ router.post(
 );
 
 router.get('/clone-progress', async (req, res) => {
+  if (isRestrictedUser(readAuthenticatedUser(req))) {
+    res.status(403).json({ error: 'Admin access required', code: 'ADMIN_REQUIRED' });
+    return;
+  }
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
@@ -222,6 +274,7 @@ router.get(
   '/:projectId/taskmaster',
   asyncHandler(async (req, res) => {
     const projectId = typeof req.params.projectId === 'string' ? req.params.projectId : '';
+    assertProjectAccess(req, projectId);
     const taskMasterDetails = await getProjectTaskMaster(projectId);
     res.json(taskMasterDetails);
   }),
@@ -229,6 +282,10 @@ router.get(
 
 router.put('/:projectId/rename', (req, res) => {
   try {
+    if (isRestrictedUser(readAuthenticatedUser(req))) {
+      res.status(403).json({ error: 'Admin access required', code: 'ADMIN_REQUIRED' });
+      return;
+    }
     const projectId = typeof req.params.projectId === 'string' ? req.params.projectId : '';
     const { displayName } = req.body as { displayName?: unknown };
     updateProjectDisplayName(projectId, displayName);
@@ -241,6 +298,7 @@ router.put('/:projectId/rename', (req, res) => {
 router.post(
   '/:projectId/toggle-star',
   asyncHandler(async (req, res) => {
+    requireAdminUser(req);
     const projectId = typeof req.params.projectId === 'string' ? req.params.projectId : '';
     const { isStarred } = toggleProjectStar(projectId);
     res.json({ success: true, isStarred });
@@ -250,6 +308,7 @@ router.post(
 router.post(
   '/:projectId/restore',
   asyncHandler(async (req, res) => {
+    requireAdminUser(req);
     const projectId = typeof req.params.projectId === 'string' ? req.params.projectId : '';
     restoreArchivedProject(projectId);
     res.json(createApiSuccessResponse({ projectId, isArchived: false }));
@@ -263,6 +322,7 @@ router.post(
 router.delete(
   '/:projectId',
   asyncHandler(async (req, res) => {
+    requireAdminUser(req);
     const projectId = typeof req.params.projectId === 'string' ? req.params.projectId : '';
     const force = req.query.force === 'true';
     await deleteOrArchiveProject(projectId, force);

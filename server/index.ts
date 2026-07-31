@@ -161,13 +161,13 @@ app.use('/api/projects', authenticateToken, projectModuleRoutes);
 app.use('/api/assets', authenticateToken, assetsRoutes);
 
 // Git API Routes (protected)
-app.use('/api/git', authenticateToken, gitRoutes);
+app.use('/api/git', authenticateToken, requireAdmin, gitRoutes);
 
 // Git worktree management (protected)
-app.use('/api/worktrees', authenticateToken, worktreesRoutes);
+app.use('/api/worktrees', authenticateToken, requireAdmin, worktreesRoutes);
 
 // TaskMaster API Routes (protected)
-app.use('/api/taskmaster', authenticateToken, taskmasterRoutes);
+app.use('/api/taskmaster', authenticateToken, requireAdmin, taskmasterRoutes);
 
 // Commands API Routes (protected)
 app.use('/api/commands', authenticateToken, commandsRoutes);
@@ -175,7 +175,7 @@ app.use('/api/commands', authenticateToken, commandsRoutes);
 // Settings API Routes (protected)
 app.use('/api/settings', authenticateToken, settingsRoutes);
 
-app.use('/api/system', authenticateToken, systemRoutes);
+app.use('/api/system', authenticateToken, requireAdmin, systemRoutes);
 
 app.use('/api/notifications', authenticateToken, notificationRoutes);
 
@@ -192,7 +192,7 @@ app.use('/api/plugins', authenticateToken, pluginsRoutes);
 app.use('/api/browser-use-mcp', browserUseMcpRoutes);
 
 // Browser API Routes (protected)
-app.use('/api/browser-use', authenticateToken, browserUseRoutes);
+app.use('/api/browser-use', authenticateToken, requireAdmin, browserUseRoutes);
 
 // Unified provider MCP routes (protected)
 app.use('/api/providers', authenticateToken, providerRoutes);
