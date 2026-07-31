@@ -138,6 +138,14 @@ CREATE TABLE IF NOT EXISTS app_config (
 );
 `;
 
+export const USER_PROJECT_ACCESS_TABLE_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS user_project_access (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    project_id TEXT NOT NULL,
+    PRIMARY KEY (user_id, project_id)
+);
+`;
+
 export const INIT_SCHEMA_SQL = `
 -- Initialize authentication database
 PRAGMA foreign_keys = ON;
@@ -181,4 +189,6 @@ CREATE INDEX IF NOT EXISTS idx_session_ids_lookup ON sessions(session_id);
 ${LAST_SCANNED_AT_SQL}
 
 ${APP_CONFIG_TABLE_SCHEMA_SQL}
+
+${USER_PROJECT_ACCESS_TABLE_SCHEMA_SQL}
 `;

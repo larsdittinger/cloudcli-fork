@@ -12,4 +12,7 @@ export { pushSubscriptionsDb } from '@/modules/database/repositories/push-subscr
 export { scanStateDb } from '@/modules/database/repositories/scan-state.db.js';
 export { sessionsDb } from '@/modules/database/repositories/sessions.db.js';
 export { userDb } from '@/modules/database/repositories/users.js';
+export type { UserRole } from '@/modules/database/repositories/users.js';
+// userProjectAccessDb: used by Admin and Projects modules for restricted-user project grants.
+export { userProjectAccessDb } from '@/modules/database/repositories/user-project-access.js';
 export { vapidKeysDb } from '@/modules/database/repositories/vapid-keys.js';

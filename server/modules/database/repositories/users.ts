@@ -8,6 +8,8 @@
 
 import { getConnection } from '@/modules/database/connection.js';
 
+export type UserRole = 'admin' | 'restricted';
+
 type UserRow = {
   id: number;
   username: string;
@@ -18,9 +20,10 @@ type UserRow = {
   git_name: string | null;
   git_email: string | null;
   has_completed_onboarding: number;
+  role: UserRole;
 };
 
-type UserPublicRow = Pick<UserRow, 'id' | 'username' | 'created_at' | 'last_login'>;
+type UserPublicRow = Pick<UserRow, 'id' | 'username' | 'created_at' | 'last_login' | 'role'>;
 
 type UserGitConfig = {
   git_name: string | null;
@@ -84,7 +87,7 @@ export const userDb = {
     const db = getConnection();
     return db
       .prepare(
-        'SELECT id, username, created_at, last_login FROM users WHERE id = ? AND is_active = 1'
+        'SELECT id, username, created_at, last_login, role FROM users WHERE id = ? AND is_active = 1'
       )
       .get(userId) as UserPublicRow | undefined;
   },
@@ -94,9 +97,44 @@ export const userDb = {
     const db = getConnection();
     return db
       .prepare(
-        'SELECT id, username, created_at, last_login FROM users WHERE is_active = 1 LIMIT 1'
+        'SELECT id, username, created_at, last_login, role FROM users WHERE is_active = 1 LIMIT 1'
       )
       .get() as UserPublicRow | undefined;
+  },
+
+  /** Lists all active users (no password hashes). Used by the admin Users tab. */
+  listUsers(): UserPublicRow[] {
+    const db = getConnection();
+    return db
+      .prepare(
+        'SELECT id, username, created_at, last_login, role FROM users WHERE is_active = 1 ORDER BY id'
+      )
+      .all() as UserPublicRow[];
+  },
+
+  /** Inserts a new user with an explicit role. Used by admin user management. */
+  createUserWithRole(
+    username: string,
+    passwordHash: string,
+    role: UserRole
+  ): CreateUserResult & { role: UserRole } {
+    const db = getConnection();
+    const result = db
+      .prepare('INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)')
+      .run(username, passwordHash, role);
+    return { id: result.lastInsertRowid, username, role };
+  },
+
+  /** Hard-deletes a user; FK cascades clean dependent rows. */
+  deleteUser(userId: number): void {
+    const db = getConnection();
+    db.prepare('DELETE FROM users WHERE id = ?').run(userId);
+  },
+
+  /** Replaces the user's password hash. */
+  updatePassword(userId: number, passwordHash: string): void {
+    const db = getConnection();
+    db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(passwordHash, userId);
   },
 
   /** Stores the user's preferred git name and email. */
