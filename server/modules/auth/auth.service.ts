@@ -3,6 +3,7 @@ import { AppError } from '@/shared/utils.js';
 type AuthUser = {
   id: number | bigint;
   username: string;
+  role?: 'admin' | 'restricted';
 };
 
 type AuthLoginUser = AuthUser & { password_hash: string };
@@ -82,7 +83,8 @@ export function createAuthService(dependencies: AuthDependencies) {
 
         return {
           success: true,
-          user: { id: user.id, username: user.username },
+          // First (and only self-registered) user is always the admin.
+          user: { id: user.id, username: user.username, role: 'admin' as const },
           token,
         };
       } catch (error) {
@@ -121,7 +123,7 @@ export function createAuthService(dependencies: AuthDependencies) {
       dependencies.users.updateLastLogin(numericUserId(user.id));
       return {
         success: true,
-        user: { id: user.id, username: user.username },
+        user: { id: user.id, username: user.username, role: user.role },
         token: dependencies.generateToken(user),
       };
     },

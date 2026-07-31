@@ -45,6 +45,7 @@ export type AuthenticatedWebSocketUser = {
   id?: string | number;
   userId?: string | number;
   username?: string;
+  role?: 'admin' | 'restricted';
   [key: string]: unknown;
 };
 

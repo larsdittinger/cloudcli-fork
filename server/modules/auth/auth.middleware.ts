@@ -102,12 +102,26 @@ const authenticateToken = async (req, res, next) => {
   }
 };
 
+// Admin-only guard. Runs after authenticateToken; a missing role (platform
+// mode or legacy token) is treated as admin so upstream behavior is unchanged.
+const requireAdmin = (req, res, next) => {
+  const role = req.user?.role;
+  if (role !== undefined && role !== 'admin') {
+    return res.status(403).json({
+      error: 'Admin access required',
+      code: 'ADMIN_REQUIRED',
+    });
+  }
+  next();
+};
+
 // Generate JWT token
 const generateToken = (user) => {
   return jwt.sign(
     {
       userId: user.id,
-      username: user.username
+      username: user.username,
+      role: user.role
     },
     JWT_SECRET,
     { expiresIn: '7d' }
@@ -121,7 +135,7 @@ const authenticateWebSocket = (token) => {
     try {
       const user = userDb.getFirstUser();
       if (user) {
-        return { id: user.id, userId: user.id, username: user.username };
+        return { id: user.id, userId: user.id, username: user.username, role: user.role };
       }
       return null;
     } catch (error) {
@@ -142,7 +156,7 @@ const authenticateWebSocket = (token) => {
     if (!user) {
       return null;
     }
-    return { userId: user.id, username: user.username };
+    return { userId: user.id, username: user.username, role: user.role };
   } catch (error) {
     if (!(error instanceof jwt.TokenExpiredError)) {
       console.warn(
@@ -157,6 +171,7 @@ const authenticateWebSocket = (token) => {
 export {
   validateApiKey,
   authenticateToken,
+  requireAdmin,
   generateToken,
   authenticateWebSocket,
   JWT_SECRET

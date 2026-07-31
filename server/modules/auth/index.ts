@@ -7,3 +7,5 @@ export { authenticateToken } from './auth.middleware.js';
 export { authenticateWebSocket } from './auth.middleware.js';
 // validateApiKey: used by the server entrypoint for optional API-wide key validation.
 export { validateApiKey } from './auth.middleware.js';
+// requireAdmin: used by the server entrypoint and route modules to gate admin-only endpoints.
+export { requireAdmin } from './auth.middleware.js';
