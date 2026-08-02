@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type {
+  ClipboardEvent as ReactClipboardEvent,
+  FormEvent,
+  KeyboardEvent as ReactKeyboardEvent,
+  MouseEvent as ReactMouseEvent,
+  WheelEvent as ReactWheelEvent,
+} from 'react';
 import {
   Bot,
   Clock3,
@@ -124,6 +131,23 @@ const PROMPTS = [
   'Open <url> with Browser, interact with the page, and summarize what changed after each step.',
 ];
 
+// ethia fork: keys forwarded into the live session from the interactive preview.
+const INTERACTIVE_KEYS = new Set([
+  'Enter',
+  'Backspace',
+  'Delete',
+  'Tab',
+  'Escape',
+  'ArrowUp',
+  'ArrowDown',
+  'ArrowLeft',
+  'ArrowRight',
+  'Home',
+  'End',
+  'PageUp',
+  'PageDown',
+]);
+
 export default function BrowserUsePanel({ isVisible, onShowSettings }: BrowserUsePanelProps) {
   const [status, setStatus] = useState<BrowserUseStatus | null>(null);
   const [sessions, setSessions] = useState<BrowserUseSession[]>([]);
@@ -133,6 +157,10 @@ export default function BrowserUsePanel({ isVisible, onShowSettings }: BrowserUs
   const [isInstalling, setIsInstalling] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [urlDraft, setUrlDraft] = useState('');
+  const inputQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const wheelDeltaRef = useRef(0);
+  const wheelTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const selectedSession = useMemo(
     () => sessions.find((session) => session.id === selectedSessionId) || sessions[0] || null,
@@ -156,8 +184,10 @@ export default function BrowserUsePanel({ isVisible, onShowSettings }: BrowserUs
     }
     : null;
 
-  const refresh = useCallback(async () => {
-    setIsRefreshing(true);
+  const refresh = useCallback(async (options: { silent?: boolean } = {}) => {
+    if (!options.silent) {
+      setIsRefreshing(true);
+    }
     try {
       const [statusResponse, sessionsResponse] = await Promise.all([
         authenticatedFetch('/api/browser-use/status'),
@@ -177,7 +207,9 @@ export default function BrowserUsePanel({ isVisible, onShowSettings }: BrowserUs
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load Browser');
     } finally {
-      setIsRefreshing(false);
+      if (!options.silent) {
+        setIsRefreshing(false);
+      }
     }
   }, []);
 
@@ -185,6 +217,17 @@ export default function BrowserUsePanel({ isVisible, onShowSettings }: BrowserUs
     if (!isVisible) return;
     void refresh();
   }, [isVisible, refresh]);
+
+  // ethia fork: keep the preview fresh while a session is live so interactive
+  // typing/clicking is visible without hitting the manual refresh button.
+  const hasActiveSession = activeSessions.length > 0;
+  useEffect(() => {
+    if (!isVisible || !hasActiveSession) return;
+    const timer = setInterval(() => {
+      void refresh({ silent: true });
+    }, 2000);
+    return () => clearInterval(timer);
+  }, [isVisible, hasActiveSession, refresh]);
 
   const runAction = useCallback(async (action: () => Promise<void>) => {
     setIsBusy(true);
@@ -221,6 +264,79 @@ export default function BrowserUsePanel({ isVisible, onShowSettings }: BrowserUs
       setIsInstalling(false);
     }
   });
+
+  // ethia fork: interactive control of the selected live session. Inputs are
+  // serialized through a queue so keystrokes reach the page in order.
+  const isInteractive = selectedSession?.status === 'ready';
+
+  const sendInput = useCallback(async (payload: Record<string, unknown>) => {
+    const sessionId = selectedSession?.id;
+    if (!sessionId) return;
+    try {
+      const response = await authenticatedFetch(`/api/browser-use/sessions/${sessionId}/input`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+      const data = await readJson<{ data: { session: BrowserUseSession } }>(response);
+      const next = data.data.session;
+      setSessions((current) => current.map((item) => (item.id === next.id ? next : item)));
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Browser input failed');
+    }
+  }, [selectedSession?.id]);
+
+  const enqueueInput = useCallback((payload: Record<string, unknown>) => {
+    inputQueueRef.current = inputQueueRef.current.then(() => sendInput(payload)).catch(() => undefined);
+  }, [sendInput]);
+
+  const handleSurfaceClick = (event: ReactMouseEvent<HTMLImageElement>) => {
+    if (!isInteractive || !selectedSession?.viewport) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    (event.currentTarget.closest('div[tabindex]') as HTMLElement | null)?.focus();
+    const x = ((event.clientX - rect.left) / rect.width) * selectedSession.viewport.width;
+    const y = ((event.clientY - rect.top) / rect.height) * selectedSession.viewport.height;
+    enqueueInput({ action: 'click', x: Math.round(x), y: Math.round(y) });
+  };
+
+  const handleSurfaceKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (!isInteractive || event.metaKey || event.ctrlKey || event.altKey) return;
+    if (event.key.length === 1) {
+      event.preventDefault();
+      enqueueInput({ action: 'type', text: event.key, capture: false });
+    } else if (INTERACTIVE_KEYS.has(event.key)) {
+      event.preventDefault();
+      enqueueInput({ action: 'key', key: event.key, capture: event.key === 'Enter' });
+    }
+  };
+
+  const handleSurfacePaste = (event: ReactClipboardEvent<HTMLDivElement>) => {
+    if (!isInteractive) return;
+    const text = event.clipboardData.getData('text');
+    if (!text) return;
+    event.preventDefault();
+    enqueueInput({ action: 'type', text });
+  };
+
+  const handleSurfaceWheel = (event: ReactWheelEvent<HTMLDivElement>) => {
+    if (!isInteractive) return;
+    wheelDeltaRef.current += event.deltaY;
+    if (wheelTimerRef.current) return;
+    wheelTimerRef.current = setTimeout(() => {
+      const delta = Math.round(wheelDeltaRef.current);
+      wheelDeltaRef.current = 0;
+      wheelTimerRef.current = null;
+      if (delta) enqueueInput({ action: 'scroll', deltaY: delta });
+    }, 250);
+  };
+
+  const handleNavigateSubmit = (event: FormEvent) => {
+    event.preventDefault();
+    const target = urlDraft.trim();
+    if (!target || !isInteractive) return;
+    enqueueInput({ action: 'navigate', url: target });
+  };
 
   const renderSessionItem = (session: BrowserUseSession) => {
     const isSelected = selectedSession?.id === session.id;
@@ -313,13 +429,27 @@ export default function BrowserUsePanel({ isVisible, onShowSettings }: BrowserUs
   );
 
   const renderBrowserSurface = (fullscreen = false) => (
-    <div className={cn('flex flex-1 items-center justify-center bg-neutral-950', fullscreen ? 'min-h-[80vh]' : 'min-h-[420px]')}>
+    <div
+      className={cn(
+        'flex flex-1 items-center justify-center bg-neutral-950 focus:outline-none focus-visible:ring-1 focus-visible:ring-primary/40',
+        fullscreen ? 'min-h-[80vh]' : 'min-h-[420px]',
+      )}
+      tabIndex={isInteractive ? 0 : -1}
+      onKeyDown={handleSurfaceKeyDown}
+      onPaste={handleSurfacePaste}
+      onWheel={handleSurfaceWheel}
+    >
       {selectedSession?.screenshotDataUrl ? (
         <div className="relative inline-block max-h-full">
           <img
             src={selectedSession.screenshotDataUrl}
             alt="Browser session screenshot"
-            className={fullscreen ? 'block max-h-[80vh] w-auto max-w-full object-contain' : 'block max-h-[72vh] w-auto max-w-full object-contain'}
+            onClick={handleSurfaceClick}
+            draggable={false}
+            className={cn(
+              fullscreen ? 'block max-h-[80vh] w-auto max-w-full object-contain' : 'block max-h-[72vh] w-auto max-w-full object-contain',
+              isInteractive && 'cursor-crosshair',
+            )}
           />
           {cursorStyle && (
             <div
@@ -351,7 +481,7 @@ export default function BrowserUsePanel({ isVisible, onShowSettings }: BrowserUs
               {runtimeLabel}
             </Badge>
           </div>
-          <p className="mt-0.5 text-xs text-muted-foreground">Monitor browser sessions opened by AI agents.</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">Monitor and control browser sessions opened by AI agents — click the preview to interact.</p>
         </div>
         <div className="flex items-center gap-1.5">
           {onShowSettings && (
@@ -445,6 +575,16 @@ export default function BrowserUsePanel({ isVisible, onShowSettings }: BrowserUs
                   <div className="hidden text-xs text-muted-foreground md:block">
                     {formatAction(selectedSession?.lastAction || null)}
                   </div>
+                  {isInteractive && (
+                    <form onSubmit={handleNavigateSubmit} className="flex items-center">
+                      <input
+                        value={urlDraft}
+                        onChange={(event) => setUrlDraft(event.target.value)}
+                        placeholder="Open URL..."
+                        className="h-8 w-36 rounded-md border border-border bg-background px-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary md:w-56"
+                      />
+                    </form>
+                  )}
                   <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => setIsFullscreen(true)} disabled={!selectedSession?.screenshotDataUrl} title="Full screen" aria-label="Full screen">
                     <Expand className="h-4 w-4" />
                   </Button>

@@ -69,6 +69,19 @@ router.get('/sessions', async (_req, res) => {
   }
 });
 
+// ethia fork: interactive input from the admin Browser tab into a live session.
+router.post('/sessions/:sessionId/input', async (req, res) => {
+  try {
+    const session = await browserUseService.adminInput(readParam(req.params.sessionId), req.body || {});
+    res.json({ success: true, data: { session } });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to send input to browser session.',
+    });
+  }
+});
+
 router.post('/sessions/:sessionId/stop', async (req, res) => {
   try {
     const result = await browserUseService.stopSession(readParam(req.params.sessionId));

@@ -789,6 +789,82 @@ export const browserUseService = {
     };
   },
 
+  // ethia fork: admin-driven input into a live session (interactive Browser tab).
+  // Mounted behind authenticateToken + requireAdmin; agents keep using the MCP
+  // tools above. No enabled-check on purpose — mirrors stopSession/deleteSession.
+  async adminInput(sessionId: string, input: {
+    action?: 'click' | 'type' | 'key' | 'scroll' | 'navigate' | 'refresh';
+    x?: number;
+    y?: number;
+    button?: 'left' | 'right' | 'middle';
+    text?: string;
+    key?: string;
+    deltaY?: number;
+    url?: string;
+    capture?: boolean;
+  }) {
+    const session = sessions.get(sessionId);
+    if (!session || session.ownerId !== AGENT_OWNER_ID) {
+      throw new Error('Browser session not found.');
+    }
+    if (session.status !== 'ready') {
+      throw new Error(session.message || 'Browser session is not available.');
+    }
+    const handle = handles.get(sessionId);
+    if (!handle?.page) {
+      throw new Error('Browser runtime handle is not available.');
+    }
+
+    const page = handle.page;
+    const action = input.action || 'refresh';
+    switch (action) {
+      case 'click': {
+        if (typeof input.x !== 'number' || typeof input.y !== 'number') {
+          throw new Error('Click requires x/y coordinates.');
+        }
+        await page.mouse.click(input.x, input.y, { button: input.button || 'left' });
+        session.cursor = { x: Math.round(input.x), y: Math.round(input.y), actor: 'agent' };
+        break;
+      }
+      case 'type': {
+        if (!input.text) {
+          throw new Error('Type requires text.');
+        }
+        await page.keyboard.type(String(input.text).slice(0, 2000));
+        break;
+      }
+      case 'key': {
+        if (!input.key) {
+          throw new Error('Key press requires a key.');
+        }
+        await page.keyboard.press(String(input.key).slice(0, 40));
+        break;
+      }
+      case 'scroll': {
+        const deltaY = Math.max(-5000, Math.min(5000, Number(input.deltaY) || 0));
+        await page.mouse.wheel(0, deltaY);
+        break;
+      }
+      case 'navigate': {
+        await page.goto(normalizeUrl(input.url || ''), { waitUntil: 'domcontentloaded', timeout: 30_000 });
+        session.cursor = null;
+        break;
+      }
+      case 'refresh':
+        break;
+      default:
+        throw new Error('Unsupported input action.');
+    }
+
+    session.lastAction = `user:${action}`;
+    if (input.capture === false) {
+      session.updatedAt = new Date().toISOString();
+    } else {
+      await captureSession(session, page);
+    }
+    return publicSession(session);
+  },
+
   async stopSession(sessionId: string) {
     const session = sessions.get(sessionId);
     if (!session || session.ownerId !== AGENT_OWNER_ID) {
