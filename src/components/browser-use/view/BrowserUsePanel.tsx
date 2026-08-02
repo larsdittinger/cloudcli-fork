@@ -218,16 +218,7 @@ export default function BrowserUsePanel({ isVisible, onShowSettings }: BrowserUs
     void refresh();
   }, [isVisible, refresh]);
 
-  // ethia fork: keep the preview fresh while a session is live so interactive
-  // typing/clicking is visible without hitting the manual refresh button.
   const hasActiveSession = activeSessions.length > 0;
-  useEffect(() => {
-    if (!isVisible || !hasActiveSession) return;
-    const timer = setInterval(() => {
-      void refresh({ silent: true });
-    }, 2000);
-    return () => clearInterval(timer);
-  }, [isVisible, hasActiveSession, refresh]);
 
   const runAction = useCallback(async (action: () => Promise<void>) => {
     setIsBusy(true);
@@ -337,6 +328,22 @@ export default function BrowserUsePanel({ isVisible, onShowSettings }: BrowserUs
     if (!target || !isInteractive) return;
     enqueueInput({ action: 'navigate', url: target });
   };
+
+  // ethia fork: keep the preview fresh while a session is live. A ready
+  // session gets a real re-capture (screenshots are otherwise only taken on
+  // actions, so a page that finishes loading would stay stale); other states
+  // just re-fetch the session list.
+  useEffect(() => {
+    if (!isVisible || !hasActiveSession) return;
+    const timer = setInterval(() => {
+      if (isInteractive) {
+        enqueueInput({ action: 'refresh' });
+      } else {
+        void refresh({ silent: true });
+      }
+    }, 2000);
+    return () => clearInterval(timer);
+  }, [isVisible, hasActiveSession, isInteractive, enqueueInput, refresh]);
 
   const renderSessionItem = (session: BrowserUseSession) => {
     const isSelected = selectedSession?.id === session.id;
