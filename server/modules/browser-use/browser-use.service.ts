@@ -570,7 +570,19 @@ async function applyEmulation(session: BrowserUseSession, input: EmulationInput)
 
     const previousUrl = handle.page.url?.() || session.url;
     await closeHandle(session.id);
-    const nextHandle = await launchEmulatedContext(readiness.playwright, next, session.profileName);
+
+    let nextHandle: RuntimeHandle;
+    try {
+      nextHandle = await launchEmulatedContext(readiness.playwright, next, session.profileName);
+    } catch (error: any) {
+      // The old context is already gone, so the session cannot recover here.
+      session.status = 'stopped';
+      session.updatedAt = new Date().toISOString();
+      session.lastAction = 'emulate';
+      session.message = `Failed to reopen the browser for ${next.label}: ${error?.message || error}`;
+      throw new Error(session.message);
+    }
+
     handles.set(session.id, nextHandle);
     session.message = 'Browser session is ready.';
 
