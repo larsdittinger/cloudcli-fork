@@ -17,6 +17,7 @@ import {
   RefreshCw,
   Settings,
   Square,
+  Terminal,
   Trash2,
   X,
 } from 'lucide-react';
@@ -52,11 +53,65 @@ type BrowserUseSession = {
     width: number;
     height: number;
   } | null;
+  // ethia fork: device emulation currently applied to the session.
+  emulation?: BrowserEmulation | null;
   cursor: {
     x: number;
     y: number;
     actor: 'agent';
   } | null;
+};
+
+// ethia fork: mobile emulation + DevTools for agent browser sessions.
+type BrowserEmulation = {
+  preset: string | null;
+  label: string;
+  width: number;
+  height: number;
+  deviceScaleFactor: number;
+  isMobile: boolean;
+  hasTouch: boolean;
+  landscape: boolean;
+  userAgent: string | null;
+};
+
+type DevicePreset = {
+  id: string;
+  label: string;
+  category: 'phone' | 'tablet' | 'desktop';
+  width: number;
+  height: number;
+};
+
+type ConsoleEntry = {
+  id: number;
+  type: string;
+  text: string;
+  location: string | null;
+  timestamp: string;
+};
+
+type NetworkEntry = {
+  id: number;
+  method: string;
+  url: string;
+  resourceType: string;
+  status: number | null;
+  ok: boolean | null;
+  failure: string | null;
+  durationMs: number | null;
+};
+
+type DevtoolsPayload = {
+  counts: {
+    console: number;
+    errors: number;
+    warnings: number;
+    requests: number;
+    failedRequests: number;
+  };
+  console?: ConsoleEntry[];
+  network?: NetworkEntry[];
 };
 
 type BrowserUsePanelProps = {
@@ -128,7 +183,8 @@ function getStatusDot(status: BrowserUseSession['status']): string {
 
 const PROMPTS = [
   'Use Browser to inspect the checkout flow and report any broken UI states.',
-  'Open <url> with Browser, interact with the page, and summarize what changed after each step.',
+  // ethia fork: advertise the mobile + devtools tools agents now have.
+  'Open <url> with Browser on device iphone-15, screenshot it, and report layout problems, console errors and failed requests.',
 ];
 
 // ethia fork: keys forwarded into the live session from the interactive preview.
@@ -158,6 +214,11 @@ export default function BrowserUsePanel({ isVisible, onShowSettings }: BrowserUs
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [urlDraft, setUrlDraft] = useState('');
+  // ethia fork: device emulation + DevTools drawer.
+  const [devices, setDevices] = useState<DevicePreset[]>([]);
+  const [devtools, setDevtools] = useState<DevtoolsPayload | null>(null);
+  const [isDevtoolsOpen, setIsDevtoolsOpen] = useState(false);
+  const [devtoolsTab, setDevtoolsTab] = useState<'console' | 'network'>('console');
   const inputQueueRef = useRef<Promise<void>>(Promise.resolve());
   const wheelDeltaRef = useRef(0);
   const wheelTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -218,6 +279,20 @@ export default function BrowserUsePanel({ isVisible, onShowSettings }: BrowserUs
     void refresh();
   }, [isVisible, refresh]);
 
+  // ethia fork: the device catalog is static, so fetch it once per mount.
+  useEffect(() => {
+    if (!isVisible || devices.length > 0) return;
+    void (async () => {
+      try {
+        const response = await authenticatedFetch('/api/browser-use/devices');
+        const data = await readJson<{ data: { devices: DevicePreset[] } }>(response);
+        setDevices(data.data.devices);
+      } catch {
+        // A missing catalog only hides the picker; sessions still work.
+      }
+    })();
+  }, [isVisible, devices.length]);
+
   const hasActiveSession = activeSessions.length > 0;
 
   const runAction = useCallback(async (action: () => Promise<void>) => {
@@ -254,6 +329,16 @@ export default function BrowserUsePanel({ isVisible, onShowSettings }: BrowserUs
     } finally {
       setIsInstalling(false);
     }
+  });
+
+  // ethia fork: switch the live session between desktop and phone viewports.
+  const applyDevice = (deviceId: string) => runAction(async () => {
+    if (!selectedSession) return;
+    const response = await authenticatedFetch(`/api/browser-use/sessions/${selectedSession.id}/emulate`, {
+      method: 'POST',
+      body: JSON.stringify({ device: deviceId }),
+    });
+    await readJson(response);
   });
 
   // ethia fork: interactive control of the selected live session. Inputs are
@@ -344,6 +429,28 @@ export default function BrowserUsePanel({ isVisible, onShowSettings }: BrowserUs
     }, 2000);
     return () => clearInterval(timer);
   }, [isVisible, hasActiveSession, isInteractive, enqueueInput, refresh]);
+
+  // ethia fork: console/network for the selected session, polled only while the
+  // DevTools drawer is open.
+  const loadDevtools = useCallback(async (sessionId: string) => {
+    try {
+      const response = await authenticatedFetch(`/api/browser-use/sessions/${sessionId}/devtools?limit=200`);
+      const data = await readJson<{ data: DevtoolsPayload }>(response);
+      setDevtools(data.data);
+    } catch (err) {
+      setDevtools(null);
+      setError(err instanceof Error ? err.message : 'Failed to read devtools');
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isVisible || !isDevtoolsOpen || !selectedSession?.id) {
+      return;
+    }
+    void loadDevtools(selectedSession.id);
+    const timer = setInterval(() => void loadDevtools(selectedSession.id), 3000);
+    return () => clearInterval(timer);
+  }, [isVisible, isDevtoolsOpen, selectedSession?.id, loadDevtools]);
 
   const renderSessionItem = (session: BrowserUseSession) => {
     const isSelected = selectedSession?.id === session.id;
@@ -439,7 +546,7 @@ export default function BrowserUsePanel({ isVisible, onShowSettings }: BrowserUs
     <div
       className={cn(
         'flex flex-1 items-center justify-center bg-neutral-950 focus:outline-none focus-visible:ring-1 focus-visible:ring-primary/40',
-        fullscreen ? 'min-h-[80vh]' : 'min-h-[420px]',
+        fullscreen ? 'min-h-[80vh]' : isDevtoolsOpen ? 'min-h-[200px]' : 'min-h-[420px]',
       )}
       tabIndex={isInteractive ? 0 : -1}
       onKeyDown={handleSurfaceKeyDown}
@@ -454,7 +561,8 @@ export default function BrowserUsePanel({ isVisible, onShowSettings }: BrowserUs
             onClick={handleSurfaceClick}
             draggable={false}
             className={cn(
-              fullscreen ? 'block max-h-[80vh] w-auto max-w-full object-contain' : 'block max-h-[72vh] w-auto max-w-full object-contain',
+              'block w-auto max-w-full object-contain',
+              fullscreen ? 'max-h-[80vh]' : isDevtoolsOpen ? 'max-h-[36vh]' : 'max-h-[72vh]',
               isInteractive && 'cursor-crosshair',
             )}
           />
@@ -476,6 +584,149 @@ export default function BrowserUsePanel({ isVisible, onShowSettings }: BrowserUs
       )}
     </div>
   );
+
+  // ethia fork: device picker for the selected session.
+  const renderDevicePicker = () => {
+    if (devices.length === 0) return null;
+    const emulation = selectedSession?.emulation || null;
+    const groups: Array<{ label: string; category: DevicePreset['category'] }> = [
+      { label: 'Phone', category: 'phone' },
+      { label: 'Tablet', category: 'tablet' },
+      { label: 'Desktop', category: 'desktop' },
+    ];
+
+    return (
+      <select
+        value={emulation?.preset || ''}
+        onChange={(event) => event.target.value && applyDevice(event.target.value)}
+        disabled={isBusy || !isInteractive}
+        title="Emulate a device viewport"
+        aria-label="Emulate a device viewport"
+        className="h-8 rounded-md border border-border bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-50"
+      >
+        {!emulation?.preset && (
+          <option value="">
+            {emulation ? emulation.label : 'Device'}
+          </option>
+        )}
+        {groups.map((group) => (
+          <optgroup key={group.category} label={group.label}>
+            {devices
+              .filter((device) => device.category === group.category)
+              .map((device) => (
+                <option key={device.id} value={device.id}>
+                  {device.label} — {device.width}x{device.height}
+                </option>
+              ))}
+          </optgroup>
+        ))}
+      </select>
+    );
+  };
+
+  // ethia fork: console/network drawer mirroring what the agent can read.
+  const renderDevtools = () => {
+    const counts = devtools?.counts;
+    const consoleEntries = devtools?.console || [];
+    const networkEntries = devtools?.network || [];
+
+    return (
+      <div className="flex max-h-72 min-h-[180px] flex-col border-t border-border/60 bg-background">
+        <div className="flex items-center gap-2 border-b border-border/60 px-3 py-1.5">
+          {(['console', 'network'] as const).map((tab) => (
+            <button
+              key={tab}
+              type="button"
+              onClick={() => setDevtoolsTab(tab)}
+              className={cn(
+                'rounded-md px-2 py-1 text-xs font-medium capitalize transition-colors',
+                devtoolsTab === tab ? 'bg-primary/10 text-foreground' : 'text-muted-foreground hover:bg-muted/60',
+              )}
+            >
+              {tab}
+              {tab === 'console' && counts?.errors ? (
+                <span className="ml-1.5 text-destructive">{counts.errors}</span>
+              ) : null}
+              {tab === 'network' && counts?.failedRequests ? (
+                <span className="ml-1.5 text-destructive">{counts.failedRequests}</span>
+              ) : null}
+            </button>
+          ))}
+          <div className="ml-auto flex items-center gap-2 text-[11px] text-muted-foreground">
+            {counts && (
+              <span>
+                {counts.console} messages
+                <span className="px-1">/</span>
+                {counts.requests} requests
+              </span>
+            )}
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 w-6 p-0"
+              onClick={() => setIsDevtoolsOpen(false)}
+              title="Close devtools"
+              aria-label="Close devtools"
+            >
+              <X className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-auto font-mono text-[11px] leading-5">
+          {devtoolsTab === 'console' ? (
+            consoleEntries.length === 0 ? (
+              <div className="p-3 font-sans text-xs text-muted-foreground">No console output captured yet.</div>
+            ) : (
+              consoleEntries.map((entry) => (
+                <div
+                  key={entry.id}
+                  className={cn(
+                    'flex gap-2 border-b border-border/40 px-3 py-1',
+                    (entry.type === 'error' || entry.type === 'pageerror') && 'bg-destructive/5 text-destructive',
+                    entry.type === 'warning' && 'bg-amber-500/5 text-amber-600 dark:text-amber-400',
+                  )}
+                >
+                  <span className="shrink-0 uppercase opacity-70">{entry.type}</span>
+                  <span className="min-w-0 flex-1 whitespace-pre-wrap break-words">{entry.text}</span>
+                  {entry.location && (
+                    <span className="hidden shrink-0 truncate text-muted-foreground md:block md:max-w-[220px]">
+                      {entry.location}
+                    </span>
+                  )}
+                </div>
+              ))
+            )
+          ) : networkEntries.length === 0 ? (
+            <div className="p-3 font-sans text-xs text-muted-foreground">No requests captured yet.</div>
+          ) : (
+            networkEntries.map((entry) => {
+              const failed = entry.failure !== null || (entry.status !== null && entry.status >= 400);
+              return (
+                <div
+                  key={entry.id}
+                  className={cn(
+                    'flex items-center gap-2 border-b border-border/40 px-3 py-1',
+                    failed && 'bg-destructive/5 text-destructive',
+                  )}
+                >
+                  <span className="w-12 shrink-0 opacity-70">{entry.method}</span>
+                  <span className="w-10 shrink-0">{entry.status ?? (entry.failure ? 'ERR' : '...')}</span>
+                  <span className="min-w-0 flex-1 truncate" title={entry.url}>{entry.url}</span>
+                  <span className="hidden w-20 shrink-0 text-right text-muted-foreground sm:block">
+                    {entry.resourceType}
+                  </span>
+                  <span className="w-14 shrink-0 text-right text-muted-foreground">
+                    {typeof entry.durationMs === 'number' ? `${entry.durationMs}ms` : ''}
+                  </span>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
@@ -565,7 +816,12 @@ export default function BrowserUsePanel({ isVisible, onShowSettings }: BrowserUs
             renderEmptyState()
           ) : (
             <div className="min-h-0 flex-1 overflow-auto bg-muted/20 p-4">
-              <div className="mx-auto flex min-h-[500px] max-w-7xl flex-col overflow-hidden rounded-md border border-border bg-background shadow-sm">
+              <div
+                className={cn(
+                  'mx-auto flex max-w-7xl flex-col overflow-hidden rounded-md border border-border bg-background shadow-sm',
+                  isDevtoolsOpen ? 'min-h-[420px]' : 'min-h-[500px]',
+                )}
+              >
                 <div className="flex flex-wrap items-center gap-2 border-b border-border/60 px-3 py-2">
                   <Badge variant="outline" className={selectedSession ? cn('text-[10px]', getStatusTone(selectedSession.status)) : 'text-[10px]'}>
                     {selectedSession?.status || 'empty'}
@@ -592,6 +848,24 @@ export default function BrowserUsePanel({ isVisible, onShowSettings }: BrowserUs
                       />
                     </form>
                   )}
+                  {renderDevicePicker()}
+                  {selectedSession?.viewport && (
+                    <Badge variant="outline" className="hidden text-[10px] text-muted-foreground sm:inline-flex">
+                      {selectedSession.viewport.width}x{selectedSession.viewport.height}
+                      {selectedSession.emulation?.hasTouch ? ' touch' : ''}
+                    </Badge>
+                  )}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className={cn('h-8 w-8 p-0', isDevtoolsOpen && 'bg-primary/10 text-foreground')}
+                    onClick={() => setIsDevtoolsOpen((current) => !current)}
+                    disabled={!selectedSession || selectedSession.status !== 'ready'}
+                    title="Console and network"
+                    aria-label="Console and network"
+                  >
+                    <Terminal className="h-4 w-4" />
+                  </Button>
                   <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => setIsFullscreen(true)} disabled={!selectedSession?.screenshotDataUrl} title="Full screen" aria-label="Full screen">
                     <Expand className="h-4 w-4" />
                   </Button>
@@ -603,6 +877,7 @@ export default function BrowserUsePanel({ isVisible, onShowSettings }: BrowserUs
                   </Button>
                 </div>
                 {renderBrowserSurface()}
+                {isDevtoolsOpen && renderDevtools()}
               </div>
             </div>
           )}
@@ -647,6 +922,12 @@ export default function BrowserUsePanel({ isVisible, onShowSettings }: BrowserUs
                 <div className="flex items-center justify-between gap-3">
                   <span>Profile</span>
                   <span className="truncate font-medium text-foreground">{selectedSession?.profileName || 'Temporary'}</span>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <span>Device</span>
+                  <span className="truncate font-medium text-foreground">
+                    {selectedSession?.emulation?.label || 'Desktop'}
+                  </span>
                 </div>
               </div>
               <div className="mt-3 grid grid-cols-2 gap-2">

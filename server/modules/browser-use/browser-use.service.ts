@@ -7,6 +7,19 @@ import path from 'node:path';
 // cross-spawn: drop-in spawn with Windows .cmd/PATHEXT resolution.
 import spawn from 'cross-spawn';
 
+import {
+  attachPageRecorder,
+  DevtoolsRecorder,
+} from '@/modules/browser-use/browser-devtools.js';
+import {
+  defaultEmulation,
+  isViewportOnlyChange,
+  listPresets,
+  resolveEmulation,
+  toContextOptions,
+  type BrowserEmulation,
+  type EmulationInput,
+} from '@/modules/browser-use/browser-emulation.js';
 import { appConfigDb } from '@/modules/database/index.js';
 import { providerMcpService } from '@/modules/providers/index.js';
 import { getModuleDirectory } from '@/shared/utils.js';
@@ -40,6 +53,8 @@ type BrowserUseSession = {
     width: number;
     height: number;
   } | null;
+  // ethia fork: device emulation currently applied to the session context.
+  emulation: BrowserEmulation;
   cursor: {
     x: number;
     y: number;
@@ -53,6 +68,9 @@ type RuntimeHandle = {
   browser?: any;
   context?: any;
   page?: any;
+  // ethia fork: DevTools ring buffer fed by page listeners.
+  recorder?: DevtoolsRecorder;
+  detachContext?: () => void;
 };
 
 type BrowserUseSettings = {
@@ -360,6 +378,7 @@ function ownerSessions(ownerId: string): BrowserUseSession[] {
 async function closeHandle(sessionId: string): Promise<void> {
   const handle = handles.get(sessionId);
   handles.delete(sessionId);
+  handle?.detachContext?.();
   await handle?.context?.close?.().catch(() => undefined);
   await handle?.browser?.close().catch(() => undefined);
 }
@@ -416,6 +435,177 @@ async function getActionPoint(page: any, input: { selector?: string; text?: stri
     x: Math.round(box.x + box.width / 2),
     y: Math.round(box.y + box.height / 2),
   };
+}
+
+// ethia fork: record console/network for every page in the context, including
+// tabs the page itself opens, so DevTools output survives tab switches.
+function attachContextRecorder(context: any, recorder: DevtoolsRecorder): () => void {
+  const detachers: Array<() => void> = [];
+  const attach = (page: any) => {
+    try {
+      detachers.push(attachPageRecorder(page, recorder));
+    } catch (error: any) {
+      console.warn('[Browser] Failed to attach DevTools recorder:', error?.message || error);
+    }
+  };
+
+  for (const page of context.pages?.() || []) {
+    attach(page);
+  }
+  context.on?.('page', attach);
+
+  return () => {
+    context.off?.('page', attach);
+    for (const detach of detachers) {
+      detach();
+    }
+  };
+}
+
+// ethia fork: single place that turns an emulation descriptor into a live
+// Playwright context, used by session creation and by device switching.
+async function launchEmulatedContext(
+  playwright: any,
+  emulation: BrowserEmulation,
+  profileName: string | null,
+): Promise<RuntimeHandle> {
+  const launchOptions = {
+    headless: true,
+    args: ['--disable-dev-shm-usage'],
+  };
+  const contextOptions = {
+    ...toContextOptions(emulation),
+    serviceWorkers: 'block',
+  };
+
+  let browser: any | undefined;
+  let context: any;
+  let page: any;
+
+  if (profileName) {
+    fs.mkdirSync(PROFILE_ROOT, { recursive: true });
+    context = await playwright.chromium.launchPersistentContext(getProfilePath(profileName), {
+      ...launchOptions,
+      ...contextOptions,
+    });
+    page = context.pages()[0] || await context.newPage();
+  } else {
+    browser = await playwright.chromium.launch(launchOptions);
+    context = await browser.newContext(contextOptions);
+    page = await context.newPage();
+  }
+
+  const recorder = new DevtoolsRecorder();
+  const detachContext = attachContextRecorder(context, recorder);
+  return { browser, context, page, recorder, detachContext };
+}
+
+function getRecorder(sessionId: string): DevtoolsRecorder {
+  const recorder = handles.get(sessionId)?.recorder;
+  if (!recorder) {
+    throw new Error('DevTools capture is not available for this session.');
+  }
+  return recorder;
+}
+
+type DevtoolsQuery = {
+  include?: 'console' | 'network' | 'all';
+  level?: string;
+  search?: string;
+  urlContains?: string;
+  resourceType?: string;
+  onlyFailed?: boolean;
+  limit?: number;
+  clear?: boolean;
+};
+
+function readDevtools(sessionId: string, input: DevtoolsQuery = {}) {
+  const recorder = getRecorder(sessionId);
+  const include = input.include || 'all';
+  const result: Record<string, unknown> = { counts: recorder.counts() };
+
+  if (include === 'all' || include === 'console') {
+    result.console = recorder.getConsole({
+      level: input.level,
+      search: input.search,
+      limit: input.limit,
+    });
+  }
+  if (include === 'all' || include === 'network') {
+    result.network = recorder.getNetwork({
+      urlContains: input.urlContains,
+      resourceType: input.resourceType,
+      onlyFailed: input.onlyFailed,
+      limit: input.limit,
+    });
+  }
+  if (input.clear) {
+    recorder.clear();
+  }
+  return result;
+}
+
+async function applyEmulation(session: BrowserUseSession, input: EmulationInput): Promise<PublicBrowserUseSession> {
+  if (session.status !== 'ready') {
+    throw new Error(session.message || 'Browser session is not available.');
+  }
+
+  const handle = handles.get(session.id);
+  if (!handle?.page) {
+    throw new Error('Browser runtime handle is not available.');
+  }
+
+  const current = session.emulation || defaultEmulation();
+  const next = resolveEmulation(input, current);
+  const contextChanged = current.deviceScaleFactor !== next.deviceScaleFactor
+    || current.isMobile !== next.isMobile
+    || current.hasTouch !== next.hasTouch
+    || current.userAgent !== next.userAgent;
+
+  if (contextChanged) {
+    const readiness = getRuntimeReadiness();
+    if (!readiness.playwright) {
+      throw new Error('Browser runtime is not available.');
+    }
+
+    const previousUrl = handle.page.url?.() || session.url;
+    await closeHandle(session.id);
+    const nextHandle = await launchEmulatedContext(readiness.playwright, next, session.profileName);
+    handles.set(session.id, nextHandle);
+    session.message = 'Browser session is ready.';
+
+    if (previousUrl && /^https?:/i.test(previousUrl)) {
+      await nextHandle.page
+        .goto(previousUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 })
+        .catch((error: any) => {
+          session.message = `Device applied, but reloading ${previousUrl} failed: ${error?.message || error}`;
+        });
+    }
+  } else if (isViewportOnlyChange(current, next)) {
+    await handle.page.setViewportSize({ width: next.width, height: next.height });
+  }
+
+  session.emulation = next;
+  session.viewport = { width: next.width, height: next.height };
+  session.cursor = null;
+  session.lastAction = `emulate:${next.preset || `${next.width}x${next.height}`}`;
+  await captureSession(session, handles.get(session.id)?.page || handle.page);
+  return publicSession(session);
+}
+
+function serializeEvaluationResult(value: unknown): unknown {
+  if (value === undefined) {
+    return null;
+  }
+  try {
+    const json = JSON.stringify(value);
+    if (json === undefined) {
+      return String(value);
+    }
+    return json.length > 200_000 ? `${json.slice(0, 200_000)}…` : JSON.parse(json);
+  } catch {
+    return String(value);
+  }
 }
 
 export const browserUseService = {
@@ -501,7 +691,7 @@ export const browserUseService = {
       .map(publicSession);
   },
 
-  async createAgentSession(options?: { profileName?: string | null }) {
+  async createAgentSession(options?: { profileName?: string | null } & EmulationInput) {
     const settings = readSettings();
     if (!settings.enabled) {
       throw new Error('Browser agent tools are disabled.');
@@ -509,6 +699,8 @@ export const browserUseService = {
 
     await expireStaleSessions();
     const profileName = normalizeProfileName(options?.profileName);
+    // ethia fork: sessions can start straight in a phone viewport.
+    const emulation = resolveEmulation(options || {});
 
     const now = new Date().toISOString();
     const session: BrowserUseSession = {
@@ -525,7 +717,8 @@ export const browserUseService = {
       lastAction: 'create',
       message: null,
       profileName,
-      viewport: { width: 1440, height: 900 },
+      viewport: { width: emulation.width, height: emulation.height },
+      emulation,
       cursor: null,
     };
 
@@ -541,35 +734,12 @@ export const browserUseService = {
       return publicSession(session);
     }
 
-    let browser: any | undefined;
-    let context: any | undefined;
-    let page: any;
-    const launchOptions = {
-      headless: true,
-      args: ['--disable-dev-shm-usage'],
-    };
-    const contextOptions = {
-      viewport: { width: 1440, height: 900 },
-      serviceWorkers: 'block',
-    };
-
-    if (profileName) {
-      fs.mkdirSync(PROFILE_ROOT, { recursive: true });
-      context = await readiness.playwright.chromium.launchPersistentContext(getProfilePath(profileName), {
-        ...launchOptions,
-        ...contextOptions,
-      });
-      page = context.pages()[0] || await context.newPage();
-    } else {
-      browser = await readiness.playwright.chromium.launch(launchOptions);
-      context = await browser.newContext(contextOptions);
-      page = await context.newPage();
-    }
+    const handle = await launchEmulatedContext(readiness.playwright, emulation, profileName);
     session.status = 'ready';
     session.message = 'Browser session is ready.';
     sessions.set(session.id, session);
-    handles.set(session.id, { browser, context, page });
-    await captureSession(session, page);
+    handles.set(session.id, handle);
+    await captureSession(session, handle.page);
     return publicSession(session);
   },
 
@@ -643,18 +813,30 @@ export const browserUseService = {
       throw new Error('Browser runtime handle is not available.');
     }
     const point = await getActionPoint(handle.page, input);
+    // ethia fork: emulated phones need real touch events — plenty of mobile UIs
+    // only bind touchstart/tap handlers.
+    const useTouch = session.emulation?.hasTouch === true;
 
-    if (input.selector) {
-      await handle.page.locator(input.selector).first().click({ timeout: 10_000 });
-    } else if (input.text) {
-      await handle.page.getByText(input.text, { exact: false }).first().click({ timeout: 10_000 });
+    if (input.selector || input.text) {
+      const locator = input.selector
+        ? handle.page.locator(input.selector).first()
+        : handle.page.getByText(input.text as string, { exact: false }).first();
+      if (useTouch) {
+        await locator.tap({ timeout: 10_000 });
+      } else {
+        await locator.click({ timeout: 10_000 });
+      }
     } else if (typeof input.x === 'number' && typeof input.y === 'number') {
-      await handle.page.mouse.click(input.x, input.y);
+      if (useTouch) {
+        await handle.page.touchscreen.tap(input.x, input.y);
+      } else {
+        await handle.page.mouse.click(input.x, input.y);
+      }
     } else {
       throw new Error('Provide selector, text, or x/y coordinates.');
     }
 
-    session.lastAction = 'click';
+    session.lastAction = useTouch ? 'tap' : 'click';
     session.cursor = point ? { ...point, actor: 'agent' } : null;
     await captureSession(session, handle.page);
     return publicSession(session);
@@ -789,6 +971,94 @@ export const browserUseService = {
     };
   },
 
+  // ethia fork: mobile emulation + DevTools for agent sessions.
+  listDevices() {
+    return { devices: listPresets() };
+  },
+
+  /**
+   * Switch the session to another device/viewport. A pure size change is applied
+   * in place; anything that lives on the browser context (touch, scale factor,
+   * user agent) needs a fresh context, so the current page is reopened there.
+   */
+  async agentEmulate(sessionId: string, input: EmulationInput) {
+    const session = await this.getAgentSession(sessionId);
+    return applyEmulation(session, input);
+  },
+
+  /** Same switch, driven from the admin Browser tab. */
+  async adminEmulate(sessionId: string, input: EmulationInput) {
+    const session = sessions.get(sessionId);
+    if (!session || session.ownerId !== AGENT_OWNER_ID) {
+      throw new Error('Browser session not found.');
+    }
+    return applyEmulation(session, input);
+  },
+
+  /** Console/network buffers for the admin Browser tab. */
+  async adminDevtools(sessionId: string, input: DevtoolsQuery = {}) {
+    const session = sessions.get(sessionId);
+    if (!session || session.ownerId !== AGENT_OWNER_ID) {
+      throw new Error('Browser session not found.');
+    }
+    return readDevtools(sessionId, input);
+  },
+
+  async agentDevtools(sessionId: string, input: DevtoolsQuery = {}) {
+    await this.getAgentSession(sessionId);
+    return readDevtools(sessionId, input);
+  },
+
+  async agentEvaluate(sessionId: string, script: string) {
+    const session = await this.getAgentSession(sessionId);
+    const handle = handles.get(sessionId);
+    if (!handle?.page) {
+      throw new Error('Browser runtime handle is not available.');
+    }
+    const source = String(script || '').trim();
+    if (!source) {
+      throw new Error('script is required.');
+    }
+
+    // Accept both an expression (`document.title`) and a statement body
+    // (`const el = ...; return el.offsetWidth;`). Which one it is, is decided by
+    // compiling here — the page only ever sees a function that parses.
+    const compile = (body: string) => new Function(body) as any;
+    let compiled: any;
+    try {
+      compiled = compile(`return (async () => (${source}))();`);
+    } catch {
+      try {
+        compiled = compile(`return (async () => { ${source} })();`);
+      } catch (error: any) {
+        throw new Error(`Invalid script: ${error?.message || error}`);
+      }
+    }
+
+    const value = await handle.page.evaluate(compiled);
+    session.lastAction = 'evaluate';
+    session.updatedAt = new Date().toISOString();
+    return { result: serializeEvaluationResult(value) };
+  },
+
+  async agentGetHtml(sessionId: string, input: { selector?: string; maxLength?: number } = {}) {
+    await this.getAgentSession(sessionId);
+    const handle = handles.get(sessionId);
+    if (!handle?.page) {
+      throw new Error('Browser runtime handle is not available.');
+    }
+    const maxLength = Math.max(1_000, Math.min(Number(input.maxLength) || 50_000, 200_000));
+    const html = input.selector
+      ? await handle.page.locator(input.selector).first().evaluate((node: any) => node.outerHTML, undefined, { timeout: 10_000 })
+      : await handle.page.content();
+    const text = String(html || '');
+    return {
+      selector: input.selector || null,
+      truncated: text.length > maxLength,
+      html: text.slice(0, maxLength),
+    };
+  },
+
   // ethia fork: admin-driven input into a live session (interactive Browser tab).
   // Mounted behind authenticateToken + requireAdmin; agents keep using the MCP
   // tools above. No enabled-check on purpose — mirrors stopSession/deleteSession.
@@ -822,7 +1092,11 @@ export const browserUseService = {
         if (typeof input.x !== 'number' || typeof input.y !== 'number') {
           throw new Error('Click requires x/y coordinates.');
         }
-        await page.mouse.click(input.x, input.y, { button: input.button || 'left' });
+        if (session.emulation?.hasTouch && (input.button || 'left') === 'left') {
+          await page.touchscreen.tap(input.x, input.y);
+        } else {
+          await page.mouse.click(input.x, input.y, { button: input.button || 'left' });
+        }
         session.cursor = { x: Math.round(input.x), y: Math.round(input.y), actor: 'agent' };
         break;
       }

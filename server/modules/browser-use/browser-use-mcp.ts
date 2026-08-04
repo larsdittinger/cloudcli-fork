@@ -35,6 +35,21 @@ const readOptionalString = (value: unknown): string | undefined =>
 const readNumber = (value: unknown): number | undefined =>
   typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 
+const readOptionalBoolean = (value: unknown): boolean | undefined =>
+  typeof value === 'boolean' ? value : undefined;
+
+// ethia fork: device emulation arguments shared by create_session and emulate_device.
+const readEmulationArgs = (args: Record<string, unknown>) => ({
+  device: readOptionalString(args.device),
+  width: readNumber(args.width),
+  height: readNumber(args.height),
+  deviceScaleFactor: readNumber(args.deviceScaleFactor),
+  isMobile: readOptionalBoolean(args.isMobile),
+  hasTouch: readOptionalBoolean(args.hasTouch),
+  landscape: readOptionalBoolean(args.landscape),
+  userAgent: readOptionalString(args.userAgent),
+});
+
 const apiUrl = (process.env.CLOUDCLI_BROWSER_USE_API_URL || 'http://127.0.0.1:3001/api/browser-use-mcp').replace(/\/$/, '');
 const apiToken = process.env.CLOUDCLI_BROWSER_USE_MCP_TOKEN || '';
 const API_TIMEOUT_MS = Number.parseInt(process.env.CLOUDCLI_BROWSER_USE_API_TIMEOUT_MS || '60000', 10);
@@ -71,12 +86,100 @@ const sessionIdSchema = {
 const tools: ToolDefinition[] = [
   {
     name: 'browser_create_session',
-    description: 'Create a temporary Browser session that the agent can control. Optionally provide a background profileName to reuse cookies and storage.',
+    description: 'Create a temporary Browser session that the agent can control. Optionally provide a background profileName to reuse cookies and storage, and a device (for example "iphone-15" or "pixel-7") to start in a mobile viewport.',
     inputSchema: {
       type: 'object',
       properties: {
         profileName: { type: 'string', description: 'Optional background profile name for persistent browser storage.' },
+        device: { type: 'string', description: 'Device preset id from browser_list_devices, e.g. iphone-15, pixel-7, ipad-mini, desktop.' },
+        width: { type: 'number', description: 'Custom viewport width in CSS pixels.' },
+        height: { type: 'number', description: 'Custom viewport height in CSS pixels.' },
+        deviceScaleFactor: { type: 'number', description: 'Device pixel ratio, e.g. 3 for a modern phone.' },
+        isMobile: { type: 'boolean', description: 'Emulate a mobile browser (meta viewport handling).' },
+        hasTouch: { type: 'boolean', description: 'Emulate touch input; clicks become taps.' },
+        landscape: { type: 'boolean', description: 'Rotate the device to landscape.' },
+        userAgent: { type: 'string', description: 'Override the user agent string.' },
       },
+    },
+  },
+  {
+    name: 'browser_list_devices',
+    description: 'List the device presets available for mobile/tablet/desktop emulation.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'browser_emulate_device',
+    description: 'Switch a Browser session to a device preset or a custom viewport — use this to test how a page looks and behaves on a phone. Reloads the current URL when the change needs a fresh browser context.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        sessionId: { type: 'string' },
+        device: { type: 'string', description: 'Device preset id, e.g. iphone-15, iphone-se, pixel-7, ipad-mini, desktop.' },
+        width: { type: 'number' },
+        height: { type: 'number' },
+        deviceScaleFactor: { type: 'number' },
+        isMobile: { type: 'boolean' },
+        hasTouch: { type: 'boolean' },
+        landscape: { type: 'boolean' },
+        userAgent: { type: 'string' },
+      },
+      required: ['sessionId'],
+    },
+  },
+  {
+    name: 'browser_console_messages',
+    description: 'Read captured DevTools console output and uncaught page errors for a Browser session.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        sessionId: { type: 'string' },
+        level: { type: 'string', description: 'Filter by level: log, info, warning, error (error also returns uncaught exceptions).' },
+        search: { type: 'string', description: 'Only return messages containing this text.' },
+        limit: { type: 'number', description: 'Maximum number of messages to return (newest last).' },
+        clear: { type: 'boolean', description: 'Clear the buffer after reading.' },
+      },
+      required: ['sessionId'],
+    },
+  },
+  {
+    name: 'browser_network_requests',
+    description: 'Read captured DevTools network activity (method, URL, status, duration, failures) for a Browser session.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        sessionId: { type: 'string' },
+        urlContains: { type: 'string', description: 'Only return requests whose URL contains this text.' },
+        resourceType: { type: 'string', description: 'Filter by resource type, e.g. document, script, xhr, fetch, image.' },
+        onlyFailed: { type: 'boolean', description: 'Only return failed requests and 4xx/5xx responses.' },
+        limit: { type: 'number' },
+        clear: { type: 'boolean', description: 'Clear the buffer after reading.' },
+      },
+      required: ['sessionId'],
+    },
+  },
+  {
+    name: 'browser_evaluate',
+    description: 'Run JavaScript in the page and return the JSON result — the DevTools console equivalent. Accepts an expression ("window.innerWidth") or a statement body ending in return.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        sessionId: { type: 'string' },
+        script: { type: 'string', description: 'JavaScript to run in the page context.' },
+      },
+      required: ['sessionId', 'script'],
+    },
+  },
+  {
+    name: 'browser_get_html',
+    description: 'Return the rendered HTML of the page or of a single element, useful for inspecting the DOM like the DevTools elements panel.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        sessionId: { type: 'string' },
+        selector: { type: 'string', description: 'Optional CSS selector; omit for the whole document.' },
+        maxLength: { type: 'number', description: 'Maximum characters to return (default 50000).' },
+      },
+      required: ['sessionId'],
     },
   },
   {
@@ -222,9 +325,45 @@ async function callTool(name: string, args: Record<string, unknown>) {
     case 'browser_create_session':
       return jsonResponse(await callBrowserUseApi(name, {
         profileName: readOptionalString(args.profileName),
+        ...readEmulationArgs(args),
       }));
     case 'browser_list_sessions':
       return jsonResponse(await callBrowserUseApi(name, {}));
+    case 'browser_list_devices':
+      return jsonResponse(await callBrowserUseApi(name, {}));
+    case 'browser_emulate_device':
+      return jsonResponse(await callBrowserUseApi(name, {
+        sessionId: readString(args.sessionId, 'sessionId'),
+        ...readEmulationArgs(args),
+      }));
+    case 'browser_console_messages':
+      return jsonResponse(await callBrowserUseApi(name, {
+        sessionId: readString(args.sessionId, 'sessionId'),
+        level: readOptionalString(args.level),
+        search: readOptionalString(args.search),
+        limit: readNumber(args.limit),
+        clear: args.clear === true,
+      }));
+    case 'browser_network_requests':
+      return jsonResponse(await callBrowserUseApi(name, {
+        sessionId: readString(args.sessionId, 'sessionId'),
+        urlContains: readOptionalString(args.urlContains),
+        resourceType: readOptionalString(args.resourceType),
+        onlyFailed: args.onlyFailed === true,
+        limit: readNumber(args.limit),
+        clear: args.clear === true,
+      }));
+    case 'browser_evaluate':
+      return jsonResponse(await callBrowserUseApi(name, {
+        sessionId: readString(args.sessionId, 'sessionId'),
+        script: readString(args.script, 'script'),
+      }));
+    case 'browser_get_html':
+      return jsonResponse(await callBrowserUseApi(name, {
+        sessionId: readString(args.sessionId, 'sessionId'),
+        selector: readOptionalString(args.selector),
+        maxLength: readNumber(args.maxLength),
+      }));
     case 'browser_snapshot':
       return jsonResponse(await callBrowserUseApi(name, { sessionId: readString(args.sessionId, 'sessionId') }));
     case 'browser_take_screenshot': {

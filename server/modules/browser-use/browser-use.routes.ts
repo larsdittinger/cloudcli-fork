@@ -82,6 +82,40 @@ router.post('/sessions/:sessionId/input', async (req, res) => {
   }
 });
 
+// ethia fork: device emulation catalog + switching from the admin Browser tab.
+router.get('/devices', (_req, res) => {
+  res.json({ success: true, data: browserUseService.listDevices() });
+});
+
+router.post('/sessions/:sessionId/emulate', async (req, res) => {
+  try {
+    const session = await browserUseService.adminEmulate(readParam(req.params.sessionId), req.body || {});
+    res.json({ success: true, data: { session } });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to switch device emulation.',
+    });
+  }
+});
+
+// ethia fork: DevTools console/network for the selected session.
+router.get('/sessions/:sessionId/devtools', async (req, res) => {
+  try {
+    const limit = Number.parseInt(readParam(req.query.limit as string | string[] | undefined), 10);
+    const data = await browserUseService.adminDevtools(readParam(req.params.sessionId), {
+      limit: Number.isFinite(limit) ? limit : undefined,
+      onlyFailed: readParam(req.query.onlyFailed as string | string[] | undefined) === 'true',
+    });
+    res.json({ success: true, data });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to read browser devtools.',
+    });
+  }
+});
+
 router.post('/sessions/:sessionId/stop', async (req, res) => {
   try {
     const result = await browserUseService.stopSession(readParam(req.params.sessionId));
