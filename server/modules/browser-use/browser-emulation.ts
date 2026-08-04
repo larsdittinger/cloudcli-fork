@@ -5,6 +5,8 @@
 // {width: 390, height: 844}) into a normalized descriptor that both the
 // Playwright context options and the session payload are built from.
 
+export type DevicePlatform = 'iOS' | 'Android';
+
 export type BrowserEmulation = {
   /** Preset id when the emulation came from the catalog, null for custom sizes. */
   preset: string | null;
@@ -16,6 +18,12 @@ export type BrowserEmulation = {
   hasTouch: boolean;
   landscape: boolean;
   userAgent: string | null;
+  /**
+   * Platform the emulated device claims. Drives the Sec-CH-UA client hints and
+   * navigator.platform, which a spoofed user agent alone leaves inconsistent —
+   * server-side detection reads the hints on modern Chromium.
+   */
+  platform: DevicePlatform | null;
 };
 
 export type EmulationInput = {
@@ -49,6 +57,7 @@ export const DEVICE_PRESETS: DevicePreset[] = [
     isMobile: true,
     hasTouch: true,
     userAgent: IOS_UA,
+    platform: 'iOS',
   },
   {
     id: 'iphone-13',
@@ -60,6 +69,7 @@ export const DEVICE_PRESETS: DevicePreset[] = [
     isMobile: true,
     hasTouch: true,
     userAgent: IOS_UA,
+    platform: 'iOS',
   },
   {
     id: 'iphone-15',
@@ -71,6 +81,7 @@ export const DEVICE_PRESETS: DevicePreset[] = [
     isMobile: true,
     hasTouch: true,
     userAgent: IOS_UA,
+    platform: 'iOS',
   },
   {
     id: 'iphone-15-pro-max',
@@ -82,6 +93,7 @@ export const DEVICE_PRESETS: DevicePreset[] = [
     isMobile: true,
     hasTouch: true,
     userAgent: IOS_UA,
+    platform: 'iOS',
   },
   {
     id: 'pixel-7',
@@ -93,6 +105,7 @@ export const DEVICE_PRESETS: DevicePreset[] = [
     isMobile: true,
     hasTouch: true,
     userAgent: ANDROID_UA,
+    platform: 'Android',
   },
   {
     id: 'galaxy-s20',
@@ -104,6 +117,7 @@ export const DEVICE_PRESETS: DevicePreset[] = [
     isMobile: true,
     hasTouch: true,
     userAgent: ANDROID_UA,
+    platform: 'Android',
   },
   {
     id: 'ipad-mini',
@@ -115,6 +129,7 @@ export const DEVICE_PRESETS: DevicePreset[] = [
     isMobile: true,
     hasTouch: true,
     userAgent: IPAD_UA,
+    platform: 'iOS',
   },
   {
     id: 'ipad-pro-11',
@@ -126,6 +141,7 @@ export const DEVICE_PRESETS: DevicePreset[] = [
     isMobile: true,
     hasTouch: true,
     userAgent: IPAD_UA,
+    platform: 'iOS',
   },
   {
     id: 'desktop',
@@ -137,6 +153,7 @@ export const DEVICE_PRESETS: DevicePreset[] = [
     isMobile: false,
     hasTouch: false,
     userAgent: null,
+    platform: null,
   },
   {
     id: 'desktop-small',
@@ -148,6 +165,7 @@ export const DEVICE_PRESETS: DevicePreset[] = [
     isMobile: false,
     hasTouch: false,
     userAgent: null,
+    platform: null,
   },
   {
     id: 'desktop-hd',
@@ -159,6 +177,7 @@ export const DEVICE_PRESETS: DevicePreset[] = [
     isMobile: false,
     hasTouch: false,
     userAgent: null,
+    platform: null,
   },
 ];
 
@@ -251,6 +270,7 @@ function toEmulation(preset: DevicePreset): BrowserEmulation {
     hasTouch: preset.hasTouch,
     landscape: false,
     userAgent: preset.userAgent,
+    platform: preset.platform,
   };
 }
 
@@ -322,6 +342,8 @@ export function resolveEmulation(input: EmulationInput = {}, base: BrowserEmulat
   if (typeof input.userAgent === 'string') {
     const trimmed = input.userAgent.trim();
     next.userAgent = trimmed ? trimmed.slice(0, 512) : null;
+    // Keep the client hints in step with a hand-written user agent.
+    next.platform = platformFromUserAgent(next.userAgent);
   }
   if (input.landscape === true) {
     next.landscape = true;
@@ -340,6 +362,42 @@ export function resolveEmulation(input: EmulationInput = {}, base: BrowserEmulat
   return next;
 }
 
+export function platformFromUserAgent(userAgent: string | null): DevicePlatform | null {
+  if (!userAgent) {
+    return null;
+  }
+  if (/iPhone|iPad|iPod/i.test(userAgent)) {
+    return 'iOS';
+  }
+  return /Android/i.test(userAgent) ? 'Android' : null;
+}
+
+/** What navigator.platform should say for the emulated device. */
+export function navigatorPlatform(emulation: BrowserEmulation): string | null {
+  if (emulation.platform === 'Android') {
+    return 'Linux armv81';
+  }
+  if (emulation.platform !== 'iOS') {
+    return null;
+  }
+  return /iPad/i.test(emulation.userAgent || '') ? 'iPad' : 'iPhone';
+}
+
+/**
+ * Sec-CH-UA client hints matching the emulated device. Chromium keeps sending
+ * its own hints when only the user agent string is overridden, so server-side
+ * detection would still see a desktop headless browser.
+ */
+export function toClientHintHeaders(emulation: BrowserEmulation): Record<string, string> {
+  if (!emulation.platform) {
+    return {};
+  }
+  return {
+    'sec-ch-ua-mobile': emulation.isMobile ? '?1' : '?0',
+    'sec-ch-ua-platform': `"${emulation.platform}"`,
+  };
+}
+
 /** Playwright browser-context options for an emulation descriptor. */
 export function toContextOptions(emulation: BrowserEmulation) {
   const options: Record<string, unknown> = {
@@ -350,6 +408,10 @@ export function toContextOptions(emulation: BrowserEmulation) {
   };
   if (emulation.userAgent) {
     options.userAgent = emulation.userAgent;
+  }
+  const headers = toClientHintHeaders(emulation);
+  if (Object.keys(headers).length > 0) {
+    options.extraHTTPHeaders = headers;
   }
   return options;
 }
@@ -363,5 +425,6 @@ export function isViewportOnlyChange(current: BrowserEmulation, next: BrowserEmu
     && current.isMobile === next.isMobile
     && current.hasTouch === next.hasTouch
     && current.userAgent === next.userAgent
+    && current.platform === next.platform
     && (current.width !== next.width || current.height !== next.height);
 }

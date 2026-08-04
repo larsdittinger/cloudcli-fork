@@ -6,7 +6,9 @@ import {
   findPreset,
   isViewportOnlyChange,
   listPresets,
+  navigatorPlatform,
   resolveEmulation,
+  toClientHintHeaders,
   toContextOptions,
 } from '@/modules/browser-use/browser-emulation.js';
 
@@ -108,6 +110,49 @@ test('viewport-only changes avoid a context restart', () => {
   assert.equal(isViewportOnlyChange(base, resolveEmulation({ width: 1280 }, base)), true);
   assert.equal(isViewportOnlyChange(base, resolveEmulation({ device: 'iphone-15' }, base)), false);
   assert.equal(isViewportOnlyChange(base, base), false);
+});
+
+test('phones and tablets send matching Sec-CH-UA client hints', () => {
+  assert.deepEqual(toClientHintHeaders(resolveEmulation({ device: 'iphone-15' })), {
+    'sec-ch-ua-mobile': '?1',
+    'sec-ch-ua-platform': '"iOS"',
+  });
+  assert.deepEqual(toClientHintHeaders(resolveEmulation({ device: 'pixel-7' })), {
+    'sec-ch-ua-mobile': '?1',
+    'sec-ch-ua-platform': '"Android"',
+  });
+  // Desktop keeps Chromium's own hints rather than inventing new ones.
+  assert.deepEqual(toClientHintHeaders(defaultEmulation()), {});
+});
+
+test('client hints ride along in the context options', () => {
+  const options = toContextOptions(resolveEmulation({ device: 'pixel-7' })) as Record<string, any>;
+
+  assert.equal(options.extraHTTPHeaders['sec-ch-ua-platform'], '"Android"');
+  assert.equal('extraHTTPHeaders' in (toContextOptions(defaultEmulation()) as object), false);
+});
+
+test('navigator.platform follows the emulated device', () => {
+  assert.equal(navigatorPlatform(resolveEmulation({ device: 'iphone-15' })), 'iPhone');
+  assert.equal(navigatorPlatform(resolveEmulation({ device: 'ipad-mini' })), 'iPad');
+  assert.equal(navigatorPlatform(resolveEmulation({ device: 'galaxy-s20' })), 'Linux armv81');
+  assert.equal(navigatorPlatform(defaultEmulation()), null);
+});
+
+test('a hand-written user agent decides the platform it implies', () => {
+  const android = resolveEmulation({ device: 'iphone-15', userAgent: 'Mozilla/5.0 (Linux; Android 14) Mobile' });
+  const nonsense = resolveEmulation({ device: 'iphone-15', userAgent: 'MyCrawler/1.0' });
+
+  assert.equal(android.platform, 'Android');
+  assert.equal(nonsense.platform, null);
+  assert.deepEqual(toClientHintHeaders(nonsense), {});
+});
+
+test('a platform change forces a context restart, not just a resize', () => {
+  const phone = resolveEmulation({ device: 'iphone-15' });
+  const sameSizeAndroid = resolveEmulation({ device: 'pixel-7' }, phone);
+
+  assert.equal(isViewportOnlyChange(phone, sameSizeAndroid), false);
 });
 
 test('preset catalog exposes phones, tablets, and desktops', () => {

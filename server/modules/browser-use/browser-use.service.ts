@@ -15,6 +15,7 @@ import {
   defaultEmulation,
   isViewportOnlyChange,
   listPresets,
+  navigatorPlatform,
   resolveEmulation,
   toContextOptions,
   type BrowserEmulation,
@@ -497,6 +498,14 @@ async function launchEmulatedContext(
     page = await context.newPage();
   }
 
+  // Chromium keeps reporting the host platform even with a spoofed user agent,
+  // which trips up scripts that branch on navigator.platform.
+  const platform = navigatorPlatform(emulation);
+  if (platform) {
+    await context.addInitScript(`Object.defineProperty(navigator, 'platform', { get: () => ${JSON.stringify(platform)} });`)
+      .catch((error: any) => console.warn('[Browser] Failed to apply navigator.platform:', error?.message || error));
+  }
+
   const recorder = new DevtoolsRecorder();
   const detachContext = attachContextRecorder(context, recorder);
   return { browser, context, page, recorder, detachContext };
@@ -562,7 +571,8 @@ async function applyEmulation(session: BrowserUseSession, input: EmulationInput)
   const contextChanged = current.deviceScaleFactor !== next.deviceScaleFactor
     || current.isMobile !== next.isMobile
     || current.hasTouch !== next.hasTouch
-    || current.userAgent !== next.userAgent;
+    || current.userAgent !== next.userAgent
+    || current.platform !== next.platform;
 
   if (contextChanged) {
     const readiness = getRuntimeReadiness();
