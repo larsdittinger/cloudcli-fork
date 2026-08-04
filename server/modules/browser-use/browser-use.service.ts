@@ -403,7 +403,9 @@ async function expireStaleSessions(now = Date.now()): Promise<void> {
 }
 
 async function captureSession(session: BrowserUseSession, page: any): Promise<void> {
-  const screenshot = await page.screenshot({ type: 'jpeg', quality: 72, fullPage: false });
+  // scale: 'css' keeps a phone screenshot at its CSS size — an emulated iPhone
+  // renders at deviceScaleFactor 3, and the 9x larger image helps nobody.
+  const screenshot = await page.screenshot({ type: 'jpeg', quality: 72, fullPage: false, scale: 'css' });
   session.screenshotDataUrl = `data:image/jpeg;base64,${Buffer.from(screenshot).toString('base64')}`;
   session.title = await page.title().catch(() => null);
   session.url = page.url() || session.url;

@@ -3,6 +3,10 @@
 // eslint-disable-next-line boundaries/no-unknown
 import '../../load-env.js';
 
+// ethia fork: screenshots are stripped from JSON results and re-attached as
+// image blocks — see browser-use-mcp-format.ts.
+import { jsonResponse, screenshotResponse } from './browser-use-mcp-format.js';
+
 type JsonRpcRequest = {
   jsonrpc: '2.0';
   id?: string | number | null;
@@ -15,12 +19,6 @@ type ToolDefinition = {
   description: string;
   inputSchema: Record<string, unknown>;
 };
-
-const textResponse = (text: string) => ({
-  content: [{ type: 'text', text }],
-});
-
-const jsonResponse = (value: unknown) => textResponse(JSON.stringify(value, null, 2));
 
 const readString = (value: unknown, name: string): string => {
   if (typeof value !== 'string' || value.trim() === '') {
@@ -189,12 +187,12 @@ const tools: ToolDefinition[] = [
   },
   {
     name: 'browser_snapshot',
-    description: 'Capture current page metadata, screenshot data URL, and visible body text for a Browser session.',
+    description: 'Capture the current page as an image, together with page metadata and visible body text. Other tools omit the screenshot, so call this when you need to see the page.',
     inputSchema: sessionIdSchema,
   },
   {
     name: 'browser_take_screenshot',
-    description: 'Capture the latest screenshot for a Browser session.',
+    description: 'Capture the current page of a Browser session as an image.',
     inputSchema: sessionIdSchema,
   },
   {
@@ -365,10 +363,8 @@ async function callTool(name: string, args: Record<string, unknown>) {
         maxLength: readNumber(args.maxLength),
       }));
     case 'browser_snapshot':
-      return jsonResponse(await callBrowserUseApi(name, { sessionId: readString(args.sessionId, 'sessionId') }));
-    case 'browser_take_screenshot': {
-      return jsonResponse(await callBrowserUseApi(name, { sessionId: readString(args.sessionId, 'sessionId') }));
-    }
+    case 'browser_take_screenshot':
+      return screenshotResponse(await callBrowserUseApi(name, { sessionId: readString(args.sessionId, 'sessionId') }));
     case 'browser_navigate':
       return jsonResponse(await callBrowserUseApi(name, {
         sessionId: readString(args.sessionId, 'sessionId'),
