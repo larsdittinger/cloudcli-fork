@@ -314,9 +314,15 @@ export function resolveEmulation(input: EmulationInput = {}, base: BrowserEmulat
   if (hasCustomSize) {
     const width = Number.isFinite(input.width as number) ? clampDimension(Number(input.width)) : next.width;
     const height = Number.isFinite(input.height as number) ? clampDimension(Number(input.height)) : next.height;
-    // A hand-picked size is no longer the preset it started from unless it
-    // happens to match one exactly.
-    const matching = DEVICE_PRESETS.find((preset) => preset.width === width && preset.height === height);
+    // A hand-picked size only keeps its preset name when everything else still
+    // matches that device — a desktop context resized to 375x667 is not an
+    // iPhone SE and must not claim to be one.
+    const matching = DEVICE_PRESETS.find((preset) => preset.width === width
+      && preset.height === height
+      && preset.deviceScaleFactor === next.deviceScaleFactor
+      && preset.isMobile === next.isMobile
+      && preset.hasTouch === next.hasTouch
+      && preset.userAgent === next.userAgent);
     next = {
       ...next,
       width,

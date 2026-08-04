@@ -51,10 +51,19 @@ test('custom width/height overrides the preset and clears the preset id', () => 
   assert.equal(emulation.hasTouch, true);
 });
 
-test('a custom size matching a preset keeps that preset id', () => {
+test('a resize back to the preset size keeps that preset id', () => {
+  const phone = resolveEmulation({ device: 'iphone-se' });
+  const resized = resolveEmulation({ width: 375, height: 667 }, resolveEmulation({ width: 320 }, phone));
+
+  assert.equal(resized.preset, 'iphone-se');
+});
+
+test('a desktop resized to phone dimensions does not claim to be a phone', () => {
   const emulation = resolveEmulation({ width: 375, height: 667 });
 
-  assert.equal(emulation.preset, 'iphone-se');
+  assert.equal(emulation.preset, null);
+  assert.equal(emulation.label, 'Custom 375x667');
+  assert.equal(emulation.isMobile, false);
 });
 
 test('clamps absurd dimensions instead of failing', () => {
