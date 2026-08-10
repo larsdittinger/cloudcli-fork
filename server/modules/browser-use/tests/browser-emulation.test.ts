@@ -8,6 +8,7 @@ import {
   isViewportOnlyChange,
   listPresets,
   navigatorPlatform,
+  needsContextRestart,
   resolveEmulation,
   toClientHintHeaders,
   toContextOptions,
@@ -175,6 +176,33 @@ test('isStealthDesktop: telefon neni stealth desktop', () => {
 
 test('isStealthDesktop: custom desktop viewport neni stealth desktop', () => {
   assert.equal(isStealthDesktop(resolveEmulation({ width: 1000, height: 700 })), false);
+});
+
+test('needsContextRestart: stealth desktop -> desktop-hd nejde pres viewport fast-path', () => {
+  const desktop = resolveEmulation({ device: 'desktop' });
+  const desktopHd = resolveEmulation({ device: 'desktop-hd' }, desktop);
+
+  // Bez guardu by to vypadalo jako pouha zmena viewportu (fast-path).
+  assert.equal(isViewportOnlyChange(desktop, desktopHd), true);
+  // Protoze je soucasny stav stealth desktop (viewport:null), musi se restartovat.
+  assert.equal(needsContextRestart(desktop, desktopHd), true);
+});
+
+test('needsContextRestart: dva ne-stealth desktopy jdou pres fast-path', () => {
+  const desktopHd = resolveEmulation({ device: 'desktop-hd' });
+  const desktopSmall = resolveEmulation({ device: 'desktop-small' }, desktopHd);
+
+  assert.equal(isStealthDesktop(desktopHd), false);
+  assert.equal(isStealthDesktop(desktopSmall), false);
+  assert.equal(needsContextRestart(desktopHd, desktopSmall), false);
+  assert.equal(isViewportOnlyChange(desktopHd, desktopSmall), true);
+});
+
+test('needsContextRestart: context-only zmena (platform) vynuti restart', () => {
+  const phone = resolveEmulation({ device: 'iphone-15' });
+  const android = resolveEmulation({ device: 'pixel-7' }, phone);
+
+  assert.equal(needsContextRestart(phone, android), true);
 });
 
 test('preset catalog exposes phones, tablets, and desktops', () => {

@@ -1,5 +1,6 @@
 import { createRequire } from 'node:module';
 import { randomBytes, randomUUID } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -17,6 +18,7 @@ import {
   isViewportOnlyChange,
   listPresets,
   navigatorPlatform,
+  needsContextRestart,
   resolveEmulation,
   toContextOptions,
   type BrowserEmulation,
@@ -214,6 +216,52 @@ function normalizeProfileName(profileName?: string | null): string | null {
   return normalized.slice(0, 80);
 }
 
+function whichSync(bin: string): string | null {
+  try {
+    const result = spawnSync('which', [bin], { encoding: 'utf8' });
+    if (result.status !== 0) {
+      return null;
+    }
+    const first = String(result.stdout || '').trim().split('\n')[0]?.trim();
+    return first || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Cesta k REALNEMU Google Chrome, ktery se spousti pres channel:'chrome'.
+ *
+ * `patchright install chrome` / `playwright install chrome` na Linuxu instaluje
+ * znackovy Chrome jako systemovy .deb balik do /opt/google/chrome, NIKOLI do
+ * ms-playwright cache. `playwright.chromium.executablePath()` (bez channelu) mizi
+ * na bundled chromium, ktery se timhle nikdy nenainstaluje — proto readiness
+ * hlida realny Chrome primo. Na macOS dev vraci null a to je OK: readiness se
+ * realne vyhodnocuje na Linux serveru.
+ */
+function findChromeExecutable(
+  existsSync: (candidate: string) => boolean = fs.existsSync,
+  which: (bin: string) => string | null = whichSync,
+): string | null {
+  const paths = ['/opt/google/chrome/chrome', '/opt/google/chrome/google-chrome'];
+  for (const candidate of paths) {
+    try {
+      if (existsSync(candidate)) {
+        return candidate;
+      }
+    } catch {
+      // nepristupna cesta, zkousime dal
+    }
+  }
+  for (const bin of ['google-chrome-stable', 'google-chrome']) {
+    const resolved = which(bin);
+    if (resolved) {
+      return resolved;
+    }
+  }
+  return null;
+}
+
 function probeRuntime(): RuntimeProbe {
   const playwright = getPlaywright();
   const readiness: RuntimeProbe = {
@@ -227,13 +275,11 @@ function probeRuntime(): RuntimeProbe {
     return readiness;
   }
 
-  try {
-    const executablePath = playwright.chromium.executablePath();
-    readiness.chromiumExecutablePath = executablePath;
-    readiness.chromiumInstalled = Boolean(executablePath && fs.existsSync(executablePath));
-  } catch {
-    readiness.chromiumInstalled = false;
-  }
+  // Pole si drzi historicke nazvy (cte je klient i getStatus), ale naplnuje je
+  // realny Chrome, ktery channel:'chrome' opravdu spousti.
+  const chromePath = findChromeExecutable();
+  readiness.chromiumExecutablePath = chromePath;
+  readiness.chromiumInstalled = Boolean(chromePath);
 
   return readiness;
 }
@@ -472,6 +518,20 @@ function attachContextRecorder(context: any, recorder: DevtoolsRecorder): () => 
   };
 }
 
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    timer.unref?.();
+  });
+}
+
+// ethia fork: profil drzi zamek (SingletonLock / ProcessSingleton), typicky kdyz
+// predchozi headed Chrome jeste nedobehl. Jen tyhle chyby ma smysl zkusit znovu.
+function isProfileLockError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /SingletonLock|ProcessSingleton|being used by another|profile.*in use/i.test(message);
+}
+
 // ethia fork: single place that turns an emulation descriptor into a live
 // Playwright context, used by session creation and by device switching.
 async function launchEmulatedContext(
@@ -490,8 +550,11 @@ async function launchEmulatedContext(
   };
 
   const stealth = isStealthDesktop(emulation);
+  // Stealth desktop bezi jako realny Chrome — ten service workery neblokuje,
+  // takze serviceWorkers:'block' jen na emulacni ceste (odchylka od realneho
+  // prohlizece by byla detekovatelny signal).
   const contextOptions: Record<string, unknown> = stealth
-    ? { viewport: null, serviceWorkers: 'block' }
+    ? { viewport: null }
     : { ...toContextOptions(emulation), serviceWorkers: 'block' };
 
   fs.mkdirSync(PROFILE_ROOT, { recursive: true });
@@ -508,22 +571,33 @@ async function launchEmulatedContext(
   }
 
   let context: any;
-  try {
-    context = await playwright.chromium.launchPersistentContext(profileDir, {
-      ...launchOptions,
-      ...contextOptions,
-    });
-  } catch (error) {
-    // Launch selhal (chybi Chrome kanal, profil drzi SingletonLock, chybi display,
-    // ...) — handle se nevrati, takze closeHandle nema co uklidit. Uvolni stav tady,
-    // jinak by neefemerni profil zustal v profileDirsInUse navzdy (dalsi session se
-    // stejnym profileName by tise spadla na efemerni temp bez persistence).
-    if (ephemeral) {
-      await fs.promises.rm(profileDir, { recursive: true, force: true }).catch(() => undefined);
-    } else {
-      profileDirsInUse.delete(profileDir);
+  // Pri rychlem device-switchi (relaunch tesne po closeHandle) muze headed Chrome
+  // jeste drzet SingletonLock profiloveho adresare — kratky retry to prekleni.
+  // Jen na neefemernim persistentnim launchi; ostatni chyby padaji hned.
+  const maxAttempts = ephemeral ? 1 : 3;
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      context = await playwright.chromium.launchPersistentContext(profileDir, {
+        ...launchOptions,
+        ...contextOptions,
+      });
+      break;
+    } catch (error) {
+      if (attempt < maxAttempts && isProfileLockError(error)) {
+        await delay(300);
+        continue;
+      }
+      // Launch selhal (chybi Chrome kanal, profil drzi SingletonLock, chybi display,
+      // ...) — handle se nevrati, takze closeHandle nema co uklidit. Uvolni stav tady,
+      // jinak by neefemerni profil zustal v profileDirsInUse navzdy (dalsi session se
+      // stejnym profileName by tise spadla na efemerni temp bez persistence).
+      if (ephemeral) {
+        await fs.promises.rm(profileDir, { recursive: true, force: true }).catch(() => undefined);
+      } else {
+        profileDirsInUse.delete(profileDir);
+      }
+      throw error;
     }
-    throw error;
   }
   const page = context.pages()[0] || await context.newPage();
 
@@ -598,13 +672,13 @@ async function applyEmulation(session: BrowserUseSession, input: EmulationInput)
 
   const current = session.emulation || defaultEmulation();
   const next = resolveEmulation(input, current);
-  const contextChanged = current.deviceScaleFactor !== next.deviceScaleFactor
-    || current.isMobile !== next.isMobile
-    || current.hasTouch !== next.hasTouch
-    || current.userAgent !== next.userAgent
-    || current.platform !== next.platform;
+  // Restart kontextu je nutny nejen pri zmene context-only poli, ale i kdyz je
+  // soucasny NEBO cilovy stav stealth desktop (bezi/pobezi s viewport:null) a meni
+  // se rozmery — na viewport:null kontextu by page.setViewportSize() bud spadl,
+  // nebo tise nastavil Emulation.setDeviceMetricsOverride (detekovatelny signal).
+  const restartRequired = needsContextRestart(current, next);
 
-  if (contextChanged) {
+  if (restartRequired) {
     const readiness = getRuntimeReadiness();
     if (!readiness.playwright) {
       throw new Error('Browser runtime is not available.');
@@ -1246,5 +1320,6 @@ process.once('beforeExit', () => {
 // pri selhani launche bez pristupu na realny Chrome.
 export const __testables = {
   launchEmulatedContext,
+  findChromeExecutable,
   profileDirsInUse,
 };

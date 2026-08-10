@@ -443,3 +443,24 @@ export function isViewportOnlyChange(current: BrowserEmulation, next: BrowserEmu
 export function isStealthDesktop(emulation: BrowserEmulation): boolean {
   return emulation.preset === 'desktop';
 }
+
+/**
+ * True když přechod mezi emulacemi vyžaduje čerstvý browser context místo
+ * in-place page.setViewportSize().
+ *
+ * Restart je nutný pro:
+ *  - změnu context-only polí (scale, touch, mobil, userAgent, platform),
+ *  - a navíc pro jakoukoli změnu rozměrů, když je současný NEBO cílový stav
+ *    stealth desktop (běží/poběží s viewport:null). Na viewport:null kontextu
+ *    by setViewportSize() spadl nebo tiše aplikoval detekovatelný override.
+ */
+export function needsContextRestart(current: BrowserEmulation, next: BrowserEmulation): boolean {
+  const contextChanged = current.deviceScaleFactor !== next.deviceScaleFactor
+    || current.isMobile !== next.isMobile
+    || current.hasTouch !== next.hasTouch
+    || current.userAgent !== next.userAgent
+    || current.platform !== next.platform;
+  const viewportChanged = current.width !== next.width || current.height !== next.height;
+  const stealthInvolved = isStealthDesktop(current) || isStealthDesktop(next);
+  return contextChanged || (stealthInvolved && viewportChanged);
+}
