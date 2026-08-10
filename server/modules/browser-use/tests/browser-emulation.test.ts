@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   defaultEmulation,
   findPreset,
+  isStealthDesktop,
   isViewportOnlyChange,
   listPresets,
   navigatorPlatform,
@@ -162,6 +163,18 @@ test('a platform change forces a context restart, not just a resize', () => {
   const sameSizeAndroid = resolveEmulation({ device: 'pixel-7' }, phone);
 
   assert.equal(isViewportOnlyChange(phone, sameSizeAndroid), false);
+});
+
+test('isStealthDesktop: default desktop je stealth', () => {
+  assert.equal(isStealthDesktop(resolveEmulation({})), true);
+});
+
+test('isStealthDesktop: telefon neni stealth desktop', () => {
+  assert.equal(isStealthDesktop(resolveEmulation({ device: 'iphone-15' })), false);
+});
+
+test('isStealthDesktop: custom desktop viewport neni stealth desktop', () => {
+  assert.equal(isStealthDesktop(resolveEmulation({ width: 1000, height: 700 })), false);
 });
 
 test('preset catalog exposes phones, tablets, and desktops', () => {

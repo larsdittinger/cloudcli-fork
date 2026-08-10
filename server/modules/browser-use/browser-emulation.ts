@@ -434,3 +434,12 @@ export function isViewportOnlyChange(current: BrowserEmulation, next: BrowserEmu
     && current.platform === next.platform
     && (current.width !== next.width || current.height !== next.height);
 }
+
+/**
+ * True jen pro nedotčený desktop preset. Pro něj jedeme reálný Chrome bez
+ * override userAgent/viewportu (patchright stealth). Custom viewport i mobil
+ * mají preset !== 'desktop' a jdou přes toContextOptions.
+ */
+export function isStealthDesktop(emulation: BrowserEmulation): boolean {
+  return emulation.preset === 'desktop';
+}
