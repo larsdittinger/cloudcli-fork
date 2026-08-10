@@ -507,10 +507,24 @@ async function launchEmulatedContext(
     profileDirsInUse.add(profileDir);
   }
 
-  const context = await playwright.chromium.launchPersistentContext(profileDir, {
-    ...launchOptions,
-    ...contextOptions,
-  });
+  let context: any;
+  try {
+    context = await playwright.chromium.launchPersistentContext(profileDir, {
+      ...launchOptions,
+      ...contextOptions,
+    });
+  } catch (error) {
+    // Launch selhal (chybi Chrome kanal, profil drzi SingletonLock, chybi display,
+    // ...) — handle se nevrati, takze closeHandle nema co uklidit. Uvolni stav tady,
+    // jinak by neefemerni profil zustal v profileDirsInUse navzdy (dalsi session se
+    // stejnym profileName by tise spadla na efemerni temp bez persistence).
+    if (ephemeral) {
+      await fs.promises.rm(profileDir, { recursive: true, force: true }).catch(() => undefined);
+    } else {
+      profileDirsInUse.delete(profileDir);
+    }
+    throw error;
+  }
   const page = context.pages()[0] || await context.newPage();
 
   // navigator.platform shim jen pro emulaci (desktop stealth ho nechce)
@@ -1227,3 +1241,10 @@ export const browserUseService = {
 process.once('beforeExit', () => {
   void browserUseService.stopAllSessions();
 });
+
+// ethia fork: test-only surface — necht testy ovi cleanup profileDirsInUse
+// pri selhani launche bez pristupu na realny Chrome.
+export const __testables = {
+  launchEmulatedContext,
+  profileDirsInUse,
+};
