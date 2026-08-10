@@ -13,6 +13,7 @@ import {
 } from '@/modules/browser-use/browser-devtools.js';
 import {
   defaultEmulation,
+  isStealthDesktop,
   isViewportOnlyChange,
   listPresets,
   navigatorPlatform,
@@ -21,6 +22,7 @@ import {
   type BrowserEmulation,
   type EmulationInput,
 } from '@/modules/browser-use/browser-emulation.js';
+import { resolveProfileDir } from '@/modules/browser-use/browser-profile.js';
 import { appConfigDb } from '@/modules/database/index.js';
 import { providerMcpService } from '@/modules/providers/index.js';
 import { getModuleDirectory } from '@/shared/utils.js';
@@ -72,6 +74,10 @@ type RuntimeHandle = {
   // ethia fork: DevTools ring buffer fed by page listeners.
   recorder?: DevtoolsRecorder;
   detachContext?: () => void;
+  // ethia fork: persistent profile dir this handle holds, and whether it is a
+  // throwaway temp dir (profile busy) that closeHandle must delete.
+  profileDir?: string | null;
+  ephemeral?: boolean;
 };
 
 type BrowserUseSettings = {
@@ -91,6 +97,9 @@ type RuntimeProbe = Omit<RuntimeReadiness, 'installInProgress' | 'installMessage
 
 const sessions = new Map<string, BrowserUseSession>();
 const handles = new Map<string, RuntimeHandle>();
+// ethia fork: persistent profile dirs currently held by a live context. A second
+// session for the same profile falls back to an ephemeral temp dir.
+const profileDirsInUse = new Set<string>();
 let installPromise: Promise<{ success: boolean; message: string }> | null = null;
 let lastInstallMessage: string | null = null;
 let runtimeProbeCache: { value: RuntimeProbe; updatedAt: number } | null = null;
@@ -150,11 +159,11 @@ function getSetupMessage(settings: BrowserUseSettings, readiness: RuntimeReadine
   }
 
   if (!readiness.playwrightInstalled) {
-    return 'Install Playwright and Chromium to use browser sessions.';
+    return 'Install Patchright and Chrome to use browser sessions.';
   }
 
   if (!readiness.chromiumInstalled) {
-    return 'Playwright is installed, but Chromium is missing. Install the Chromium runtime to continue.';
+    return 'Patchright is installed, but Chrome is missing. Install the Chrome runtime to continue.';
   }
 
   return readiness.installMessage || 'Browser runtime is not ready.';
@@ -162,7 +171,7 @@ function getSetupMessage(settings: BrowserUseSettings, readiness: RuntimeReadine
 
 function getPlaywright(): any | null {
   try {
-    return require('playwright');
+    return require('patchright');
   } catch {
     return null;
   }
@@ -203,15 +212,6 @@ function normalizeProfileName(profileName?: string | null): string | null {
   }
 
   return normalized.slice(0, 80);
-}
-
-function getProfilePath(profileName: string): string {
-  const safeName = profileName
-    .toLowerCase()
-    .replace(/[^a-z0-9._-]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 80) || 'default';
-  return path.join(PROFILE_ROOT, safeName);
 }
 
 function probeRuntime(): RuntimeProbe {
@@ -309,7 +309,7 @@ function runCommand(command: string, args: string[]): Promise<void> {
 function formatInstallError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
   if (message.includes('sudo') && message.includes('password')) {
-    return 'Installing Chromium system dependencies requires administrator privileges. Run `npx playwright install-deps chromium` on the machine where CloudCLI runs, then try again.';
+    return 'Installing Chrome system dependencies requires administrator privileges. Run `npx patchright install-deps chromium` on the machine where CloudCLI runs, then try again.';
   }
   return message || 'Failed to install Browser runtime.';
 }
@@ -323,16 +323,16 @@ async function installRuntime(): Promise<{ success: boolean; message: string }> 
   runtimeProbeCache = null;
   installPromise = (async () => {
     try {
-      lastInstallMessage = 'Installing Playwright package...';
-      await runCommand(npmCommand, ['install', '--no-save', '--no-package-lock', 'playwright']);
+      lastInstallMessage = 'Installing Patchright package...';
+      await runCommand(npmCommand, ['install', '--no-save', '--no-package-lock', 'patchright']);
 
       if (process.platform === 'linux') {
-        lastInstallMessage = 'Installing Chromium system dependencies...';
-        await runCommand(npmCommand, ['exec', '--', 'playwright', 'install-deps', 'chromium']);
+        lastInstallMessage = 'Installing Chrome system dependencies...';
+        await runCommand(npmCommand, ['exec', '--', 'patchright', 'install-deps', 'chromium']);
       }
 
-      lastInstallMessage = 'Installing Chromium runtime...';
-      await runCommand(npmCommand, ['exec', '--', 'playwright', 'install', 'chromium']);
+      lastInstallMessage = 'Installing Chrome runtime...';
+      await runCommand(npmCommand, ['exec', '--', 'patchright', 'install', 'chrome']);
 
       lastInstallMessage = 'Browser runtime installed.';
       return { success: true, message: lastInstallMessage };
@@ -382,6 +382,13 @@ async function closeHandle(sessionId: string): Promise<void> {
   handle?.detachContext?.();
   await handle?.context?.close?.().catch(() => undefined);
   await handle?.browser?.close().catch(() => undefined);
+
+  if (handle?.profileDir && !handle.ephemeral) {
+    profileDirsInUse.delete(handle.profileDir);
+  }
+  if (handle?.profileDir && handle.ephemeral) {
+    await fs.promises.rm(handle.profileDir, { recursive: true, force: true }).catch(() => undefined);
+  }
 }
 
 async function expireStaleSessions(now = Date.now()): Promise<void> {
@@ -472,43 +479,52 @@ async function launchEmulatedContext(
   emulation: BrowserEmulation,
   profileName: string | null,
 ): Promise<RuntimeHandle> {
-  const launchOptions = {
-    headless: true,
-    args: ['--disable-dev-shm-usage'],
-  };
-  const contextOptions = {
-    ...toContextOptions(emulation),
-    serviceWorkers: 'block',
+  const baseArgs = ['--disable-dev-shm-usage'];
+  if (process.env.CLOUDCLI_BROWSER_NO_SANDBOX === '1') {
+    baseArgs.push('--no-sandbox');
+  }
+  const launchOptions: Record<string, unknown> = {
+    channel: 'chrome',
+    headless: false,
+    args: baseArgs,
   };
 
-  let browser: any | undefined;
-  let context: any;
-  let page: any;
+  const stealth = isStealthDesktop(emulation);
+  const contextOptions: Record<string, unknown> = stealth
+    ? { viewport: null, serviceWorkers: 'block' }
+    : { ...toContextOptions(emulation), serviceWorkers: 'block' };
 
-  if (profileName) {
-    fs.mkdirSync(PROFILE_ROOT, { recursive: true });
-    context = await playwright.chromium.launchPersistentContext(getProfilePath(profileName), {
-      ...launchOptions,
-      ...contextOptions,
-    });
-    page = context.pages()[0] || await context.newPage();
+  fs.mkdirSync(PROFILE_ROOT, { recursive: true });
+  const { dir: profileDir, ephemeral } = resolveProfileDir({
+    profileName,
+    profileRoot: PROFILE_ROOT,
+    inUse: profileDirsInUse,
+    makeTempDir: () => fs.mkdtempSync(path.join(os.tmpdir(), 'cloudcli-browser-')),
+  });
+  if (ephemeral) {
+    console.warn(`[Browser] Profil obsazeny, jedu bez persistence: ${profileDir}`);
   } else {
-    browser = await playwright.chromium.launch(launchOptions);
-    context = await browser.newContext(contextOptions);
-    page = await context.newPage();
+    profileDirsInUse.add(profileDir);
   }
 
-  // Chromium keeps reporting the host platform even with a spoofed user agent,
-  // which trips up scripts that branch on navigator.platform.
-  const platform = navigatorPlatform(emulation);
-  if (platform) {
-    await context.addInitScript(`Object.defineProperty(navigator, 'platform', { get: () => ${JSON.stringify(platform)} });`)
-      .catch((error: any) => console.warn('[Browser] Failed to apply navigator.platform:', error?.message || error));
+  const context = await playwright.chromium.launchPersistentContext(profileDir, {
+    ...launchOptions,
+    ...contextOptions,
+  });
+  const page = context.pages()[0] || await context.newPage();
+
+  // navigator.platform shim jen pro emulaci (desktop stealth ho nechce)
+  if (!stealth) {
+    const platform = navigatorPlatform(emulation);
+    if (platform) {
+      await context.addInitScript(`Object.defineProperty(navigator, 'platform', { get: () => ${JSON.stringify(platform)} });`)
+        .catch((error: any) => console.warn('[Browser] Failed to apply navigator.platform:', error?.message || error));
+    }
   }
 
   const recorder = new DevtoolsRecorder();
   const detachContext = attachContextRecorder(context, recorder);
-  return { browser, context, page, recorder, detachContext };
+  return { browser: undefined, context, page, recorder, detachContext, profileDir, ephemeral };
 }
 
 function getRecorder(sessionId: string): DevtoolsRecorder {
