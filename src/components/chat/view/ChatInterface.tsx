@@ -17,6 +17,7 @@ import ChatComposer from './subcomponents/ChatComposer';
 import CommandResultModal from './subcomponents/CommandResultModal';
 
 function ChatInterface({
+  isActive,
   selectedProject,
   selectedSession,
   ws,
@@ -81,12 +82,10 @@ function ChatInterface({
     selectPermissionMode,
     cyclePermissionMode,
     providerModelCatalog,
-    providerModelCacheCatalog,
     providerModelsLoading,
-    providerModelsRefreshing,
-    hardRefreshProviderModels,
+    providerModelActions,
     selectProviderModel,
-    setStoredProviderEffort,
+    selectProviderEffort,
     resolvePermissionModeForProvider,
   } = useChatProviderState({
     selectedSession,
@@ -122,7 +121,9 @@ function ChatInterface({
     scrollToBottom,
     scrollToBottomAndReset,
     handleScroll,
+    requestLatestMessages,
   } = useChatSessionState({
+    isActive,
     selectedProject,
     selectedSession,
     ws,
@@ -221,13 +222,13 @@ function ChatInterface({
     resolvePermissionModeForProvider,
   });
 
-  // On WebSocket reconnect, re-fetch the current session's messages from the
-  // server so missed streaming events are shown, then re-subscribe — the
+  // On WebSocket reconnect, request a bounded persisted-tail sync (deferred
+  // while Chat is hidden), then re-subscribe — the
   // `chat_subscribed` ack restores or clears the activity indicator, replays
   // missed live events, and re-attaches a still-running stream to this socket.
   const handleWebSocketReconnect = useCallback(async () => {
     if (!selectedProject || !selectedSession) return;
-    await sessionStore.refreshFromServer(selectedSession.id);
+    await requestLatestMessages(selectedSession.id, isActive);
     statusCheckSentAtRef.current.set(selectedSession.id, Date.now());
     sendMessage({
       type: 'chat.subscribe',
@@ -236,9 +237,10 @@ function ChatInterface({
         lastSeq: lastSeqRef.current.get(selectedSession.id) ?? 0,
       }],
     });
-  }, [selectedProject, selectedSession, sendMessage, sessionStore]);
+  }, [isActive, requestLatestMessages, selectedProject, selectedSession, sendMessage]);
 
   useChatRealtimeHandlers({
+    isActive,
     subscribe,
     provider,
     selectedSession,
@@ -253,6 +255,7 @@ function ChatInterface({
     onSessionProcessing,
     onSessionIdle,
     onWebSocketReconnect: handleWebSocketReconnect,
+    requestLatestMessages,
     sessionStore,
   });
 
@@ -296,6 +299,14 @@ function ChatInterface({
       console.error('Error changing the active session model:', error);
     }
   }, [currentSessionId, provider, selectProviderModel, selectedSession?.id]);
+
+  const handleSelectComposerEffort = useCallback(async (effort: string) => {
+    try {
+      await selectProviderEffort(provider, effort, currentSessionId || selectedSession?.id || null);
+    } catch (error) {
+      console.error('Error changing the active session reasoning effort:', error);
+    }
+  }, [currentSessionId, provider, selectProviderEffort, selectedSession?.id]);
 
   // Mirrors ChatComposer's own visibility check so the message pane can
   // reserve enough bottom space to keep the floating status tab from
@@ -351,6 +362,7 @@ function ChatInterface({
           opencodeModel={opencodeModel}
           setOpenCodeModel={setOpenCodeModel}
           providerModelCatalog={providerModelCatalog}
+          providerModelActions={providerModelActions}
           providerModelsLoading={providerModelsLoading}
           tasksEnabled={tasksEnabled}
           isTaskMasterInstalled={isTaskMasterInstalled}
@@ -405,7 +417,7 @@ function ChatInterface({
           providerLabel={selectedProviderLabel}
           effort={currentProviderEffort}
           availableEffortOptions={currentProviderEffortOptions}
-          onSelectEffort={(nextEffort) => setStoredProviderEffort(provider, nextEffort)}
+          onSelectEffort={handleSelectComposerEffort}
           model={currentProviderModel}
           availableModelOptions={currentProviderModelOptions}
           onSelectModel={handleSelectComposerModel}
@@ -466,9 +478,9 @@ function ChatInterface({
         payload={commandModalPayload}
         onClose={closeCommandModal}
         providerModelCatalog={providerModelCatalog}
-        providerModelCacheCatalog={providerModelCacheCatalog}
-        providerModelsRefreshing={providerModelsRefreshing}
-        onHardRefreshProviderModels={hardRefreshProviderModels}
+        providerModelActions={providerModelActions}
+        activeProvider={provider}
+        activeProviderModel={currentProviderModel}
         currentSessionId={currentSessionId || selectedSession?.id || null}
         onSelectProviderModel={selectProviderModel}
       />

@@ -1,6 +1,6 @@
 import { Settings, Sparkles, PanelLeftOpen, Bug, AlertTriangle } from 'lucide-react';
 import type { TFunction } from 'i18next';
-import { SHOW_COMMUNITY_LINKS } from '../../../../constants/config';
+import { SHOW_COMMUNITY_LINKS } from '../../../../shared/utils';
 import { useIsAdmin } from '../../../../hooks/useIsAdmin';
 
 const DISCORD_INVITE_URL = 'https://discord.gg/buxwujPNRE';
