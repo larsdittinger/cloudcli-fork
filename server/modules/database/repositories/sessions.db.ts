@@ -13,6 +13,8 @@ type SessionRow = {
   model: string | null;
   /** Reasoning effort this session runs with; NULL until the app records one. */
   effort: string | null;
+  /** User who started the chat in the web app; NULL for unowned sessions. */
+  owner_user_id: number | null;
   isArchived: number;
   created_at: string;
   updated_at: string;
@@ -24,7 +26,25 @@ type RecentSessionsPage = {
 };
 
 const SESSION_ROW_COLUMNS =
-  'session_id, provider, provider_session_id, project_path, jsonl_path, custom_name, model, effort, isArchived, created_at, updated_at';
+  'session_id, provider, provider_session_id, project_path, jsonl_path, custom_name, model, effort, owner_user_id, isArchived, created_at, updated_at';
+
+/**
+ * Owner scope for session queries.
+ *
+ * `null`/`undefined` means "no filter" — the caller sees every session, which
+ * is what an admin gets. A user id restricts the result to that user's own
+ * sessions; rows with a NULL owner never match, so sessions created before
+ * multi-user or outside the web app stay admin-only.
+ */
+export type SessionOwnerScope = number | null | undefined;
+
+function ownerScopeClause(ownerUserId: SessionOwnerScope, column = 'owner_user_id'): string {
+  return typeof ownerUserId === 'number' ? ` AND ${column} = ?` : '';
+}
+
+function ownerScopeParams(ownerUserId: SessionOwnerScope): number[] {
+  return typeof ownerUserId === 'number' ? [ownerUserId] : [];
+}
 
 const SQLITE_UTC_TIMESTAMP_REGEX = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/;
 
@@ -175,6 +195,7 @@ export const sessionsDb = {
     provider: string,
     projectPath: string,
     customName?: string,
+    ownerUserId?: number | null,
   ): string {
     const db = getConnection();
     const normalizedProjectPath = normalizeProjectPathForProvider(provider, projectPath);
@@ -182,9 +203,15 @@ export const sessionsDb = {
     projectsDb.createProjectPath(normalizedProjectPath);
 
     db.prepare(
-      `INSERT INTO sessions (session_id, provider, provider_session_id, custom_name, project_path, jsonl_path, isArchived, created_at, updated_at)
-       VALUES (?, ?, NULL, ?, ?, NULL, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`
-    ).run(sessionId, provider, customName ?? null, normalizedProjectPath);
+      `INSERT INTO sessions (session_id, provider, provider_session_id, custom_name, project_path, jsonl_path, owner_user_id, isArchived, created_at, updated_at)
+       VALUES (?, ?, NULL, ?, ?, NULL, ?, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`
+    ).run(
+      sessionId,
+      provider,
+      customName ?? null,
+      normalizedProjectPath,
+      typeof ownerUserId === 'number' ? ownerUserId : null,
+    );
 
     return sessionId;
   },
@@ -273,6 +300,24 @@ export const sessionsDb = {
        SET custom_name = ?
        WHERE session_id = ?`
     ).run(customName, sessionId);
+  },
+
+  /**
+   * Returns the owner of one session, `null` when it has none, and `undefined`
+   * when no such session exists. Access checks need those three cases apart:
+   * an unowned session is admin-only, a missing one is simply a 404 later.
+   */
+  getSessionOwnerId(sessionId: string): number | null | undefined {
+    const db = getConnection();
+    const row = db
+      .prepare('SELECT owner_user_id FROM sessions WHERE session_id = ?')
+      .get(sessionId) as { owner_user_id: number | null } | undefined;
+
+    if (!row) {
+      return undefined;
+    }
+
+    return row.owner_user_id ?? null;
   },
 
   getSessionById(sessionId: string): SessionRow | null {
@@ -370,12 +415,18 @@ export const sessionsDb = {
    * and correctly ordered across projects instead of flattening only the
    * per-project slices already loaded by the client.
    */
-  getRecentSessionsPage(limit: number, offset: number): RecentSessionsPage {
+  getRecentSessionsPage(
+    limit: number,
+    offset: number,
+    ownerUserId?: SessionOwnerScope,
+  ): RecentSessionsPage {
     const db = getConnection();
     const visibilityClause = `
       sessions.isArchived = 0
       AND (projects.isArchived IS NULL OR projects.isArchived = 0)
+      ${ownerScopeClause(ownerUserId, 'sessions.owner_user_id')}
     `;
+    const ownerParams = ownerScopeParams(ownerUserId);
     const rows = db
       .prepare(
         `SELECT sessions.*
@@ -386,7 +437,7 @@ export const sessionsDb = {
                   sessions.session_id DESC
          LIMIT ? OFFSET ?`
       )
-      .all(limit, offset) as SessionRow[];
+      .all(...ownerParams, limit, offset) as SessionRow[];
     const countRow = db
       .prepare(
         `SELECT COUNT(*) AS count
@@ -394,7 +445,7 @@ export const sessionsDb = {
          LEFT JOIN projects ON projects.project_path = sessions.project_path
          WHERE ${visibilityClause}`
       )
-      .get() as { count: number } | undefined;
+      .get(...ownerParams) as { count: number } | undefined;
 
     return {
       sessions: normalizeSessionRows(rows),
@@ -406,21 +457,21 @@ export const sessionsDb = {
    * Archived rows are intentionally queried separately so the caller can render
    * them in a dedicated view without reintroducing them into active session lists.
    */
-  getArchivedSessions(): SessionRow[] {
+  getArchivedSessions(ownerUserId?: SessionOwnerScope): SessionRow[] {
     const db = getConnection();
     const rows = db
       .prepare(
         `SELECT ${SESSION_ROW_COLUMNS}
          FROM sessions
-         WHERE isArchived = 1
+         WHERE isArchived = 1${ownerScopeClause(ownerUserId)}
          ORDER BY datetime(COALESCE(updated_at, created_at)) DESC, session_id DESC`
       )
-      .all() as SessionRow[];
+      .all(...ownerScopeParams(ownerUserId)) as SessionRow[];
 
     return normalizeSessionRows(rows);
   },
 
-  getSessionsByProjectPath(projectPath: string): SessionRow[] {
+  getSessionsByProjectPath(projectPath: string, ownerUserId?: SessionOwnerScope): SessionRow[] {
     const db = getConnection();
     const normalizedProjectPath = normalizeProjectPath(projectPath);
     const rows = db
@@ -428,9 +479,9 @@ export const sessionsDb = {
         `SELECT ${SESSION_ROW_COLUMNS}
          FROM sessions
          WHERE project_path = ?
-           AND isArchived = 0`
+           AND isArchived = 0${ownerScopeClause(ownerUserId)}`
       )
-      .all(normalizedProjectPath) as SessionRow[];
+      .all(normalizedProjectPath, ...ownerScopeParams(ownerUserId)) as SessionRow[];
 
     return normalizeSessionRows(rows);
   },
@@ -453,7 +504,12 @@ export const sessionsDb = {
     return normalizeSessionRows(rows);
   },
 
-  getSessionsByProjectPathPage(projectPath: string, limit: number, offset: number): SessionRow[] {
+  getSessionsByProjectPathPage(
+    projectPath: string,
+    limit: number,
+    offset: number,
+    ownerUserId?: SessionOwnerScope,
+  ): SessionRow[] {
     const db = getConnection();
     const normalizedProjectPath = normalizeProjectPath(projectPath);
     const rows = db
@@ -461,16 +517,16 @@ export const sessionsDb = {
         `SELECT ${SESSION_ROW_COLUMNS}
          FROM sessions
          WHERE project_path = ?
-           AND isArchived = 0
+           AND isArchived = 0${ownerScopeClause(ownerUserId)}
          ORDER BY datetime(COALESCE(updated_at, created_at)) DESC, session_id DESC
          LIMIT ? OFFSET ?`
       )
-      .all(normalizedProjectPath, limit, offset) as SessionRow[];
+      .all(normalizedProjectPath, ...ownerScopeParams(ownerUserId), limit, offset) as SessionRow[];
 
     return normalizeSessionRows(rows);
   },
 
-  countSessionsByProjectPath(projectPath: string): number {
+  countSessionsByProjectPath(projectPath: string, ownerUserId?: SessionOwnerScope): number {
     const db = getConnection();
     const normalizedProjectPath = normalizeProjectPath(projectPath);
     const row = db
@@ -478,9 +534,9 @@ export const sessionsDb = {
         `SELECT COUNT(*) AS count
          FROM sessions
          WHERE project_path = ?
-           AND isArchived = 0`
+           AND isArchived = 0${ownerScopeClause(ownerUserId)}`
       )
-      .get(normalizedProjectPath) as { count: number } | undefined;
+      .get(normalizedProjectPath, ...ownerScopeParams(ownerUserId)) as { count: number } | undefined;
 
     return Number(row?.count ?? 0);
   },

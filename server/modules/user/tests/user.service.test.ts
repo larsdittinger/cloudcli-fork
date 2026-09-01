@@ -59,3 +59,18 @@ test('updateGitConfig persists valid input and invokes the Git adapter', async (
     'git:Alice:alice@example.com',
   ]);
 });
+
+test('restricted users never see the onboarding flow', () => {
+  // Git identity and the provider login are host-wide and set up by the admin;
+  // a restricted user has neither the git tab nor the settings to change them.
+  const service = createUserService(createDependencies());
+
+  assert.equal(service.getOnboardingStatus(7, 'restricted').hasCompletedOnboarding, true);
+});
+
+test('admins still get the onboarding flow until they finish it', () => {
+  const service = createUserService(createDependencies());
+
+  assert.equal(service.getOnboardingStatus(7, 'admin').hasCompletedOnboarding, false);
+  assert.equal(service.getOnboardingStatus(7).hasCompletedOnboarding, false);
+});

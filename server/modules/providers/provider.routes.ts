@@ -18,9 +18,42 @@ import type {
   UpsertProviderMcpServerInput,
 } from '@/shared/types.js';
 import { AppError, asyncHandler, createApiSuccessResponse } from '@/shared/utils.js';
-import { requireAdmin } from '@/modules/auth/index.js';
+import {
+  assertProjectPathAccess,
+  assertSessionAccess,
+  requireAdmin,
+  resolveSessionOwnerScope,
+} from '@/modules/auth/index.js';
 
 const router = express.Router();
+
+type AuthenticatedUser = { id?: number | string; role?: string };
+
+function readAuthenticatedUser(request: Request): AuthenticatedUser | undefined {
+  return (request as Request & { user?: AuthenticatedUser }).user;
+}
+
+/**
+ * Owner id that session listings must be filtered by, or `null` for admins.
+ */
+function readSessionOwnerScope(request: Request): number | null {
+  return resolveSessionOwnerScope(readAuthenticatedUser(request));
+}
+
+/**
+ * Every route in this router that addresses one session by id goes through
+ * this guard, so a restricted user cannot read, rename, delete, or reconfigure
+ * a chat that belongs to somebody else. Registering it as a router param keeps
+ * new `:sessionId` routes covered by default instead of by remembering.
+ */
+router.param('sessionId', (request, _response, next, value) => {
+  try {
+    assertSessionAccess(readAuthenticatedUser(request), String(value));
+    next();
+  } catch (error) {
+    next(error);
+  }
+});
 
 const readPathParam = (value: unknown, name: string): string => {
   if (typeof value === 'string') {
@@ -710,15 +743,21 @@ router.post(
     const provider = parseProvider(body.provider);
     const projectPath = typeof body.projectPath === 'string' ? body.projectPath : '';
     const initialMessage = typeof body.initialMessage === 'string' ? body.initialMessage : '';
-    const result = sessionsService.createAppSession(provider, projectPath, initialMessage);
+    assertProjectPathAccess(readAuthenticatedUser(req), projectPath);
+    const result = sessionsService.createAppSession(
+      provider,
+      projectPath,
+      initialMessage,
+      readSessionOwnerScope(req),
+    );
     res.status(201).json(createApiSuccessResponse(result));
   }),
 );
 
 router.get(
   '/sessions/running',
-  asyncHandler(async (_req: Request, res: Response) => {
-    const sessions = sessionsService.listRunningSessions();
+  asyncHandler(async (req: Request, res: Response) => {
+    const sessions = sessionsService.listRunningSessions(readSessionOwnerScope(req));
     res.json(createApiSuccessResponse({ sessions }));
   }),
 );
@@ -728,15 +767,15 @@ router.get(
   asyncHandler(async (req: Request, res: Response) => {
     const limit = parseBoundedIntegerQuery(req.query.limit, 'limit', 40, 1, 100);
     const offset = parseBoundedIntegerQuery(req.query.offset, 'offset', 0, 0);
-    const page = sessionsService.listRecentSessions(limit, offset);
+    const page = sessionsService.listRecentSessions(limit, offset, readSessionOwnerScope(req));
     res.json(createApiSuccessResponse(page));
   }),
 );
 
 router.get(
   '/sessions/archived',
-  asyncHandler(async (_req: Request, res: Response) => {
-    const sessions = sessionsService.listArchivedSessions();
+  asyncHandler(async (req: Request, res: Response) => {
+    const sessions = sessionsService.listArchivedSessions(readSessionOwnerScope(req));
     res.json(createApiSuccessResponse({ sessions }));
   }),
 );

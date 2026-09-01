@@ -8,6 +8,7 @@ import { getArchivedProjectsWithSessions, getProjectSessionsPage, getProjectsWit
 import { deleteOrArchiveProject, restoreArchivedProject } from '@/modules/projects/services/project-delete.service.js';
 import { applyLegacyStarredProjectIds, toggleProjectStar } from '@/modules/projects/services/project-star.service.js';
 import { userProjectAccessDb } from '@/modules/database/index.js';
+import { resolveSessionOwnerScope } from '@/modules/auth/index.js';
 
 const router = express.Router();
 
@@ -43,6 +44,14 @@ function assertProjectAccess(req: express.Request, projectId: string): void {
       statusCode: 403,
     });
   }
+}
+
+/**
+ * Owner id the listed sessions must belong to, or `null` when the caller sees
+ * every chat in the project (admins).
+ */
+function readSessionOwnerScope(req: express.Request): number | null {
+  return resolveSessionOwnerScope(readAuthenticatedUser(req));
 }
 
 function readQueryStringValue(value: unknown): string {
@@ -108,6 +117,7 @@ router.get(
       skipSynchronization,
       sessionsLimit,
       sessionsOffset,
+      ownerUserId: readSessionOwnerScope(req),
     });
 
     const user = readAuthenticatedUser(req);
@@ -142,7 +152,11 @@ router.get(
     assertProjectAccess(req, projectId);
     const limit = parseNonNegativeIntQuery(req.query.limit, 'limit', 20);
     const offset = parseNonNegativeIntQuery(req.query.offset, 'offset', 0);
-    const sessionsPage = await getProjectSessionsPage(projectId, { limit, offset });
+    const sessionsPage = await getProjectSessionsPage(projectId, {
+      limit,
+      offset,
+      ownerUserId: readSessionOwnerScope(req),
+    });
     res.json(sessionsPage);
   }),
 );

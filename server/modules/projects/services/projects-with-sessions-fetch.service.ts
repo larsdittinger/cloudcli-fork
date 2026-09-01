@@ -51,6 +51,8 @@ type GetProjectsWithSessionsOptions = {
   skipSynchronization?: boolean;
   sessionsLimit?: number;
   sessionsOffset?: number;
+  /** Restricts the listed sessions to one owner; omitted for admins. */
+  ownerUserId?: number | null;
 };
 
 type SessionPaginationOptions = {
@@ -143,14 +145,16 @@ function readProjectSessionsIncludingArchived(projectPath: string): ProjectSessi
 function readProjectSessionsPageByPath(
   projectPath: string,
   options: SessionPaginationOptions = {},
+  ownerUserId?: number | null,
 ): ProjectSessionsPageResult {
   const pagination = normalizeSessionPagination(options);
   const rows = sessionsDb.getSessionsByProjectPathPage(
     projectPath,
     pagination.limit,
     pagination.offset,
+    ownerUserId,
   ) as SessionRepositoryRow[];
-  const total = sessionsDb.countSessionsByProjectPath(projectPath);
+  const total = sessionsDb.countSessionsByProjectPath(projectPath, ownerUserId);
 
   return {
     sessions: rows.map(mapSessionRowToSummary),
@@ -212,10 +216,14 @@ export async function getProjectsWithSessions(
         ? row.custom_project_name
         : await generateDisplayName(path.basename(projectPath) || projectPath, projectPath);
 
-    const sessionsPage = readProjectSessionsPageByPath(projectPath, {
-      limit: options.sessionsLimit,
-      offset: options.sessionsOffset,
-    });
+    const sessionsPage = readProjectSessionsPageByPath(
+      projectPath,
+      {
+        limit: options.sessionsLimit,
+        offset: options.sessionsOffset,
+      },
+      options.ownerUserId,
+    );
 
     projects.push({
       projectId,
@@ -292,7 +300,7 @@ export async function getArchivedProjectsWithSessions(
  */
 export async function getProjectSessionsPage(
   projectId: string,
-  options: SessionPaginationOptions = {},
+  options: SessionPaginationOptions & { ownerUserId?: number | null } = {},
 ): Promise<ProjectSessionsPageApiView> {
   const projectRow = projectsDb.getProjectById(projectId);
   if (!projectRow) {
@@ -302,7 +310,11 @@ export async function getProjectSessionsPage(
     });
   }
 
-  const sessionsPage = readProjectSessionsPageByPath(projectRow.project_path, options);
+  const sessionsPage = readProjectSessionsPageByPath(
+    projectRow.project_path,
+    options,
+    options.ownerUserId,
+  );
   return {
     projectId: projectRow.project_id,
     sessions: sessionsPage.sessions,

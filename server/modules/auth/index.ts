@@ -9,3 +9,12 @@ export { authenticateWebSocket } from './auth.middleware.js';
 export { validateApiKey } from './auth.middleware.js';
 // requireAdmin: used by the server entrypoint and route modules to gate admin-only endpoints.
 export { requireAdmin } from './auth.middleware.js';
+
+// Session access helpers: used by Projects, Providers, and the chat WebSocket to
+// keep restricted users inside their own chats and granted projects.
+export {
+  assertProjectPathAccess,
+  assertSessionAccess,
+  canAccessSession,
+  resolveSessionOwnerScope,
+} from './session-access.js';

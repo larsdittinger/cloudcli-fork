@@ -2,6 +2,7 @@ import path from 'node:path';
 
 import type { WebSocket } from 'ws';
 
+import { canAccessSession } from '@/modules/auth/index.js';
 import { sessionsDb } from '@/modules/database/index.js';
 import { providerModelsService } from '@/modules/providers/index.js';
 import { chatRunRegistry } from '@/modules/websocket/services/chat-run-registry.service.js';
@@ -15,6 +16,7 @@ import {
 import type {
   AnyRecord,
   AuthenticatedWebSocketRequest,
+  AuthenticatedWebSocketUser,
   LLMProvider,
   ProviderPermissionDecision,
   ProviderRuntimeWriter,
@@ -105,6 +107,31 @@ function readRequestUserId(
   return null;
 }
 
+/**
+ * Refuses one message that addresses a session the socket's user does not own.
+ *
+ * Listing endpoints already hide other users' chats, but a session id is not a
+ * secret: without this check a restricted user could read or continue any
+ * conversation whose id they learned.
+ */
+function denySessionAccess(
+  ws: WebSocket,
+  user: AuthenticatedWebSocketUser | undefined,
+  sessionId: string
+): boolean {
+  if (canAccessSession(user, sessionId)) {
+    return false;
+  }
+
+  sendProtocolError(
+    ws,
+    'SESSION_ACCESS_DENIED',
+    'Session access denied',
+    sessionId
+  );
+  return true;
+}
+
 function sendJson(ws: WebSocket, payload: unknown): void {
   if (ws.readyState === WS_OPEN_STATE) {
     ws.send(JSON.stringify(payload));
@@ -145,6 +172,7 @@ function readRequiredSessionId(data: AnyRecord): string | null {
  */
 async function handleChatSend(
   ws: WebSocket,
+  user: AuthenticatedWebSocketUser | undefined,
   userId: string | number | null,
   data: AnyRecord,
   dependencies: ChatWebSocketDependencies
@@ -152,6 +180,10 @@ async function handleChatSend(
   const sessionId = readRequiredSessionId(data);
   if (!sessionId) {
     sendProtocolError(ws, 'SESSION_ID_REQUIRED', 'chat.send requires a sessionId.');
+    return;
+  }
+
+  if (denySessionAccess(ws, user, sessionId)) {
     return;
   }
 
@@ -253,12 +285,17 @@ async function handleChatSend(
  */
 async function handleChatAbort(
   ws: WebSocket,
+  user: AuthenticatedWebSocketUser | undefined,
   data: AnyRecord,
   dependencies: ChatWebSocketDependencies
 ): Promise<void> {
   const sessionId = readRequiredSessionId(data);
   if (!sessionId) {
     sendProtocolError(ws, 'SESSION_ID_REQUIRED', 'chat.abort requires a sessionId.');
+    return;
+  }
+
+  if (denySessionAccess(ws, user, sessionId)) {
     return;
   }
 
@@ -286,6 +323,7 @@ async function handleChatAbort(
  */
 function handleChatSubscribe(
   ws: WebSocket,
+  user: AuthenticatedWebSocketUser | undefined,
   data: AnyRecord,
   dependencies: ChatWebSocketDependencies
 ): void {
@@ -300,6 +338,13 @@ function handleChatSubscribe(
       ? ((target as AnyRecord).sessionId as string).trim()
       : '';
     if (!sessionId) {
+      continue;
+    }
+
+    // Subscribing to a session the user cannot see is dropped without an
+    // error frame: the client subscribes in batches and an unknown id is not
+    // worth telling it apart from one that belongs to somebody else.
+    if (!canAccessSession(user, sessionId)) {
       continue;
     }
 
@@ -382,6 +427,7 @@ export function handleChatConnection(
   console.log('[INFO] Chat WebSocket connected');
   connectedClients.add(ws);
 
+  const user = request?.user;
   const userId = readRequestUserId(request);
 
   ws.on('message', async (rawMessage) => {
@@ -396,13 +442,13 @@ export function handleChatConnection(
 
       switch (messageType) {
         case 'chat.send':
-          await handleChatSend(ws, userId, data, dependencies);
+          await handleChatSend(ws, user, userId, data, dependencies);
           return;
         case 'chat.abort':
-          await handleChatAbort(ws, data, dependencies);
+          await handleChatAbort(ws, user, data, dependencies);
           return;
         case 'chat.subscribe':
-          handleChatSubscribe(ws, data, dependencies);
+          handleChatSubscribe(ws, user, data, dependencies);
           return;
         case 'chat.permission-response':
           handlePermissionResponse(data, dependencies);

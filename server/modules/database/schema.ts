@@ -114,6 +114,11 @@ CREATE TABLE IF NOT EXISTS sessions (
     -- restores its exact runtime configuration instead of provider defaults.
     model TEXT,
     effort TEXT,
+    -- User who started this chat in the web app. NULL means the session has no
+    -- owner: it predates multi-user, or it was started outside the app (provider
+    -- CLI, cron plugin). Restricted users only ever see their own rows, so an
+    -- unowned session stays visible to admins only.
+    owner_user_id INTEGER,
     isArchived BOOLEAN DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,

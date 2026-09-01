@@ -129,20 +129,31 @@ export const sessionsService = {
    * This is intentionally status-only: callers that only need sidebar activity
    * indicators should not attach to chat streams or request replayed messages.
    */
-  listRunningSessions(): Array<{
+  listRunningSessions(ownerUserId?: number | null): Array<{
     sessionId: string;
     provider: LLMProvider;
     startedAt: number;
     lastSeq: number;
   }> {
-    return chatRunRegistry.listRunningRuns();
+    const runningSessions = chatRunRegistry.listRunningRuns();
+    if (typeof ownerUserId !== 'number') {
+      return runningSessions;
+    }
+
+    return runningSessions.filter(
+      (run) => sessionsDb.getSessionOwnerId(run.sessionId) === ownerUserId,
+    );
   },
 
   /**
    * Returns the active conversation feed in true global activity order.
    */
-  listRecentSessions(limit: number, offset: number): RecentSessionsPage {
-    const page = sessionsDb.getRecentSessionsPage(limit, offset);
+  listRecentSessions(
+    limit: number,
+    offset: number,
+    ownerUserId?: number | null,
+  ): RecentSessionsPage {
+    const page = sessionsDb.getRecentSessionsPage(limit, offset, ownerUserId);
     const projectCache = new Map<string, ReturnType<typeof projectsDb.getProjectPath>>();
     const conversations = page.sessions.map((session) => {
       const projectPath = session.project_path?.trim() ? session.project_path : null;
@@ -215,6 +226,7 @@ export const sessionsService = {
     provider: LLMProvider,
     projectPath: string,
     initialMessage: string,
+    ownerUserId?: number | null,
   ): CreateAppSessionResult {
     const normalizedProjectPath = projectPath.trim();
     if (!normalizedProjectPath) {
@@ -226,7 +238,13 @@ export const sessionsService = {
 
     const sessionId = randomUUID();
     const sessionName = buildCloudCliSessionName(initialMessage);
-    sessionsDb.createAppSession(sessionId, provider, normalizedProjectPath, sessionName);
+    sessionsDb.createAppSession(
+      sessionId,
+      provider,
+      normalizedProjectPath,
+      sessionName,
+      ownerUserId,
+    );
 
     return {
       sessionId,
@@ -356,8 +374,8 @@ export const sessionsService = {
    * Returns archived sessions with enough project metadata for the sidebar to
    * group, filter, open, and restore them without a per-row follow-up query.
    */
-  listArchivedSessions(): ArchivedSessionListItem[] {
-    const archivedSessions = sessionsDb.getArchivedSessions();
+  listArchivedSessions(ownerUserId?: number | null): ArchivedSessionListItem[] {
+    const archivedSessions = sessionsDb.getArchivedSessions(ownerUserId);
     const projectCache = new Map<string, ReturnType<typeof projectsDb.getProjectPath>>();
 
     return archivedSessions.map((session) => {

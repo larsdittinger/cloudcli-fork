@@ -75,7 +75,17 @@ export function createUserService(dependencies: UserDependencies) {
       return { success: true, message: 'Onboarding completed successfully' };
     },
 
-    getOnboardingStatus(userId: number) {
+    /**
+     * Restricted users skip onboarding entirely: it only asks for a git
+     * identity and a provider login, both of which are host-wide and owned by
+     * the admin who set the instance up. Reported from the server so the step
+     * cannot be reintroduced by a stale client.
+     */
+    getOnboardingStatus(userId: number, role?: string) {
+      if (role === 'restricted') {
+        return { success: true, hasCompletedOnboarding: true };
+      }
+
       return {
         success: true,
         hasCompletedOnboarding: dependencies.users.hasCompletedOnboarding(userId),

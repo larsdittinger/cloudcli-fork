@@ -2,11 +2,15 @@ import express from 'express';
 
 import type { createUserService } from './user.service.js';
 
-type AuthenticatedRequest = express.Request & { user?: { id?: number | string } };
+type AuthenticatedRequest = express.Request & { user?: { id?: number | string; role?: string } };
 
 function readUserId(request: express.Request): number {
   const rawUserId = (request as AuthenticatedRequest).user?.id;
   return Number(rawUserId);
+}
+
+function readUserRole(request: express.Request): string | undefined {
+  return (request as AuthenticatedRequest).user?.role;
 }
 
 /** Creates thin user routes that parse authenticated input and call the service. */
@@ -40,7 +44,7 @@ export function createUserRouter(service: ReturnType<typeof createUserService>):
 
   router.get('/onboarding-status', (req, res, next) => {
     try {
-      res.json(service.getOnboardingStatus(readUserId(req)));
+      res.json(service.getOnboardingStatus(readUserId(req), readUserRole(req)));
     } catch (error) {
       next(error);
     }
