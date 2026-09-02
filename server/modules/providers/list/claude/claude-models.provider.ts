@@ -42,8 +42,23 @@ export const CLAUDE_PREDEFINED_MODELS: ProviderModelsDefinition = {
     },
     {
       value: 'fable',
-      label: 'Fable 5',
+      label: 'Fable (latest)',
       description: 'Most capable Claude model for the hardest, longest-running tasks.',
+      effort: {
+        default: 'high',
+        values: [
+          { value: 'low' },
+          { value: 'medium' },
+          { value: 'high' },
+          { value: 'xhigh' },
+          { value: 'max' },
+        ],
+      },
+    },
+    {
+      value: 'claude-fable-5-1',
+      label: 'Fable 5.1',
+      description: 'Pinned to claude-fable-5-1 instead of following the "fable" alias.',
       effort: {
         default: 'high',
         values: [
