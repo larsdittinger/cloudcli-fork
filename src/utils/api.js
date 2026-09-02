@@ -1,5 +1,7 @@
 import { IS_PLATFORM } from "../shared/utils";
 
+import { shouldExpireSession } from "./authSessionPolicy";
+
 export const AUTH_TOKEN_REFRESHED_EVENT = 'auth-token-refreshed';
 export const AUTH_SESSION_EXPIRED_EVENT = 'auth-session-expired';
 
@@ -117,7 +119,15 @@ export const authenticatedFetch = (url, options = {}) => {
     if (refreshedToken) {
       storeAuthToken(refreshedToken);
     }
-    if (response.headers.get('X-Auth-Error')) {
+    // Read the stored token *now*, not at request time: a login may have
+    // completed while this request was on the wire. See shouldExpireSession().
+    if (
+      shouldExpireSession(
+        Boolean(response.headers.get('X-Auth-Error')),
+        token,
+        localStorage.getItem('auth-token'),
+      )
+    ) {
       expireAuthSession();
     }
     return response;
@@ -128,7 +138,7 @@ export const authenticatedFetch = (url, options = {}) => {
 export const api = {
   // Auth endpoints (no token required)
   auth: {
-    status: () => fetch('/api/auth/status'),
+    status: (init) => fetch('/api/auth/status', init),
     login: (username, password) => fetch('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -140,7 +150,7 @@ export const api = {
       body: JSON.stringify({ username, password }),
     }),
     refresh: () => authenticatedFetch('/api/auth/refresh', { method: 'POST' }),
-    user: () => authenticatedFetch('/api/auth/user'),
+    user: (init) => authenticatedFetch('/api/auth/user', init),
     logout: () => authenticatedFetch('/api/auth/logout', { method: 'POST' }),
   },
 

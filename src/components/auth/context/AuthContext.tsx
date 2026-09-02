@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 
 import { IS_PLATFORM } from '../../../shared/utils';
 import {
@@ -22,6 +22,17 @@ import type {
 import { parseJsonSafely, resolveApiErrorMessage } from '../utils';
 
 const AuthContext = createContext<AuthContextValue | null>(null);
+
+// Without a deadline a request that never settles (a phone that lost the radio
+// mid-flight) leaves ProtectedRoute on AuthLoadingScreen forever — a blank grey
+// page with no way out but a manual reload. On timeout the check fails, which
+// surfaces the login form instead.
+const AUTH_STATUS_TIMEOUT_MS = 15_000;
+
+const createTimeoutSignal = (): AbortSignal | undefined =>
+  typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'
+    ? AbortSignal.timeout(AUTH_STATUS_TIMEOUT_MS)
+    : undefined;
 
 const readStoredToken = (): string | null => localStorage.getItem(AUTH_TOKEN_STORAGE_KEY);
 
@@ -130,7 +141,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
       setIsLoading(true);
       setError(null);
 
-      const statusResponse = await api.auth.status();
+      const signal = createTimeoutSignal();
+      const statusResponse = await api.auth.status({ signal });
       const statusPayload = await parseJsonSafely<AuthStatusPayload>(statusResponse);
 
       if (statusPayload?.needsSetup) {
@@ -144,7 +156,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         return;
       }
 
-      const userResponse = await api.auth.user();
+      const userResponse = await api.auth.user({ signal });
       if (!userResponse.ok) {
         clearSession();
         return;
@@ -166,7 +178,19 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
   }, [checkOnboardingStatus, clearSession, token]);
 
+  // checkAuthStatus is rebuilt whenever `token` changes, so without this guard
+  // login() -> setSession() -> new token re-runs the whole check and flips
+  // isLoading back on, dropping the freshly logged-in user back onto the
+  // loading screen. login() already sets user and token itself, so the check
+  // only belongs on mount.
+  const hasCheckedAuthOnMountRef = useRef(false);
+
   useEffect(() => {
+    if (hasCheckedAuthOnMountRef.current) {
+      return;
+    }
+    hasCheckedAuthOnMountRef.current = true;
+
     if (IS_PLATFORM) {
       setUser({ username: 'platform-user' });
       setNeedsSetup(false);

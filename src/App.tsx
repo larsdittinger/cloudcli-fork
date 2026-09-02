@@ -108,20 +108,23 @@ export default function App() {
       <ThemeProvider>
         <AuthProvider>
           <WebSocketProvider>
-            <PluginsProvider>
-              <TasksSettingsProvider>
-                <TaskMasterProvider>
-                <ProtectedRoute>
-                  <Router basename={routerBasename}>
-                    <Routes>
-                      <Route path="/" element={<AppContent />} />
-                      <Route path="/session/:sessionId" element={<AppContent />} />
-                    </Routes>
-                  </Router>
-                </ProtectedRoute>
-                </TaskMasterProvider>
-              </TasksSettingsProvider>
-            </PluginsProvider>
+            {/* Providers that fetch on mount live *inside* ProtectedRoute: outside
+                it they fire their requests before there is a session, and every
+                one of those 401s carries X-Auth-Error. */}
+            <ProtectedRoute>
+              <PluginsProvider>
+                <TasksSettingsProvider>
+                  <TaskMasterProvider>
+                    <Router basename={routerBasename}>
+                      <Routes>
+                        <Route path="/" element={<AppContent />} />
+                        <Route path="/session/:sessionId" element={<AppContent />} />
+                      </Routes>
+                    </Router>
+                  </TaskMasterProvider>
+                </TasksSettingsProvider>
+              </PluginsProvider>
+            </ProtectedRoute>
           </WebSocketProvider>
         </AuthProvider>
       </ThemeProvider>
