@@ -156,7 +156,9 @@ const authenticateWebSocket = (token) => {
     if (!user) {
       return null;
     }
-    return { userId: user.id, username: user.username, role: user.role };
+    // `id` mirrors the platform-mode payload (and the REST `req.user` row) so
+    // downstream consumers do not have to know which auth flow produced it.
+    return { id: user.id, userId: user.id, username: user.username, role: user.role };
   } catch (error) {
     if (!(error instanceof jwt.TokenExpiredError)) {
       console.warn(

@@ -12,6 +12,12 @@ import { AppError } from '@/shared/utils.js';
 
 export type SessionAccessUser = {
   id?: number | string;
+  /**
+   * The websocket auth payload carries `userId` instead of `id` (REST hands
+   * routes the database row, which has `id`). Both shapes reach this module,
+   * so both are accepted.
+   */
+  userId?: number | string;
   role?: 'admin' | 'restricted' | string;
 } | null | undefined;
 
@@ -31,7 +37,7 @@ export function resolveSessionOwnerScope(user: SessionAccessUser): number | null
     return null;
   }
 
-  const ownerUserId = Number(user?.id);
+  const ownerUserId = Number(user?.id ?? user?.userId);
   if (!Number.isInteger(ownerUserId)) {
     throw new AppError('Session access denied', {
       code: 'SESSION_ACCESS_DENIED',

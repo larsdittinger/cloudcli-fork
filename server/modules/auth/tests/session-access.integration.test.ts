@@ -52,6 +52,13 @@ test('resolveSessionOwnerScope scopes a restricted user to their own id', () => 
   assert.equal(resolveSessionOwnerScope({ id: '7', role: 'restricted' }), 7);
 });
 
+test('resolveSessionOwnerScope accepts the websocket user shape', () => {
+  // authenticateWebSocket hands handlers `{ userId, username, role }` — no `id`.
+  assert.equal(resolveSessionOwnerScope({ userId: 7, role: 'restricted' }), 7);
+  assert.equal(resolveSessionOwnerScope({ userId: '7', role: 'restricted' }), 7);
+  assert.equal(resolveSessionOwnerScope({ userId: 1, role: 'admin' }), null);
+});
+
 test('a restricted user without a usable id is scoped to nothing', () => {
   assert.throws(
     () => resolveSessionOwnerScope({ role: 'restricted' }),
