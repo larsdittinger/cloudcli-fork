@@ -107,3 +107,20 @@ test('legacy provider-keyed rows stay resolvable through both lookups', async ()
     assert.equal(sessionsDb.getSessionByProviderSessionId('legacy-1')?.session_id, 'legacy-1');
   });
 });
+
+test('a restart does not turn an unstarted app session into a resume target', async () => {
+  await withIsolatedDatabase(async () => {
+    // A chat the user opened but never sent on: the provider has not announced
+    // an id yet, so `provider_session_id` must stay NULL. Backfilling it with
+    // the app id makes the next send resume a conversation the provider has
+    // never heard of ("No conversation found with session ID: ...").
+    sessionsDb.createAppSession('app-unstarted', 'claude', '/workspace/demo', 'Ahoj');
+    assert.equal(sessionsDb.getSessionById('app-unstarted')?.provider_session_id, null);
+
+    // Second server start: migrations run again against the same database.
+    closeConnection();
+    await initializeDatabase();
+
+    assert.equal(sessionsDb.getSessionById('app-unstarted')?.provider_session_id, null);
+  });
+});

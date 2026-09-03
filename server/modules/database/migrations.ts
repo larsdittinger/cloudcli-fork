@@ -391,17 +391,28 @@ const rebuildSessionsTableWithProjectSchema = (db: Database): void => {
  * Rows that existed before this migration were always keyed directly by the
  * provider-native session id, so backfilling `provider_session_id` with
  * `session_id` keeps every legacy row resolvable through the new mapping.
+ *
+ * The backfill runs ONLY when the column is being added, because migrations
+ * re-run on every server start. Once the mapping exists, a NULL means "the
+ * provider has not announced an id for this chat yet" — a session gateway row
+ * whose first run has not happened. Backfilling that would point the resume
+ * path at a conversation the provider never created, and the next send dies
+ * with "No conversation found with session ID: ...".
  */
 const addProviderSessionIdMapping = (db: Database): void => {
   const sessionsTableInfo = getTableInfo(db, 'sessions');
   const columnNames = sessionsTableInfo.map((column) => column.name);
+  const isLegacyDatabase = !columnNames.includes('provider_session_id');
 
   addColumnToTableIfNotExists(db, 'sessions', columnNames, 'provider_session_id', 'TEXT');
-  db.exec(`
-    UPDATE sessions
-    SET provider_session_id = session_id
-    WHERE provider_session_id IS NULL
-  `);
+
+  if (isLegacyDatabase) {
+    db.exec(`
+      UPDATE sessions
+      SET provider_session_id = session_id
+      WHERE provider_session_id IS NULL
+    `);
+  }
 };
 
 /**
