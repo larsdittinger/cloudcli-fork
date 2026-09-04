@@ -89,3 +89,75 @@ test('launchEmulatedContext: SingletonLock relaunch se zkusi znovu a projde', as
     }
   }
 });
+
+// ethia fork: TTL uklid bezel jen liene (pri dalsim requestu). Kdyz agent
+// dobehl, Chrome zustal viset donekonecna a snedl pamet kontejneru — proto
+// periodicky reaper.
+test('reaper tick zavre session, ktera prekrocila TTL, i bez dalsiho requestu', async () => {
+  const { sessions, reaperTick, sessionTtlMs } = __testables;
+  const id = 'ttl-reaper-session';
+  const davno = new Date(Date.now() - sessionTtlMs - 60_000).toISOString();
+  sessions.set(id, {
+    id,
+    ownerId: 'agent',
+    createdBy: 'agent',
+    status: 'ready',
+    url: null,
+    title: null,
+    screenshotDataUrl: null,
+    createdAt: davno,
+    updatedAt: davno,
+    lastAction: 'navigate',
+    message: null,
+    profileName: null,
+    viewport: { width: 1280, height: 800 },
+    emulation: defaultEmulation(),
+    cursor: null,
+  } as never);
+
+  try {
+    await reaperTick();
+
+    const session = sessions.get(id) as { status: string; lastAction: string } | undefined;
+    assert.equal(session?.status, 'stopped', 'prosla session musi byt zavrena bez dalsiho requestu');
+    assert.equal(session?.lastAction, 'expire');
+  } finally {
+    sessions.delete(id);
+  }
+});
+
+test('reaper se spusti se session a zase zhasne, kdyz zadna ready session nezbyva', async () => {
+  const { sessions, ensureSessionReaper, reaperTick, isReaperRunning } = __testables;
+  const id = 'reaper-lifecycle-session';
+  const davno = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
+  assert.equal(isReaperRunning(), false, 'bez sessions reaper netika');
+
+  sessions.set(id, {
+    id,
+    ownerId: 'agent',
+    createdBy: 'agent',
+    status: 'ready',
+    url: null,
+    title: null,
+    screenshotDataUrl: null,
+    createdAt: davno,
+    updatedAt: davno,
+    lastAction: 'create',
+    message: null,
+    profileName: null,
+    viewport: { width: 1280, height: 800 },
+    emulation: defaultEmulation(),
+    cursor: null,
+  } as never);
+
+  try {
+    ensureSessionReaper();
+    assert.equal(isReaperRunning(), true, 'se ready session ma reaper bezet');
+
+    await reaperTick();
+    assert.equal(isReaperRunning(), false, 'po uklidu posledni session se timer zastavi');
+  } finally {
+    sessions.delete(id);
+  }
+});

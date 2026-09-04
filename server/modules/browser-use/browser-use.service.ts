@@ -35,6 +35,13 @@ const require = createRequire(import.meta.url);
 const __dirname = getModuleDirectory(import.meta.url);
 const MAX_SESSIONS_PER_OWNER = Number.parseInt(process.env.CLOUDCLI_BROWSER_USE_MAX_SESSIONS_PER_OWNER || '3', 10);
 const SESSION_TTL_MS = Number.parseInt(process.env.CLOUDCLI_BROWSER_USE_SESSION_TTL_MS || String(30 * 60 * 1000), 10);
+// ethia fork: TTL se drive vynucoval jen pri dalsim requestu. Kdyz agent dobehl,
+// osirely Chrome bezel dal a v kontejneru s limitem pameti dotlacil server k
+// zamrznuti — reaper proto tika i bez provozu. 0 = vypnuto.
+const SESSION_REAPER_INTERVAL_MS = Number.parseInt(
+  process.env.CLOUDCLI_BROWSER_USE_REAPER_INTERVAL_MS || String(60 * 1000),
+  10,
+);
 const BROWSER_USE_SETTINGS_KEY = 'browser_use_settings';
 const BROWSER_USE_MCP_TOKEN_KEY = 'browser_use_mcp_token';
 
@@ -453,6 +460,43 @@ async function expireStaleSessions(now = Date.now()): Promise<void> {
   }));
 }
 
+let reaperTimer: ReturnType<typeof setInterval> | null = null;
+
+function hasReadySessions(): boolean {
+  return [...sessions.values()].some((session) => session.status === 'ready');
+}
+
+/** Uklid + zhasnuti timeru, jakmile uz neni co hlidat. */
+async function reaperTick(): Promise<void> {
+  try {
+    await expireStaleSessions();
+  } catch (error) {
+    console.error('[Browser] reaper tick selhal', error);
+  }
+  if (!hasReadySessions()) {
+    stopSessionReaper();
+  }
+}
+
+function ensureSessionReaper(): void {
+  if (reaperTimer || !Number.isFinite(SESSION_REAPER_INTERVAL_MS) || SESSION_REAPER_INTERVAL_MS <= 0) {
+    return;
+  }
+  reaperTimer = setInterval(() => {
+    void reaperTick();
+  }, SESSION_REAPER_INTERVAL_MS);
+  // unref: hlidac nesmi drzet proces pri zivote.
+  reaperTimer.unref?.();
+}
+
+function stopSessionReaper(): void {
+  if (!reaperTimer) {
+    return;
+  }
+  clearInterval(reaperTimer);
+  reaperTimer = null;
+}
+
 async function captureSession(session: BrowserUseSession, page: any): Promise<void> {
   // scale: 'css' keeps a phone screenshot at its CSS size — an emulated iPhone
   // renders at deviceScaleFactor 3, and the 9x larger image helps nobody.
@@ -864,6 +908,7 @@ export const browserUseService = {
     session.message = 'Browser session is ready.';
     sessions.set(session.id, session);
     handles.set(session.id, handle);
+    ensureSessionReaper();
     await captureSession(session, handle.page);
     return publicSession(session);
   },
@@ -1296,6 +1341,7 @@ export const browserUseService = {
   },
 
   async stopAllSessions() {
+    stopSessionReaper();
     await Promise.all([...sessions.keys()].map(async (sessionId) => {
       await closeHandle(sessionId);
       const session = sessions.get(sessionId);
@@ -1319,4 +1365,9 @@ export const __testables = {
   launchEmulatedContext,
   findChromeExecutable,
   profileDirsInUse,
+  sessions,
+  reaperTick,
+  ensureSessionReaper,
+  isReaperRunning: () => reaperTimer !== null,
+  sessionTtlMs: SESSION_TTL_MS,
 };
