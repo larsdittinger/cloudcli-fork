@@ -79,6 +79,16 @@ const systemRoutes = createSystemModule({
 console.log('SERVER_PORT from env:', process.env.SERVER_PORT);
 
 const app = express();
+// API responses carry per-request auth headers (X-Refreshed-Token, X-Auth-Error).
+// Without this the browser heuristically caches them, revalidates with
+// If-None-Match, gets a 304 and replays the *stored* headers - so a token
+// refreshed days ago resurfaces on a later login and, once expired, throws the
+// user straight back to the login screen ("Your session expired").
+app.set('etag', false);
+app.use('/api', (req, res, next) => {
+    res.setHeader('Cache-Control', 'no-store');
+    next();
+});
 const server = http.createServer(app);
 const queryClaude = providerRuntimeService.getRunner('claude');
 const queryCursor = providerRuntimeService.getRunner('cursor');

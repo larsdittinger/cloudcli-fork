@@ -55,6 +55,19 @@ export const isAuthTokenExpired = (token) => {
   return claims ? Date.now() >= claims.expiresAt + TOKEN_EXPIRY_SKEW_MS : false;
 };
 
+// A refreshed token replaces the current one only when it really is newer.
+// Browsers replay stored response headers on a 304 revalidation, so an
+// X-Refreshed-Token cached days ago can come back on a later request; taking
+// it would swap in a stale (possibly expired) token behind the user's back.
+export const isNewerAuthToken = (candidate, current) => {
+  const next = readTokenClaims(candidate);
+  if (!next || Date.now() >= next.expiresAt) {
+    return false;
+  }
+  const claims = readTokenClaims(current);
+  return !claims || next.issuedAt > claims.issuedAt;
+};
+
 export const getAuthTokenRefreshDelay = (token) => {
   const claims = readTokenClaims(token);
   if (!claims) {
@@ -116,7 +129,7 @@ export const authenticatedFetch = (url, options = {}) => {
     },
   }).then((response) => {
     const refreshedToken = response.headers.get('X-Refreshed-Token');
-    if (refreshedToken) {
+    if (refreshedToken && isNewerAuthToken(refreshedToken, token)) {
       storeAuthToken(refreshedToken);
     }
     // Read the stored token *now*, not at request time: a login may have

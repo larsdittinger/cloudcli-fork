@@ -6,6 +6,7 @@ import type { Project } from '../../../types/app';
 import {
   expireAuthSession,
   getStoredAuthToken,
+  isNewerAuthToken,
   storeAuthToken,
 } from '../../../utils/api';
 import {
@@ -136,7 +137,7 @@ const uploadFormDataWithProgress = (
 
     xhr.onload = () => {
       const refreshedToken = xhr.getResponseHeader('X-Refreshed-Token');
-      if (refreshedToken) {
+      if (refreshedToken && isNewerAuthToken(refreshedToken, token)) {
         storeAuthToken(refreshedToken);
       }
       if (xhr.getResponseHeader('X-Auth-Error')) {
