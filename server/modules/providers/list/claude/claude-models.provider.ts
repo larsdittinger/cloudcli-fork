@@ -9,6 +9,19 @@ import type {
 } from '@/shared/types.js';
 import { buildDefaultProviderCurrentActiveModel } from '@/shared/utils.js';
 
+/**
+ * Ultracode is not one of the SDK's reasoning-effort levels. Selecting it runs the turn at
+ * `xhigh` effort with standing dynamic-workflow orchestration, which the Claude runtime
+ * translates into the session-scoped `ultracode` setting. It is therefore only offered on
+ * models this catalog already marks as xhigh-capable.
+ */
+export const CLAUDE_ULTRACODE_EFFORT = 'ultracode';
+
+const ULTRACODE_EFFORT_OPTION = {
+  value: CLAUDE_ULTRACODE_EFFORT,
+  description: 'Highest effort plus standing workflow orchestration.',
+};
+
 export const CLAUDE_PREDEFINED_MODELS: ProviderModelsDefinition = {
   OPTIONS: [
     {
@@ -37,6 +50,7 @@ export const CLAUDE_PREDEFINED_MODELS: ProviderModelsDefinition = {
           { value: 'high' },
           { value: 'xhigh' },
           { value: 'max' },
+          ULTRACODE_EFFORT_OPTION,
         ],
       },
     },
@@ -52,6 +66,7 @@ export const CLAUDE_PREDEFINED_MODELS: ProviderModelsDefinition = {
           { value: 'high' },
           { value: 'xhigh' },
           { value: 'max' },
+          ULTRACODE_EFFORT_OPTION,
         ],
       },
     },
@@ -82,6 +97,7 @@ export const CLAUDE_PREDEFINED_MODELS: ProviderModelsDefinition = {
           { value: 'high' },
           { value: 'xhigh' },
           { value: 'max' },
+          ULTRACODE_EFFORT_OPTION,
         ],
       },
     },
@@ -97,6 +113,7 @@ export const CLAUDE_PREDEFINED_MODELS: ProviderModelsDefinition = {
           { value: 'high' },
           { value: 'xhigh' },
           { value: 'max' },
+          ULTRACODE_EFFORT_OPTION,
         ],
       },
     },
@@ -112,6 +129,7 @@ export const CLAUDE_PREDEFINED_MODELS: ProviderModelsDefinition = {
           { value: 'high' },
           { value: 'xhigh' },
           { value: 'max' },
+          ULTRACODE_EFFORT_OPTION,
         ],
       },
     },
@@ -127,6 +145,7 @@ export const CLAUDE_PREDEFINED_MODELS: ProviderModelsDefinition = {
           { value: 'high' },
           { value: 'xhigh' },
           { value: 'max' },
+          ULTRACODE_EFFORT_OPTION,
         ],
       },
     },
@@ -147,6 +166,7 @@ export const CLAUDE_PREDEFINED_MODELS: ProviderModelsDefinition = {
           { value: 'high' },
           { value: 'xhigh' },
           { value: 'max' },
+          ULTRACODE_EFFORT_OPTION,
         ],
       },
     },
@@ -181,7 +201,15 @@ const ANSI_PATTERN = new RegExp(
   'g',
 );
 
-const extractClaudeEventModel = (event: ClaudeInitEvent, sessionId: string): string | null => {
+/**
+ * Claude Code stamps locally-synthesized rows (API-error placeholders and the
+ * like) with `model: "<synthetic>"`. Angle-bracketed values are placeholders,
+ * never real model ids, and must not be surfaced as the session's model.
+ */
+const isPlaceholderModel = (model: string): boolean => model.startsWith('<') && model.endsWith('>');
+
+/** Exported for tests. */
+export const extractClaudeEventModel = (event: ClaudeInitEvent, sessionId: string): string | null => {
   const eventSessionId = event.sessionId ?? event.session_id;
   if (eventSessionId && eventSessionId !== sessionId) {
     return null;
@@ -193,12 +221,12 @@ const extractClaudeEventModel = (event: ClaudeInitEvent, sessionId: string): str
   }
 
   const directModel = event.model?.trim();
-  if (directModel) {
+  if (directModel && !isPlaceholderModel(directModel)) {
     return directModel;
   }
 
   const messageModel = event.message?.model?.trim();
-  return messageModel || null;
+  return messageModel && !isPlaceholderModel(messageModel) ? messageModel : null;
 };
 
 const stripAnsi = (value: string): string => value.replace(ANSI_PATTERN, '');
@@ -214,13 +242,15 @@ const extractClaudeModelFromTextContent = (content: string): string | null => {
   if (localCommandStdout !== null) {
     const cleanedStdout = stripAnsi(localCommandStdout).replace(/\s+/g, ' ').trim();
     const changedModel = /(?:set|changed|switched)\s+model\s+to\s+(.+?)\.?$/i.exec(cleanedStdout);
-    if (changedModel?.[1]?.trim()) {
-      return changedModel[1].trim();
+    const stdoutModel = changedModel?.[1]?.trim();
+    // A placeholder stdout hit must not shadow a real <model> tag further down.
+    if (stdoutModel && !isPlaceholderModel(stdoutModel)) {
+      return stdoutModel;
     }
   }
 
   const modelTag = extractTaggedContent(content, 'model')?.trim();
-  return modelTag || null;
+  return modelTag && !isPlaceholderModel(modelTag) ? modelTag : null;
 };
 
 const extractClaudeModelFromMessageContent = (content: unknown): string | null => {
@@ -237,6 +267,8 @@ const extractClaudeModelFromMessageContent = (content: unknown): string | null =
       continue;
     }
 
+    // extractClaudeModelFromTextContent rejects placeholders, so a placeholder
+    // part yields null here and a later part can still supply the real model.
     const model = extractClaudeModelFromTextContent(part.text);
     if (model) {
       return model;
