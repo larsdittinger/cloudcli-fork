@@ -1,7 +1,8 @@
-import { Settings, ArrowUpCircle, Bug, AlertTriangle } from 'lucide-react';
+import { Settings, ArrowUpCircle, Bug, AlertTriangle, LogOut } from 'lucide-react';
 import type { TFunction } from 'i18next';
 import { IS_PLATFORM, SHOW_COMMUNITY_LINKS } from '../../../../shared/utils';
 import { useIsAdmin } from '../../../../hooks/useIsAdmin';
+import { useAuth } from '../../../auth/context/AuthContext';
 import type { ReleaseInfo } from '../../../../shared/types';
 
 const GITHUB_ISSUES_URL = 'https://github.com/siteboon/claudecodeui/issues/new';
@@ -39,6 +40,7 @@ export default function SidebarFooter({
   t,
 }: SidebarFooterProps) {
   const isAdmin = useIsAdmin();
+  const { user, logout } = useAuth();
   return (
     <div className="flex-shrink-0" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0)' }}>
       {/* Restart-required banner: the running server version differs from the
@@ -151,6 +153,22 @@ export default function SidebarFooter({
       </div>
       )}
 
+      {/* Desktop sign out (every role - restricted users have no Settings, so this
+          is their only way to switch accounts) */}
+      {!IS_PLATFORM && user && (
+        <div className="hidden px-2 pb-1.5 md:block">
+          <button
+            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground"
+            onClick={logout}
+            title={t('common:navigation.logout')}
+          >
+            <LogOut className="h-3.5 w-3.5 flex-shrink-0" />
+            <span className="min-w-0 flex-1 truncate text-left text-sm">{user.username}</span>
+            <span className="text-xs text-muted-foreground/70">{t('common:navigation.logout')}</span>
+          </button>
+        </div>
+      )}
+
       {/* Desktop version brand line (OSS mode only) */}
       {!IS_PLATFORM && (
         <div className="hidden px-3 py-2 text-center md:block">
@@ -201,7 +219,7 @@ export default function SidebarFooter({
 
       {/* Mobile settings */}
       {isAdmin && (
-      <div className="px-3 pb-3 pt-2 md:hidden">
+      <div className="px-3 pt-2 md:hidden">
         <button
           className="flex h-10 w-full items-center gap-3 rounded-xl bg-muted/40 px-3.5 transition-all hover:bg-muted/60 active:scale-[0.98]"
           onClick={onShowSettings}
@@ -212,6 +230,22 @@ export default function SidebarFooter({
           <span className="text-sm font-normal text-foreground">{t('actions.settings')}</span>
         </button>
       </div>
+      )}
+
+      {/* Mobile sign out */}
+      {!IS_PLATFORM && user && (
+        <div className="px-3 pb-3 pt-2 md:hidden">
+          <button
+            className="flex h-10 w-full items-center gap-3 rounded-xl bg-muted/40 px-3.5 transition-all hover:bg-muted/60 active:scale-[0.98]"
+            onClick={logout}
+          >
+            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-background/80">
+              <LogOut className="h-4 w-4 text-muted-foreground" />
+            </div>
+            <span className="min-w-0 flex-1 truncate text-left text-sm font-normal text-foreground">{user.username}</span>
+            <span className="text-xs text-muted-foreground">{t('common:navigation.logout')}</span>
+          </button>
+        </div>
       )}
     </div>
   );

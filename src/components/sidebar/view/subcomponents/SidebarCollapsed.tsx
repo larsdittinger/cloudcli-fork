@@ -1,7 +1,8 @@
-import { Settings, Sparkles, PanelLeftOpen, Bug, AlertTriangle } from 'lucide-react';
+import { Settings, Sparkles, PanelLeftOpen, Bug, AlertTriangle, LogOut } from 'lucide-react';
 import type { TFunction } from 'i18next';
-import { SHOW_COMMUNITY_LINKS } from '../../../../shared/utils';
+import { IS_PLATFORM, SHOW_COMMUNITY_LINKS } from '../../../../shared/utils';
 import { useIsAdmin } from '../../../../hooks/useIsAdmin';
+import { useAuth } from '../../../auth/context/AuthContext';
 
 const DISCORD_INVITE_URL = 'https://discord.gg/buxwujPNRE';
 const GITHUB_ISSUES_URL = 'https://github.com/siteboon/claudecodeui/issues/new';
@@ -32,6 +33,7 @@ export default function SidebarCollapsed({
   t,
 }: SidebarCollapsedProps) {
   const isAdmin = useIsAdmin();
+  const { user, logout } = useAuth();
   return (
     <div className="flex h-full w-12 flex-col items-center gap-1 bg-background/80 py-3 backdrop-blur-sm">
       {/* Expand button with brand logo */}
@@ -55,6 +57,18 @@ export default function SidebarCollapsed({
           title={t('actions.settings')}
         >
           <Settings className="h-4 w-4 text-muted-foreground transition-colors group-hover:text-foreground" />
+        </button>
+      )}
+
+      {/* Sign out */}
+      {!IS_PLATFORM && user && (
+        <button
+          onClick={logout}
+          className="group flex h-8 w-8 items-center justify-center rounded-lg transition-colors hover:bg-accent/80"
+          aria-label={t('common:navigation.logout')}
+          title={`${user.username} – ${t('common:navigation.logout')}`}
+        >
+          <LogOut className="h-4 w-4 text-muted-foreground transition-colors group-hover:text-foreground" />
         </button>
       )}
 
