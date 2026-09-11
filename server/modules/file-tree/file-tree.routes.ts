@@ -144,6 +144,32 @@ export function createFileTreeRouter(
     });
   }, logger));
 
+  // ethia fork: cely projekt jako ZIP. Admin-only stejne jako ostatni zapisove
+  // a spravcovske operace — omezeny uzivatel si projekt stahnout nesmi.
+  router.get('/projects/:projectId/archive', requireAdmin, createRouteHandler(async (request, response) => {
+    const archive = await services.openProjectArchive(readProjectId(request));
+    response.setHeader('Content-Type', 'application/zip');
+    response.setHeader('Content-Disposition', `attachment; filename="${archive.fileName}"`);
+    archive.stream.pipe(response);
+    archive.stream.on('error', (error) => {
+      logger.error('Error streaming project archive', error);
+      if (!response.headersSent) {
+        response.status(500).json({ error: 'Error creating archive' });
+        return;
+      }
+      // Hlavicky uz jsou venku, takze klient dostane zkraceny ZIP. Spojeni je
+      // treba zavrit, at se nestahuje "hotovy" archiv, ktery hotovy neni.
+      response.destroy(error instanceof Error ? error : new Error(String(error)));
+    });
+    // Kdyz uzivatel stahovani zrusi, archivace musi skoncit taky — jinak by
+    // instance dal cetla gigabajty do zavreneho socketu.
+    response.on('close', () => {
+      if (!response.writableEnded) {
+        archive.stream.destroy();
+      }
+    });
+  }, logger));
+
   router.put('/projects/:projectId/file', requireAdmin, createRouteHandler(async (request, response) => {
     const body = readBody(request);
     const filePath = readRequiredString(body.filePath, 'filePath', 'Invalid file path');

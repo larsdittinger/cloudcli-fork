@@ -10,6 +10,7 @@ import type {
   FileTreeUploadedFile,
 } from '@/shared/types.js';
 import { AppError, FORBIDDEN_WORKSPACE_PATHS, normalizeProjectPath } from '@/shared/utils.js';
+import { archiveFileName, createProjectArchiveStream } from '@/modules/file-tree/project-archive.js';
 
 const HARD_EXCLUDED_DIRECTORY_NAMES = new Set([
   'node_modules', '.git', '.svn', '.hg',
@@ -433,6 +434,22 @@ export function createFileTreeService(dependencies: FileTreeServiceDependencies)
       return {
         contentType: dependencies.resolveMimeType(resolvedPath),
         stream: fileSystem.createReadStream(resolvedPath),
+      };
+    },
+
+    // ethia fork: cely projekt jako ZIP. Na rozdil od stromu se tady nic
+    // nevynechava — archiv ma byt presna kopie slozky, vcetne node_modules.
+    async openProjectArchive(projectId) {
+      const projectRoot = await resolveProjectRoot(projectId);
+      try {
+        await fileSystem.access(projectRoot);
+      } catch {
+        throw createFileTreeError('Project directory not found', 404, 'PROJECT_NOT_FOUND');
+      }
+
+      return {
+        fileName: archiveFileName(projectRoot),
+        stream: createProjectArchiveStream(projectRoot),
       };
     },
 

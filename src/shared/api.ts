@@ -294,6 +294,11 @@ export const api = {
   deleteFile: (projectId: string, { path, type }: { path: string; type: string }) =>
     del(`/api/file-tree/projects/${projectId}/files`, { path, type }),
 
+  // ethia fork: cely projekt jako ZIP. Prohlizec stahuje primo z URL (token v
+  // query jako u SSE), takze gigabajtovy archiv neprotece pameti stranky.
+  projectArchiveUrl: (projectId: string) =>
+    `/api/file-tree/projects/${encodeURIComponent(projectId)}/archive${query({ token: getStoredAuthToken() })}`,
+
   // Uploads with a progress bar go through XMLHttpRequest, which needs the URL.
   uploadFilesUrl: (projectId: string) =>
     `/api/file-tree/projects/${encodeURIComponent(projectId)}/files/upload`,

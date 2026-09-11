@@ -1,8 +1,9 @@
 import { memo, useEffect, useRef } from 'react';
-import { Check, ChevronDown, ChevronRight, Edit3, Star, Trash2, X } from 'lucide-react';
+import { Check, ChevronDown, ChevronRight, Download, Edit3, Star, Trash2, X } from 'lucide-react';
 import type { TFunction } from 'i18next';
 
 import { Button } from '@/shared/ui';
+import { api } from '@/shared/api';
 import { cn } from '@/shared/utils';
 import type { LLMProvider, MCPServerStatus, Project, ProjectSession, SessionWithProvider } from '@/shared/types';
 import { getTaskIndicatorStatus } from '@/modules/sidebar/utils/sidebarProjectFormatting';
@@ -95,6 +96,17 @@ function SidebarProjectItem({
   t,
 }: SidebarProjectItemProps) {
   const isAdmin = useIsAdmin();
+
+  // ethia fork: stazeni celeho projektu. Odkaz se necha stahnout prohlizeci —
+  // archiv muze mit gigabajty a do pameti stranky se tahat nesmi.
+  const downloadProject = () => {
+    const link = document.createElement('a');
+    link.href = api.projectArchiveUrl(project.projectId);
+    link.rel = 'noopener';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  };
   // Project identity is tracked by the DB-assigned `projectId` everywhere
   // after the projectName → projectId migration.
   const isSelected = selectedProject?.projectId === project.projectId;
@@ -254,6 +266,19 @@ function SidebarProjectItem({
                   <>
                     {isAdmin && (
                       <button
+                        className="flex h-8 w-8 items-center justify-center rounded-lg border border-border bg-muted/40 active:scale-90"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          downloadProject();
+                        }}
+                        title={t('tooltips.downloadProject')}
+                      >
+                        <Download className="h-4 w-4 text-muted-foreground" />
+                      </button>
+                    )}
+
+                    {isAdmin && (
+                      <button
                         className="flex h-8 w-8 items-center justify-center rounded-lg border border-red-200 bg-red-500/10 active:scale-90 dark:border-red-800 dark:bg-red-900/30"
                         onClick={(event) => {
                           event.stopPropagation();
@@ -392,6 +417,18 @@ function SidebarProjectItem({
               </>
             ) : (
               <>
+                {isAdmin && (
+                  <div
+                    className="touch:opacity-100 flex h-6 w-6 cursor-pointer items-center justify-center rounded opacity-0 transition-all duration-200 hover:bg-accent group-hover:opacity-100"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      downloadProject();
+                    }}
+                    title={t('tooltips.downloadProject')}
+                  >
+                    <Download className="h-3 w-3" />
+                  </div>
+                )}
                 {isAdmin && (
                   <div
                     className="touch:opacity-100 flex h-6 w-6 cursor-pointer items-center justify-center rounded opacity-0 transition-all duration-200 hover:bg-accent group-hover:opacity-100"

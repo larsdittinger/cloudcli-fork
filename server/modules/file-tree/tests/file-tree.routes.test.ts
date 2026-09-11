@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import type { AddressInfo } from 'node:net';
+import { Readable } from 'node:stream';
 import test from 'node:test';
 
 import express, { type RequestHandler } from 'express';
@@ -18,6 +19,7 @@ function createFakeServices(overrides: Partial<FileTreeServices> = {}): FileTree
     createWorkspaceFolder: unexpectedOperation,
     readTextFile: unexpectedOperation,
     openFile: unexpectedOperation,
+    openProjectArchive: unexpectedOperation,
     saveTextFile: unexpectedOperation,
     listProjectFiles: unexpectedOperation,
     createEntry: unexpectedOperation,
@@ -36,6 +38,14 @@ async function withFileTreeServer(
 ): Promise<void> {
   const app = express();
   app.use(express.json());
+  // Stoji tu za authenticateToken: role z hlavicky, aby sly testovat admin guardy.
+  app.use((request, _response, next) => {
+    const role = request.headers['x-test-role'];
+    if (typeof role === 'string') {
+      (request as express.Request & { user?: { role: string } }).user = { role };
+    }
+    next();
+  });
   app.use('/api/file-tree', createFileTreeRouter(
     services,
     passUploadRequest,
@@ -154,4 +164,39 @@ test('create route rejects invalid entry types without calling the service', asy
   });
 
   assert.equal(createCalled, false);
+});
+
+// ethia fork: stazeni celeho projektu je admin-only a streamuje se.
+test('project archive route streams a zip attachment for admins', async () => {
+  const services = createFakeServices({
+    openProjectArchive: async (projectId) => {
+      assert.equal(projectId, 'project-1');
+      return { fileName: 'kamvokoli.zip', stream: Readable.from([Buffer.from('PK-zip-bytes')]) };
+    },
+  });
+
+  await withFileTreeServer(services, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/api/file-tree/projects/project-1/archive`);
+
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('content-type'), 'application/zip');
+    assert.equal(response.headers.get('content-disposition'), 'attachment; filename="kamvokoli.zip"');
+    assert.equal(await response.text(), 'PK-zip-bytes');
+  });
+});
+
+test('project archive route stays closed to restricted users', async () => {
+  const services = createFakeServices({
+    openProjectArchive: async () => {
+      throw new Error('restricted user must not reach the archive service');
+    },
+  });
+
+  await withFileTreeServer(services, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/api/file-tree/projects/project-1/archive`, {
+      headers: { 'x-test-role': 'restricted' },
+    });
+
+    assert.equal(response.status, 403);
+  });
 });
