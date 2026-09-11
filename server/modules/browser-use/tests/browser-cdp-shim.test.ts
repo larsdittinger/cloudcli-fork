@@ -45,7 +45,7 @@ async function fakeChrome(): Promise<{
 }
 
 async function zavolej(shimUrl: string, prikazy: Array<{ id: number; method: string }>): Promise<any[]> {
-  const version = await (await fetch(`${shimUrl}/json/version`)).json();
+  const version = await (await fetch(`${shimUrl}/json/version`)).json() as any;
   const client = new WebSocket(version.webSocketDebuggerUrl);
   const odpovedi: any[] = [];
   await new Promise<void>((resolve) => client.on('open', () => resolve()));
@@ -87,7 +87,7 @@ test('shim v /json/version nabidne sebe, ne adresu Chromu', async () => {
   const chrome = await fakeChrome();
   const shim = await startCdpShim({ targetUrl: chrome.url });
   try {
-    const version = await (await fetch(`${shim.url}/json/version`)).json();
+    const version = await (await fetch(`${shim.url}/json/version`)).json() as any;
     assert.equal(version.Browser, 'Chrome/152.0.0.0');
     assert.ok(
       version.webSocketDebuggerUrl.includes(new URL(shim.url).port),
