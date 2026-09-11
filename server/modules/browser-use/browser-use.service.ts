@@ -24,11 +24,6 @@ import {
   type BrowserEmulation,
   type EmulationInput,
 } from '@/modules/browser-use/browser-emulation.js';
-import {
-  probeCdp,
-  readCdpConfig,
-  supportsCdpTarget,
-} from '@/modules/browser-use/browser-cdp.js';
 import { resolveProfileDir } from '@/modules/browser-use/browser-profile.js';
 import { appConfigDb } from '@/modules/database/index.js';
 import { providerMcpService } from '@/modules/providers/index.js';
@@ -53,18 +48,11 @@ const BROWSER_USE_MCP_TOKEN_KEY = 'browser_use_mcp_token';
 type BrowserUseRuntime = ReturnType<typeof getBrowserUseRuntime>;
 type BrowserUseSessionStatus = 'ready' | 'stopped' | 'unavailable';
 
-// ethia fork: kde session fyzicky bezi — 'connected' je Chrome mimo instanci
-// (CDP), 'instance' je patchright launch uvnitr.
-type BrowserUseTarget = 'connected' | 'instance';
-
 type BrowserUseSession = {
   id: string;
   ownerId: string;
   createdBy: 'agent';
   runtime: BrowserUseRuntime;
-  // ethia fork: prepina se i za behu (fallback pri device switchi), proto je
-  // soucasti session, ne jen odpovedi na jeji zalozeni.
-  target: BrowserUseTarget;
   status: BrowserUseSessionStatus;
   url: string | null;
   title: string | null;
@@ -100,9 +88,6 @@ type RuntimeHandle = {
   // throwaway temp dir (profile busy) that closeHandle must delete.
   profileDir?: string | null;
   ephemeral?: boolean;
-  // ethia fork: handle drzi pripojeni na cizi Chrome (CDP), ne vlastni launch.
-  // closeHandle podle toho zavira JEN nase taby — context patri uzivateli.
-  cdp?: boolean;
 };
 
 type BrowserUseSettings = {
@@ -441,68 +426,10 @@ function ownerSessions(ownerId: string): BrowserUseSession[] {
   return [...sessions.values()].filter((session) => session.ownerId === ownerId);
 }
 
-function handleTarget(handle: RuntimeHandle): BrowserUseTarget {
-  return handle.cdp ? 'connected' : 'instance';
-}
-
-// ethia fork: status se v UI polluje, probe ale saha po siti do tunelu — kratka
-// cache drzi Settings svizne a nezaplavi spici notebook dotazy.
-const CDP_STATUS_CACHE_TTL_MS = 15_000;
-let cdpStatusCache: { value: CdpStatus; updatedAt: number } | null = null;
-
-type CdpStatus = {
-  configured: boolean;
-  url: string | null;
-  reachable: boolean;
-  browser: string | null;
-  message: string | null;
-};
-
-async function getCdpStatus(now = Date.now()): Promise<CdpStatus> {
-  const { url, timeoutMs } = readCdpConfig(process.env);
-  if (!url) {
-    return {
-      configured: false,
-      url: null,
-      reachable: false,
-      browser: null,
-      message: 'Sessions run in this instance. Set CLOUDCLI_BROWSER_CDP_URL to use a connected Chrome.',
-    };
-  }
-
-  const cached = cdpStatusCache;
-  if (cached && cached.value.url === url && now - cached.updatedAt < CDP_STATUS_CACHE_TTL_MS) {
-    return cached.value;
-  }
-
-  const probe = await probeCdp(url, { timeoutMs });
-  const value: CdpStatus = {
-    configured: true,
-    url,
-    reachable: probe.ok,
-    browser: probe.browser || null,
-    message: probe.ok
-      ? `Connected Chrome is reachable (${probe.browser}).`
-      : `Connected Chrome is not reachable (${probe.reason}). Sessions run in this instance.`,
-  };
-  cdpStatusCache = { value, updatedAt: now };
-  return value;
-}
-
 async function closeHandle(sessionId: string): Promise<void> {
   const handle = handles.get(sessionId);
   handles.delete(sessionId);
   handle?.detachContext?.();
-
-  if (handle?.cdp) {
-    // Pripojeny Chrome patri uzivateli: zavrit se smi jen tab, ktery si session
-    // sama otevrela. context.close() by mu sestrelil vsechna okna profilu.
-    await handle.page?.close?.().catch(() => undefined);
-    // Na CDP spojeni browser.close() jen odpoji klienta, Chrome bezi dal.
-    await handle.browser?.close?.().catch(() => undefined);
-    return;
-  }
-
   await handle?.context?.close?.().catch(() => undefined);
   await handle?.browser?.close().catch(() => undefined);
 
@@ -646,55 +573,6 @@ function isProfileLockError(error: unknown): boolean {
   return /SingletonLock|ProcessSingleton|being used by another|profile.*in use/i.test(message);
 }
 
-/**
- * ethia fork: zkusi se pripojit na Chrome bezici mimo instanci (CDP endpoint z
- * CLOUDCLI_BROWSER_CDP_URL, typicky reverzni SSH tunel na notebook uzivatele).
- *
- * Vraci null pokazde, kdyz to nevyjde — nedostupny endpoint, spadle spojeni i
- * pozadavek na emulaci zarizeni. Volajici pak jede vlastnim patchright launchem,
- * takze agent nikdy neuvizne jen proto, ze notebook spi.
- */
-async function tryConnectCdpContext(
-  playwright: any,
-  emulation: BrowserEmulation,
-): Promise<RuntimeHandle | null> {
-  const { url, timeoutMs } = readCdpConfig(process.env);
-  if (!url) {
-    return null;
-  }
-  if (!supportsCdpTarget(emulation)) {
-    console.log(`[Browser] ${emulation.label} potrebuje vlastni context, jedu patchright.`);
-    return null;
-  }
-
-  const probe = await probeCdp(url, { timeoutMs });
-  if (!probe.ok) {
-    console.log(`[Browser] CDP ${url} neodpovida (${probe.reason}), jedu patchright.`);
-    return null;
-  }
-
-  let browser: any;
-  try {
-    browser = await playwright.chromium.connectOverCDP(url, { timeout: Math.max(timeoutMs, 5_000) });
-    const context = browser.contexts()[0];
-    if (!context) {
-      throw new Error('pripojeny Chrome nema zadny browser context');
-    }
-    // Vlastni tab, at se uzivateli nesahne na to, co ma otevrene.
-    const page = await context.newPage();
-    const recorder = new DevtoolsRecorder();
-    // Recorder jen na nasi strance: context patri uzivateli a jeho ostatni taby
-    // do DevTools bufferu agenta nepatri.
-    const detachContext = attachPageRecorder(page, recorder);
-    console.log(`[Browser] Jedu v pripojenem prohlizeci ${probe.browser} na ${url}.`);
-    return { browser, context, page, recorder, detachContext, profileDir: null, ephemeral: false, cdp: true };
-  } catch (error: any) {
-    console.warn(`[Browser] Pripojeni na CDP ${url} selhalo (${error?.message || error}), jedu patchright.`);
-    await browser?.close?.().catch(() => undefined);
-    return null;
-  }
-}
-
 // ethia fork: single place that turns an emulation descriptor into a live
 // Playwright context, used by session creation and by device switching.
 async function launchEmulatedContext(
@@ -702,11 +580,6 @@ async function launchEmulatedContext(
   emulation: BrowserEmulation,
   profileName: string | null,
 ): Promise<RuntimeHandle> {
-  const connected = await tryConnectCdpContext(playwright, emulation);
-  if (connected) {
-    return connected;
-  }
-
   const baseArgs = ['--disable-dev-shm-usage'];
   if (process.env.CLOUDCLI_BROWSER_NO_SANDBOX === '1') {
     baseArgs.push('--no-sandbox');
@@ -868,7 +741,6 @@ async function applyEmulation(session: BrowserUseSession, input: EmulationInput)
     }
 
     handles.set(session.id, nextHandle);
-    session.target = handleTarget(nextHandle);
     session.message = 'Browser session is ready.';
 
     if (previousUrl && /^https?:/i.test(previousUrl)) {
@@ -939,9 +811,6 @@ export const browserUseService = {
       chromiumInstalled: readiness.chromiumInstalled,
       installInProgress: readiness.installInProgress,
       sessionCount: sessions.size,
-      // ethia fork: stav pripojeni na Chrome mimo instanci. Nedostupnost tady
-      // neni chyba — jen to znamena, ze nove session pojedou v patchrightu.
-      cdp: await getCdpStatus(),
       message: available
         ? 'Browser runtime is available.'
         : getSetupMessage(settings, readiness),
@@ -1008,7 +877,6 @@ export const browserUseService = {
       ownerId: AGENT_OWNER_ID,
       createdBy: 'agent',
       runtime: getBrowserUseRuntime(),
-      target: 'instance',
       status: 'unavailable',
       url: null,
       title: null,
@@ -1036,7 +904,6 @@ export const browserUseService = {
     }
 
     const handle = await launchEmulatedContext(readiness.playwright, emulation, profileName);
-    session.target = handleTarget(handle);
     session.status = 'ready';
     session.message = 'Browser session is ready.';
     sessions.set(session.id, session);
