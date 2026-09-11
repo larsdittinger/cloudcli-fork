@@ -29,6 +29,7 @@ import {
   readCdpConfig,
   supportsCdpTarget,
 } from '@/modules/browser-use/browser-cdp.js';
+import { startCdpShim, type CdpShim } from '@/modules/browser-use/browser-cdp-shim.js';
 import { resolveProfileDir } from '@/modules/browser-use/browser-profile.js';
 import { appConfigDb } from '@/modules/database/index.js';
 import { providerMcpService } from '@/modules/providers/index.js';
@@ -103,6 +104,9 @@ type RuntimeHandle = {
   // ethia fork: handle drzi pripojeni na cizi Chrome (CDP), ne vlastni launch.
   // closeHandle podle toho zavira JEN nase taby — context patri uzivateli.
   cdp?: boolean;
+  // ethia fork: preposilac mezi Playwrightem a pripojenym Chromem; zivotnost
+  // kopiruje handle, takze ho closeHandle zavira spolu se spojenim.
+  cdpShim?: CdpShim;
 };
 
 type BrowserUseSettings = {
@@ -500,6 +504,7 @@ async function closeHandle(sessionId: string): Promise<void> {
     await handle.page?.close?.().catch(() => undefined);
     // Na CDP spojeni browser.close() jen odpoji klienta, Chrome bezi dal.
     await handle.browser?.close?.().catch(() => undefined);
+    await handle.cdpShim?.close().catch(() => undefined);
     return;
   }
 
@@ -674,8 +679,11 @@ async function tryConnectCdpContext(
   }
 
   let browser: any;
+  let shim: CdpShim | null = null;
   try {
-    browser = await playwright.chromium.connectOverCDP(url, { timeout: Math.max(timeoutMs, 5_000) });
+    // Pres shim, ne primo: Chrome 152 shodi connectOverCDP na prvnim prikazu.
+    shim = await startCdpShim({ targetUrl: url });
+    browser = await playwright.chromium.connectOverCDP(shim.url, { timeout: Math.max(timeoutMs, 5_000) });
     const context = browser.contexts()[0];
     if (!context) {
       throw new Error('pripojeny Chrome nema zadny browser context');
@@ -687,10 +695,21 @@ async function tryConnectCdpContext(
     // do DevTools bufferu agenta nepatri.
     const detachContext = attachPageRecorder(page, recorder);
     console.log(`[Browser] Jedu v pripojenem prohlizeci ${probe.browser} na ${url}.`);
-    return { browser, context, page, recorder, detachContext, profileDir: null, ephemeral: false, cdp: true };
+    return {
+      browser,
+      context,
+      page,
+      recorder,
+      detachContext,
+      profileDir: null,
+      ephemeral: false,
+      cdp: true,
+      cdpShim: shim,
+    };
   } catch (error: any) {
     console.warn(`[Browser] Pripojeni na CDP ${url} selhalo (${error?.message || error}), jedu patchright.`);
     await browser?.close?.().catch(() => undefined);
+    await shim?.close().catch(() => undefined);
     return null;
   }
 }
