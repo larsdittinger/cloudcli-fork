@@ -19,6 +19,15 @@ type BrowserUseStatus = {
   playwrightInstalled: boolean;
   chromiumInstalled: boolean;
   installInProgress: boolean;
+  // ethia fork: Chrome mimo instanci (CDP). Nedostupny znamena jen to, ze
+  // session pojedou v patchrightu uvnitr instance.
+  cdp?: {
+    configured: boolean;
+    url: string | null;
+    reachable: boolean;
+    browser: string | null;
+    message: string | null;
+  };
   message: string;
 };
 
@@ -146,6 +155,13 @@ export default function BrowserUseSettingsTab() {
               </span>
               <span className="rounded-md border border-border px-2 py-1">
                 {t('browserUseSettings.chromiumLabel')}: {runtimeLabel(status?.chromiumInstalled)}
+              </span>
+              <span className="rounded-md border border-border px-2 py-1" title={status?.cdp?.message || undefined}>
+                {t('browserUseSettings.connectedChromeLabel')}: {!status?.cdp?.configured
+                  ? t('browserUseSettings.connectedChromeOff')
+                  : status.cdp.reachable
+                    ? t('browserUseSettings.connectedChromeReachable')
+                    : t('browserUseSettings.connectedChromeUnreachable')}
               </span>
               <span className="rounded-md border border-border px-2 py-1">
                 {t('browserUseSettings.statusPrefix')}: {isStatusLoading && !status
