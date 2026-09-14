@@ -2,14 +2,15 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { channelMessagesDb } from '@/modules/database/index.js';
+import type { ProviderRuntimeGateway } from '@/modules/websocket/index.js';
+
 import { createEmailAdapter } from './adapters/email-imap.adapter.js';
 import { createWebhookAdapter } from './adapters/webhook.adapter.js';
 import { createWhatsAppAdapter } from './adapters/whatsapp.adapter.js';
 import { channelsService, CHANNELS_ROOT } from './channels.service.js';
 import { closeChannelsDispatcher, initializeChannelsDispatcher } from './dispatcher.service.js';
 import { outboxService } from './outbox.service.js';
-import { channelMessagesDb } from '@/modules/database/index.js';
-import type { ProviderRuntimeGateway } from '@/modules/websocket/index.js';
 
 export type {
   AccountStatus,

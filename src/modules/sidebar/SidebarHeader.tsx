@@ -7,6 +7,7 @@ import { IS_PLATFORM, SHOW_COMMUNITY_LINKS, cn } from '@/shared/utils';
 import { useIsAdmin } from '@/shared/hooks/useIsAdmin';
 import type { SidebarSearchMode } from '@/shared/types';
 import GitHubStarBadge from '@/modules/sidebar/GitHubStarBadge';
+import { InboxButton } from '@/modules/channels';
 
 const MOD_KEY =
   typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl';
@@ -102,6 +103,7 @@ export default function SidebarHeader({
           )}
 
           <div className="flex flex-shrink-0 items-center gap-0.5">
+            <InboxButton />
             <Button
               variant="ghost"
               size="sm"

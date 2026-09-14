@@ -1,4 +1,4 @@
-import { Bell, Bot, GitBranch, Info, Key, ListChecks, Mic, MonitorPlay, Palette, Puzzle, Users } from 'lucide-react';
+import { Bell, Bot, GitBranch, Info, Key, ListChecks, Mic, MonitorPlay, Palette, Puzzle, Radio, Users } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import { cn } from '@/shared/utils';
@@ -25,6 +25,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'voice', labelKey: 'mainTabs.voice', icon: Mic },
   { id: 'tasks', labelKey: 'mainTabs.tasks', icon: ListChecks },
   { id: 'browser', labelKey: 'mainTabs.browser', icon: MonitorPlay },
+  { id: 'channels', labelKey: 'mainTabs.channels', icon: Radio },
   { id: 'plugins', labelKey: 'mainTabs.plugins', icon: Puzzle },
   { id: 'notifications', labelKey: 'mainTabs.notifications', icon: Bell },
   { id: 'users', labelKey: 'mainTabs.users', icon: Users },
@@ -35,7 +36,7 @@ const NAV_ITEMS: NavItem[] = [
 export default function SettingsSidebar({ activeTab, onChange }: SettingsSidebarProps) {
   const { t } = useTranslation('settings');
   const isAdmin = useIsAdmin();
-  const navItems = isAdmin ? NAV_ITEMS : NAV_ITEMS.filter((item) => item.id !== 'users');
+  const navItems = isAdmin ? NAV_ITEMS : NAV_ITEMS.filter((item) => item.id !== 'users' && item.id !== 'channels');
 
   return (
     <>

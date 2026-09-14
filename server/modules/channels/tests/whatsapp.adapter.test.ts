@@ -128,7 +128,7 @@ test('adapter: QR pairing, open, inbound with media, send with quote, logged-out
     });
     assert.equal(result.externalId, 'OUT1');
     assert.equal(sock.sent[0].jid, '420777123456@s.whatsapp.net');
-    assert.equal((sock.sent[0].options?.quoted as { key: { id: string } }).key.id, 'T1');
+    assert.equal((sock.sent[0].options as { quoted: { key: { id: string } } }).quoted.key.id, 'T1');
 
     sock.ev.emit('connection.update', { connection: 'close', lastDisconnect: { error: { output: { statusCode: 401 } } } });
     assert.equal(statuses.at(-1)?.[0], 'needs_pairing');

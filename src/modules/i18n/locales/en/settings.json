@@ -113,7 +113,8 @@
     "notifications": "Notifications",
     "plugins": "Plugins",
     "users": "Users",
-    "about": "About"
+    "about": "About",
+    "channels": "Channels"
   },
   "users": {
     "title": "Users",
@@ -804,5 +805,15 @@
     "teamManagementDescription": "Multiple users, role-based access, and shared projects for your team.",
     "licensed": "Licensed under AGPL-3.0",
     "proCta": "Available with CloudCLI Pro"
+  },
+  "channels": {
+    "sectionTitle": "Channels",
+    "sectionDescription": "Start agents from incoming e-mail, WhatsApp messages or webhooks, and let them reply.",
+    "enableLabel": "Enable Channels",
+    "enableDescription": "Connects the accounts below and registers the cloudcli-channels MCP server so agents can reply.",
+    "accountsTitle": "Accounts",
+    "accountsDescription": "Where messages come from. Each account is one mailbox, one WhatsApp number or one webhook URL.",
+    "rulesTitle": "Rules",
+    "rulesDescription": "The first matching rule decides which project the agent runs in, with what prompt and permissions, and whether it may reply."
   }
 }

@@ -557,6 +557,37 @@ export const api = {
     installRuntime: () => post('/api/browser-use/runtime/install'),
   },
 
+  // Channels: inbound e-mail / WhatsApp / webhook messages that start agent turns (admin only).
+  channels: {
+    settings: () => get('/api/channels/settings'),
+    saveSettings: (settings: unknown) => put('/api/channels/settings', settings),
+    summary: () => get('/api/channels/summary'),
+    accounts: () => get('/api/channels/accounts'),
+    createAccount: (body: unknown) => post('/api/channels/accounts', body),
+    updateAccount: (id: string, body: unknown) => put(`/api/channels/accounts/${id}`, body),
+    deleteAccount: (id: string) => del(`/api/channels/accounts/${id}`),
+    testAccount: (id: string) => post(`/api/channels/accounts/${id}/test`),
+    reconnectAccount: (id: string) => post(`/api/channels/accounts/${id}/reconnect`),
+    pairing: (id: string) => get(`/api/channels/accounts/${id}/pairing`),
+    requestPairingCode: (id: string, phoneNumber: string) => post(`/api/channels/accounts/${id}/pairing-code`, { phoneNumber }),
+    rules: () => get('/api/channels/rules'),
+    createRule: (body: unknown) => post('/api/channels/rules', body),
+    updateRule: (id: string, body: unknown) => put(`/api/channels/rules/${id}`, body),
+    deleteRule: (id: string) => del(`/api/channels/rules/${id}`),
+    reorderRules: (ids: string[]) => put('/api/channels/rules/order', { ids }),
+    testRule: (id: string) => post(`/api/channels/rules/${id}/test`),
+    messages: (query = '') => get(`/api/channels/messages${query}`),
+    message: (id: string) => get(`/api/channels/messages/${id}`),
+    messageBySession: (sessionId: string) => get(`/api/channels/messages/by-session/${sessionId}`),
+    dispatchMessage: (id: string, body: unknown) => post(`/api/channels/messages/${id}/dispatch`, body),
+    ignoreMessage: (id: string) => post(`/api/channels/messages/${id}/ignore`),
+    attachmentUrl: (messageId: string, index: number) => `/api/channels/attachments/${messageId}/${index}`,
+    outbox: (query = '') => get(`/api/channels/outbox${query}`),
+    approveOutbox: (id: string, body: unknown = {}) => post(`/api/channels/outbox/${id}/approve`, body),
+    discardOutbox: (id: string) => post(`/api/channels/outbox/${id}/discard`),
+    retryOutbox: (id: string) => post(`/api/channels/outbox/${id}/retry`),
+  },
+
   voice: {
     health: () => get('/api/voice/health'),
     transcribe: (formData: FormData, headers: Record<string, string> = {}) =>
