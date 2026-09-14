@@ -38,7 +38,7 @@ export default function ChatChannelPanel({ sessionId, slot }: Props) {
           </button>
         </div>
         <Dialog open={showMessage} onOpenChange={setShowMessage}>
-          <DialogContent className="max-h-[85vh] w-[min(100vw-2rem,48rem)] overflow-y-auto p-4">
+          <DialogContent wrapperClassName="z-[10000]" className="max-w-none max-h-[85vh] w-[min(100vw-2rem,48rem)] overflow-y-auto p-4">
             <DialogTitle className="mb-2 text-base font-semibold">Inbound message</DialogTitle>
             <MessageDetail messageId={message.id} onClose={() => setShowMessage(false)} />
           </DialogContent>

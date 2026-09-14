@@ -126,7 +126,7 @@ export default function RuleList({ rules, accounts, onEdit, onChanged }: Props) 
       </ol>
 
       <Dialog open={testing !== null} onOpenChange={(next) => { if (!next) setTesting(null); }}>
-        <DialogContent className="max-h-[80vh] w-[min(100vw-2rem,40rem)] overflow-y-auto p-4">
+        <DialogContent wrapperClassName="z-[10000]" className="max-w-none max-h-[80vh] w-[min(100vw-2rem,40rem)] overflow-y-auto p-4">
           <DialogTitle className="mb-2 text-base font-semibold">Would “{testing?.rule.name}” match?</DialogTitle>
           {testing && testing.rows.length === 0 ? (
             <p className="text-sm text-muted-foreground">No messages received yet to test against.</p>

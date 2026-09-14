@@ -118,6 +118,7 @@ router.get('/settings', asyncHandler(async (_req: Request, res: Response) => {
   res.json(createApiSuccessResponse({
     enabled: channelsService.isEnabled(),
     mcpServerName: MCP_SERVER_NAME,
+    mcpError: channelsService.getMcpError(),
     accounts: channelsService.listAccounts().length,
     rules: channelRulesDb.listOrdered().length,
   }));

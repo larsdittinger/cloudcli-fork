@@ -16,7 +16,7 @@ import type { AccountFormValues } from '@/modules/settings/tabs/channels-setting
 import RuleEditor from '@/modules/settings/tabs/channels-settings/RuleEditor';
 import RuleList from '@/modules/settings/tabs/channels-settings/RuleList';
 
-type ChannelsSettings = { enabled: boolean; mcpServerName: string; accounts: number; rules: number };
+type ChannelsSettings = { enabled: boolean; mcpServerName: string; mcpError: string | null; accounts: number; rules: number };
 
 /** Rendered by Settings for the "channels" tab: accounts, rules and the master switch. */
 export default function ChannelsSettingsTab() {
@@ -109,6 +109,9 @@ export default function ChannelsSettingsTab() {
             <SettingsToggle checked={Boolean(settings?.enabled)} onChange={toggleEnabled} ariaLabel={t('channels.enableLabel')} disabled={saving} />
           </SettingsRow>
         </SettingsCard>
+        {settings?.enabled && settings.mcpError && (
+          <p className="mt-2 text-sm text-amber-700 dark:text-amber-300">Agents cannot reply yet — registering the {settings.mcpServerName} MCP server failed: {settings.mcpError}</p>
+        )}
         {error && <p className="mt-2 text-sm text-red-600 dark:text-red-300">{error}</p>}
       </SettingsSection>
 

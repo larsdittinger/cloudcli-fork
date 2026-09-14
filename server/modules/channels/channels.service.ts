@@ -58,6 +58,7 @@ type RunningAdapter = {
 
 type McpRegistrar = { register(): Promise<unknown>; unregister(): Promise<unknown> };
 let mcpRegistrar: McpRegistrar | null = null;
+let mcpError: string | null = null;
 
 /** @internal test hook: keeps tests from touching the real ~/.claude.json. */
 export function __setMcpRegistrar(next: McpRegistrar | null): void {
@@ -273,17 +274,33 @@ export const channelsService = {
     return providerMcpService.removeMcpServerFromAllProviders({ name: MCP_SERVER_NAME, scope: 'user' });
   },
 
-  async setEnabled(enabled: boolean): Promise<{ enabled: boolean }> {
+  /** Why the last MCP registration failed, so the settings tab can say "agents cannot reply until…". */
+  getMcpError(): string | null {
+    return mcpError;
+  },
+
+  async setEnabled(enabled: boolean): Promise<{ enabled: boolean; mcpError: string | null }> {
     const was = this.isEnabled();
     appConfigDb.set(ENABLED_KEY, enabled ? 'true' : 'false');
     if (enabled) {
-      await this.registerAgentMcp();
+      // Inbound must keep working even when the provider CLI cannot take the MCP entry right now.
+      try {
+        await this.registerAgentMcp();
+        mcpError = null;
+      } catch (error) {
+        mcpError = error instanceof Error ? error.message : String(error);
+        console.warn('[Channels] MCP registration failed', { error: mcpError });
+      }
       await this.startAll();
     } else if (was) {
-      await this.unregisterAgentMcp();
+      try {
+        await this.unregisterAgentMcp();
+      } catch (error) {
+        console.warn('[Channels] MCP unregistration failed', { error: error instanceof Error ? error.message : String(error) });
+      }
       await this.stopAll();
     }
-    return { enabled };
+    return { enabled, mcpError };
   },
 
   listAccounts(): PublicAccount[] {

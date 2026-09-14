@@ -161,7 +161,7 @@ export default function RuleEditor({ open, rule, accounts, onOpenChange, onSubmi
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[92vh] w-[min(100vw-1rem,44rem)] overflow-y-auto p-4 md:p-5">
+      <DialogContent wrapperClassName="z-[10000]" className="max-w-none max-h-[92vh] w-[min(100vw-1rem,44rem)] overflow-y-auto p-4 md:p-5">
         <DialogTitle className="mb-3 text-base font-semibold">{rule ? `Edit rule “${rule.name}”` : 'New rule'}</DialogTitle>
 
         <div className="space-y-5">

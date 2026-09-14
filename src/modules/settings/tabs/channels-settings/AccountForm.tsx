@@ -28,7 +28,8 @@ function initialValues(account: ChannelAccount | null): AccountFormValues {
     type: account?.type ?? 'email',
     label: account?.label ?? '',
     agentSend: account?.agentSend ?? 'off',
-    config: { ...(account?.config ?? {}) },
+    // A new account starts on the Gmail preset — the most common case and a template for any other IMAP host.
+    config: account ? { ...account.config } : { ...GMAIL, mailbox: 'INBOX' },
     secrets: {},
   };
 }
@@ -77,7 +78,7 @@ export default function AccountForm({ open, account, onOpenChange, onSubmit }: P
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] w-[min(100vw-1rem,36rem)] overflow-y-auto p-4 md:p-5">
+      <DialogContent wrapperClassName="z-[10000]" className="max-w-none max-h-[90vh] w-[min(100vw-1rem,36rem)] overflow-y-auto p-4 md:p-5">
         <DialogTitle className="mb-3 text-base font-semibold">{account ? `Edit ${account.label}` : 'Add account'}</DialogTitle>
 
         <div className="space-y-4">
