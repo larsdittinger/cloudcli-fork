@@ -206,7 +206,10 @@ export type GatewayEventKind =
   | 'chat_subscribed'
   | 'session_upserted'
   | 'loading_progress'
-  | 'protocol_error';
+  | 'protocol_error'
+  // channels: an inbound message changed status / an outgoing reply moved
+  | 'channels_inbox_updated'
+  | 'channels_outbox_updated';
 
 /**
  * Complete set of `kind` values emitted to websocket clients.
