@@ -49,6 +49,13 @@ import {
     initializeScheduledMessageDispatcher,
     scheduledMessagesRoutes,
 } from './modules/scheduled-messages/index.js';
+import {
+    channelsRoutes,
+    channelsWebhookRoutes,
+    channelsMcpRoutes,
+    initializeChannels,
+    closeChannels,
+} from './modules/channels/index.js';
 import browserUseRoutes from './modules/browser-use/browser-use.routes.js';
 import { assetsRoutes } from './modules/assets/index.js';
 import { fileTreeRoutes } from './modules/file-tree/index.js';
@@ -198,6 +205,11 @@ app.use('/api/admin', authenticateToken, requireAdmin, adminRoutes);
 
 // Plugins API Routes (protected)
 app.use('/api/plugins', authenticateToken, pluginsRoutes);
+
+// Channels: public webhook entry (account token), MCP bridge (local token), admin API
+app.use('/api/channels/webhook', channelsWebhookRoutes);
+app.use('/api/channels-mcp', channelsMcpRoutes);
+app.use('/api/channels', authenticateToken, requireAdmin, channelsRoutes);
 
 // Browser MCP bridge API (local token protected)
 app.use('/api/browser-use-mcp', browserUseMcpRoutes);
@@ -383,6 +395,10 @@ async function startServer() {
             // Sends anything that came due while the server was not running,
             // then keeps polling.
             initializeScheduledMessageDispatcher(providerRuntimeService);
+            // Inbound e-mail / WhatsApp / webhook messages that start agent turns.
+            initializeChannels(providerRuntimeService).catch(err => {
+                console.error('[Channels] Error during startup:', getErrorMessage(err));
+            });
 
             // Start server-side plugin processes for enabled plugins
             startEnabledPluginServers().catch(err => {
@@ -394,6 +410,11 @@ async function startServer() {
         closeScheduledMessageDispatcher();
         // Clean up plugin processes on shutdown
         const shutdownRuntimeServices = async () => {
+            try {
+                await closeChannels();
+            } catch (err) {
+                console.error('[Channels] Error stopping channels during shutdown:', getErrorMessage(err));
+            }
             try {
                 await browserUseService.stopAllSessions();
             } catch (err) {

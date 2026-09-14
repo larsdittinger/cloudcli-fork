@@ -11,6 +11,7 @@ import { appConfigDb, channelAccountsDb, channelMessagesDb, channelRulesDb } fro
 
 function deps(dir: string) {
   return {
+    accountId: 'acc',
     attachmentsDir: (messageId: string) => path.join(dir, 'attachments', messageId),
     saveConfig: () => {},
     log: () => {},

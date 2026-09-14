@@ -56,6 +56,14 @@ type RunningAdapter = {
   stopped: boolean;
 };
 
+type McpRegistrar = { register(): Promise<unknown>; unregister(): Promise<unknown> };
+let mcpRegistrar: McpRegistrar | null = null;
+
+/** @internal test hook: keeps tests from touching the real ~/.claude.json. */
+export function __setMcpRegistrar(next: McpRegistrar | null): void {
+  mcpRegistrar = next;
+}
+
 const factories = new Map<ChannelType, AdapterFactory>();
 const running = new Map<string, RunningAdapter>();
 let runtime: ProviderRuntimeGateway | null = null;
@@ -101,6 +109,7 @@ function getMcpApiUrl(): string {
 
 function adapterDeps(accountId: string, label: string): AdapterDeps {
   return {
+    accountId,
     attachmentsDir: (messageId: string) => path.join(CHANNELS_ROOT, 'attachments', messageId),
     saveConfig: (patch) => {
       const row = channelAccountsDb.get(accountId);
@@ -226,6 +235,10 @@ export const channelsService = {
     runtime = next;
   },
 
+  getRuntime(): ProviderRuntimeGateway | null {
+    return runtime;
+  },
+
   isEnabled(): boolean {
     return appConfigDb.get(ENABLED_KEY) === 'true';
   },
@@ -240,6 +253,7 @@ export const channelsService = {
   },
 
   async registerAgentMcp() {
+    if (mcpRegistrar) return mcpRegistrar.register();
     const { command, args } = getMcpCommand();
     return providerMcpService.addMcpServerToAllProviders({
       name: MCP_SERVER_NAME,
@@ -255,6 +269,7 @@ export const channelsService = {
   },
 
   async unregisterAgentMcp() {
+    if (mcpRegistrar) return mcpRegistrar.unregister();
     return providerMcpService.removeMcpServerFromAllProviders({ name: MCP_SERVER_NAME, scope: 'user' });
   },
 

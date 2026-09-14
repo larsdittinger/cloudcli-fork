@@ -1,0 +1,24 @@
+From: "Jan Novak" <Jan@Firma.CZ>
+To: me@example.com
+Cc: kolega@firma.cz
+Reply-To: reply@firma.cz
+Subject: Re: Objednavka 42
+Date: Mon, 14 Sep 2026 10:15:00 +0200
+Message-ID: <c@firma.cz>
+In-Reply-To: <b@example.com>
+References: <a@example.com> <b@example.com>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="XYZ"
+
+--XYZ
+Content-Type: text/plain; charset=utf-8
+
+Dobry den, posilam upresneni.
+
+--XYZ
+Content-Type: text/plain; name="note.txt"
+Content-Disposition: attachment; filename="note.txt"
+Content-Transfer-Encoding: base64
+
+aGVsbG8=
+--XYZ--

@@ -15,6 +15,7 @@ export type SendInput = {
 };
 
 export type AdapterDeps = {
+  accountId: string;
   /** Folder for one message's attachments; created on demand. */
   attachmentsDir(messageId: string): string;
   /** Persists a config patch (e.g. the last seen IMAP UID) into the account row. */

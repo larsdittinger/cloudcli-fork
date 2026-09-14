@@ -1,0 +1,9 @@
+From: shop@example.org
+To: me@example.com
+Subject: Newsletter
+Date: Mon, 14 Sep 2026 09:00:00 +0000
+Message-ID: <n1@example.org>
+MIME-Version: 1.0
+Content-Type: text/html; charset=utf-8
+
+<html><body><h1>Hello</h1><p>First &amp; second</p><style>p{}</style></body></html>
