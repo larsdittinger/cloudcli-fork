@@ -263,6 +263,100 @@ CREATE TABLE IF NOT EXISTS superseded_provider_sessions (
 );
 `;
 
+export const CHANNELS_TABLES_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS channel_accounts (
+    id TEXT PRIMARY KEY,
+    type TEXT NOT NULL,
+    label TEXT NOT NULL,
+    enabled BOOLEAN DEFAULT 1,
+    config TEXT NOT NULL DEFAULT '{}',
+    secrets TEXT NOT NULL DEFAULT '{}',
+    -- off | draft | auto: may an agent send free-form messages through this account
+    agent_send TEXT NOT NULL DEFAULT 'off',
+    -- disconnected | connecting | connected | error | needs_pairing
+    status TEXT NOT NULL DEFAULT 'disconnected',
+    status_detail TEXT,
+    last_seen_at DATETIME,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS channel_rules (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    enabled BOOLEAN DEFAULT 1,
+    position INTEGER NOT NULL DEFAULT 0,
+    account_id TEXT,
+    channel TEXT,
+    conditions TEXT NOT NULL DEFAULT '{}',
+    project_path TEXT NOT NULL,
+    provider TEXT NOT NULL DEFAULT 'claude',
+    model TEXT,
+    effort TEXT,
+    permission_mode TEXT NOT NULL DEFAULT 'default',
+    prompt_template TEXT NOT NULL DEFAULT '',
+    -- thread | sender | new
+    conversation TEXT NOT NULL DEFAULT 'thread',
+    -- none | draft | auto
+    reply_mode TEXT NOT NULL DEFAULT 'none',
+    -- sender | anyone
+    reply_scope TEXT NOT NULL DEFAULT 'sender',
+    owner_user_id INTEGER,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS channel_messages (
+    id TEXT PRIMARY KEY,
+    account_id TEXT NOT NULL,
+    channel TEXT NOT NULL,
+    external_id TEXT NOT NULL,
+    thread_key TEXT NOT NULL,
+    from_address TEXT NOT NULL,
+    from_name TEXT,
+    to_json TEXT NOT NULL DEFAULT '[]',
+    subject TEXT,
+    text TEXT NOT NULL DEFAULT '',
+    html TEXT,
+    is_group BOOLEAN DEFAULT 0,
+    attachments_json TEXT NOT NULL DEFAULT '[]',
+    raw_json TEXT NOT NULL DEFAULT '{}',
+    received_at DATETIME NOT NULL,
+    rule_id TEXT,
+    session_id TEXT,
+    -- unmatched | ignored | queued | dispatched | failed | manual
+    status TEXT NOT NULL DEFAULT 'unmatched',
+    status_detail TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(account_id, external_id)
+);
+
+CREATE TABLE IF NOT EXISTS channel_threads (
+    rule_id TEXT NOT NULL,
+    thread_key TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (rule_id, thread_key)
+);
+
+CREATE TABLE IF NOT EXISTS channel_outbox (
+    id TEXT PRIMARY KEY,
+    account_id TEXT NOT NULL,
+    session_id TEXT,
+    in_reply_to_message_id TEXT,
+    to_address TEXT NOT NULL,
+    subject TEXT,
+    text TEXT NOT NULL,
+    -- draft | approved | sending | sent | failed | discarded
+    status TEXT NOT NULL DEFAULT 'draft',
+    status_detail TEXT,
+    external_id TEXT,
+    created_by TEXT NOT NULL DEFAULT 'agent',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    sent_at DATETIME
+);
+`;
+
 export const INIT_SCHEMA_SQL = `
 -- Initialize authentication database
 PRAGMA foreign_keys = ON;

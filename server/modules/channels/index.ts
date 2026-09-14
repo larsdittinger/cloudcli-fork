@@ -1,0 +1,20 @@
+// Channels — inbound e-mail / WhatsApp / webhook messages that start agent turns.
+export type {
+  AccountStatus,
+  AgentSendMode,
+  ChannelAccountRow,
+  ChannelMessageRow,
+  ChannelOutboxRow,
+  ChannelRuleRow,
+  ChannelType,
+  ConversationMode,
+  InboundAttachment,
+  InboundMessage,
+  MessageStatus,
+  OutboxStatus,
+  PermissionMode,
+  ReplyMode,
+  ReplyScope,
+  RuleConditions,
+  RuleInput,
+} from './types.js';
