@@ -22,6 +22,26 @@ const ULTRACODE_EFFORT_OPTION = {
   description: 'Highest effort plus standing workflow orchestration.',
 };
 
+/**
+ * Effort levels shared by every current-generation model. Opus 4.6 and Sonnet 4.6 predate
+ * `xhigh` and take {@link EFFORT_WITHOUT_XHIGH}; Haiku rejects effort entirely and carries
+ * no effort block at all.
+ */
+const EFFORT_WITH_XHIGH = [
+  { value: 'low' },
+  { value: 'medium' },
+  { value: 'high' },
+  { value: 'xhigh' },
+  { value: 'max' },
+];
+
+const EFFORT_WITHOUT_XHIGH = [
+  { value: 'low' },
+  { value: 'medium' },
+  { value: 'high' },
+  { value: 'max' },
+];
+
 export const CLAUDE_PREDEFINED_MODELS: ProviderModelsDefinition = {
   OPTIONS: [
     {
@@ -74,16 +94,13 @@ export const CLAUDE_PREDEFINED_MODELS: ProviderModelsDefinition = {
       value: 'claude-fable-5-1',
       label: 'Fable 5.1',
       description: 'Pinned to claude-fable-5-1 instead of following the "fable" alias.',
-      effort: {
-        default: 'high',
-        values: [
-          { value: 'low' },
-          { value: 'medium' },
-          { value: 'high' },
-          { value: 'xhigh' },
-          { value: 'max' },
-        ],
-      },
+      effort: { default: 'high', values: EFFORT_WITH_XHIGH },
+    },
+    {
+      value: 'claude-fable-5',
+      label: 'Fable 5',
+      description: 'Pinned to claude-fable-5, the previous Fable release.',
+      effort: { default: 'high', values: EFFORT_WITH_XHIGH },
     },
     {
       value: 'sonnet',
@@ -118,6 +135,18 @@ export const CLAUDE_PREDEFINED_MODELS: ProviderModelsDefinition = {
       },
     },
     {
+      value: 'claude-sonnet-5',
+      label: 'Sonnet 5',
+      description: 'Pinned to claude-sonnet-5 instead of following the "sonnet" alias.',
+      effort: { default: 'high', values: EFFORT_WITH_XHIGH },
+    },
+    {
+      value: 'claude-sonnet-4-6',
+      label: 'Sonnet 4.6',
+      description: 'Pinned to claude-sonnet-4-6, the previous Sonnet generation.',
+      effort: { default: 'high', values: EFFORT_WITHOUT_XHIGH },
+    },
+    {
       value: 'opus',
       label: 'Opus',
       description: 'Latest Opus model for complex reasoning and coding tasks.',
@@ -150,9 +179,38 @@ export const CLAUDE_PREDEFINED_MODELS: ProviderModelsDefinition = {
       },
     },
     {
+      value: 'claude-opus-5',
+      label: 'Opus 5',
+      description: 'Pinned to claude-opus-5 instead of following the "opus" alias.',
+      effort: { default: 'high', values: EFFORT_WITH_XHIGH },
+    },
+    {
+      value: 'claude-opus-4-8',
+      label: 'Opus 4.8',
+      description: 'Pinned to claude-opus-4-8, the previous Opus release.',
+      effort: { default: 'high', values: EFFORT_WITH_XHIGH },
+    },
+    {
+      value: 'claude-opus-4-7',
+      label: 'Opus 4.7',
+      description: 'Pinned to claude-opus-4-7.',
+      effort: { default: 'high', values: EFFORT_WITH_XHIGH },
+    },
+    {
+      value: 'claude-opus-4-6',
+      label: 'Opus 4.6',
+      description: 'Pinned to claude-opus-4-6, which predates the xhigh effort level.',
+      effort: { default: 'high', values: EFFORT_WITHOUT_XHIGH },
+    },
+    {
       value: 'haiku',
       label: 'Haiku',
       description: 'Fast and efficient Claude model for simple tasks.',
+    },
+    {
+      value: 'claude-haiku-4-5',
+      label: 'Haiku 4.5',
+      description: 'Pinned to claude-haiku-4-5 instead of following the "haiku" alias.',
     },
     {
       value: 'opusplan',
