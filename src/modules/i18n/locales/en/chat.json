@@ -95,9 +95,9 @@
       "plan": "Plan Mode"
     },
     "descriptions": {
-      "default": "Only trusted commands (ls, cat, grep, git status, etc.) run automatically. Other commands are skipped. Can write to workspace.",
+      "default": "Codex decides when a command needs approval, and approval cannot be granted in this non-interactive integration, so those commands are skipped. Commands that do run are not sandboxed.",
       "auto": "A model classifier decides per tool call whether to approve or deny. Hands-off, but safer than Bypass — denials still happen.",
-      "acceptEdits": "All commands run automatically within the workspace. Full auto mode with sandboxed execution.",
+      "acceptEdits": "All commands run automatically. Not sandboxed — the container, or the user the server runs as, is the boundary.",
       "bypassPermissions": "Full system access with no restrictions. All commands run automatically with full disk and network access. Use with caution.",
       "plan": "Planning mode - no commands are executed"
     },

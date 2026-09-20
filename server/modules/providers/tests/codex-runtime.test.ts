@@ -49,7 +49,9 @@ for (const resumed of [false, true]) {
       assert.equal(start.mock.callCount(), resumed ? 0 : 1);
       assert.equal(resume.mock.callCount(), resumed ? 1 : 0);
       assert.equal(capturedPrompt, 'hey there');
-      assert.equal(capturedOptions?.sandboxMode, permissionMode === 'bypassPermissions' ? 'danger-full-access' : 'workspace-write');
+      // Every mode runs unsandboxed: Codex implements `workspace-write` with
+      // bubblewrap, which cannot create a user namespace in our deployments.
+      assert.equal(capturedOptions?.sandboxMode, 'danger-full-access');
       assert.equal(capturedOptions?.approvalPolicy, permissionMode === 'acceptEdits' || permissionMode === 'bypassPermissions' ? 'never' : 'on-request');
       assert.ok(messages.some((message: any) => message.kind === 'complete' && message.exitCode === 0));
       assert.ok(!messages.some((message: any) => message.kind === 'error'));

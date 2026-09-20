@@ -222,14 +222,19 @@ function transformCodexEvent(event: AnyRecord): AnyRecord {
  * Map permission mode to Codex SDK options
  * @param {string} permissionMode - 'default', 'acceptEdits', or 'bypassPermissions'
  * @returns {object} - { sandboxMode, approvalPolicy }
+ *
+ * Every mode runs `danger-full-access`. Codex implements `workspace-write` with
+ * bubblewrap, which needs an unprivileged user namespace, and a CloudCLI server
+ * rarely gets one: a hardened container (`--cap-drop ALL`) has the `clone` flag
+ * blocked by the seccomp profile, and Ubuntu >= 24.04 blocks it for the service
+ * user via `kernel.apparmor_restrict_unprivileged_userns`. Without it *every*
+ * command dies on `bwrap: No permissions to create a new namespace` and the
+ * agent silently loses its shell. The real boundary is the container (or the
+ * service user on a host), the same trade-off the CLI config makes.
  */
 function mapPermissionModeToCodexOptions(permissionMode: string): Pick<ThreadOptions, 'sandboxMode' | 'approvalPolicy'> {
   switch (permissionMode) {
     case 'acceptEdits':
-      return {
-        sandboxMode: 'workspace-write',
-        approvalPolicy: 'never'
-      };
     case 'bypassPermissions':
       return {
         sandboxMode: 'danger-full-access',
@@ -238,9 +243,9 @@ function mapPermissionModeToCodexOptions(permissionMode: string): Pick<ThreadOpt
     case 'default':
     default:
       return {
-        sandboxMode: 'workspace-write',
+        sandboxMode: 'danger-full-access',
         // Current Codex CLI versions reject the retired `untrusted` policy.
-        // Keep sandboxing enabled; exec cannot grant interactive approval requests.
+        // exec cannot grant interactive approval requests, so keep it on-request.
         approvalPolicy: 'on-request'
       };
   }

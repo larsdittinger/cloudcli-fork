@@ -458,11 +458,11 @@
       "modes": {
         "default": {
           "title": "Default",
-          "description": "Runs commands within the workspace sandbox. Codex decides when approval is needed; requests cannot be approved in this non-interactive integration."
+          "description": "Codex decides when a command needs approval, and approval cannot be granted in this non-interactive integration, so those commands are skipped. Commands that do run are not sandboxed."
         },
         "acceptEdits": {
           "title": "Accept Edits",
-          "description": "All commands run automatically within the workspace. Full auto mode with sandboxed execution."
+          "description": "All commands run automatically. Not sandboxed — the container, or the user the server runs as, is the boundary."
         },
         "bypassPermissions": {
           "title": "Bypass Permissions",
@@ -471,9 +471,9 @@
       },
       "technicalDetails": "Technical details",
       "technicalInfo": {
-        "default": "sandboxMode=workspace-write, approvalPolicy=on-request. Runs commands within the workspace sandbox. Codex decides when approval is needed; requests cannot be approved in this non-interactive integration.",
-        "acceptEdits": "sandboxMode=workspace-write, approvalPolicy=never. All commands auto-execute within project directory.",
-        "bypassPermissions": "sandboxMode=danger-full-access, approvalPolicy=never. Full system access, use only in trusted environments.",
+        "default": "sandboxMode=danger-full-access, approvalPolicy=on-request. Codex decides when a command needs approval; such requests cannot be approved here, so those commands are skipped.",
+        "acceptEdits": "sandboxMode=danger-full-access, approvalPolicy=never. All commands auto-execute.",
+        "bypassPermissions": "sandboxMode=danger-full-access, approvalPolicy=never. Full system access, use only in trusted environments. Codex never sandboxes here: its workspace sandbox needs an unprivileged user namespace, which a hardened container or a modern Ubuntu host denies.",
         "overrideNote": "You can override this per-session using the mode button in the chat interface."
       }
     },
