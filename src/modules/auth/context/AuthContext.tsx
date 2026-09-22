@@ -30,7 +30,7 @@ type AuthActionResult = { success: true } | { success: false; error: string };
 type AuthSessionPayload = {
   token?: string;
   user?: AuthUser;
-  error?: string;
+  error?: string | { code?: string; message?: string };
   message?: string;
 };
 
@@ -47,7 +47,9 @@ type OnboardingStatusPayload = {
 };
 
 type ApiErrorPayload = {
-  error?: string;
+  // The server rejects with the structured AppError envelope
+  // (`error: { code, message }`); older endpoints still send a bare string.
+  error?: string | { code?: string; message?: string };
   message?: string;
 };
 
@@ -81,7 +83,18 @@ function resolveApiErrorMessage(payload: ApiErrorPayload | null, fallback: strin
     return fallback;
   }
 
-  return payload.error ?? payload.message ?? fallback;
+  // Anything but a string would be handed to AuthErrorAlert and rendered as a
+  // React child, which throws and takes the whole login screen down with it —
+  // the form then looks inert instead of reporting the rejected credentials.
+  const { error } = payload;
+  if (typeof error === 'string' && error) {
+    return error;
+  }
+  if (error && typeof error === 'object' && typeof error.message === 'string' && error.message) {
+    return error.message;
+  }
+
+  return typeof payload.message === 'string' && payload.message ? payload.message : fallback;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
