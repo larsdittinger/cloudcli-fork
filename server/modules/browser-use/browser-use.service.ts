@@ -24,7 +24,7 @@ import {
   type BrowserEmulation,
   type EmulationInput,
 } from '@/modules/browser-use/browser-emulation.js';
-import { resolveProfileDir } from '@/modules/browser-use/browser-profile.js';
+import { clearStaleProfileLock, resolveProfileDir } from '@/modules/browser-use/browser-profile.js';
 import { appConfigDb } from '@/modules/database/index.js';
 import { providerMcpService } from '@/modules/providers/index.js';
 import { getModuleDirectory } from '@/shared/utils.js';
@@ -588,6 +588,10 @@ async function launchEmulatedContext(
     channel: 'chrome',
     headless: false,
     args: baseArgs,
+    // Zaseknuty launch (profilovy dialog, chybejici display) musi spadnout driv,
+    // nez MCP klient vzda request (CLOUDCLI_BROWSER_USE_API_TIMEOUT_MS, 60 s) —
+    // jinak agent dostane jen "aborted due to timeout" bez duvodu.
+    timeout: 40_000,
   };
 
   const stealth = isStealthDesktop(emulation);
@@ -609,6 +613,9 @@ async function launchEmulatedContext(
     console.warn(`[Browser] Profil obsazeny, jedu bez persistence: ${profileDir}`);
   } else {
     profileDirsInUse.add(profileDir);
+    if (clearStaleProfileLock(profileDir)) {
+      console.warn(`[Browser] Smazan stary SingletonLock profilu: ${profileDir}`);
+    }
   }
 
   let context: any;
