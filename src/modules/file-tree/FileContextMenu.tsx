@@ -205,6 +205,24 @@ export default function FileContextMenu({
     ];
   }, [item, onCopyPath, onDelete, onDownload, onNewFile, onNewFolder, onRefresh, onRename, onUpload, t]);
 
+  // Drop actions whose handler was not passed (a read-only tree has no
+  // create/rename/delete/upload), and any divider left leading the menu.
+  const visibleMenuActions = useMemo(() => {
+    const handlers: Record<string, unknown> = {
+      rename: onRename,
+      delete: onDelete,
+      newFile: onNewFile,
+      newFolder: onNewFolder,
+      upload: onUpload,
+      copyPath: onCopyPath,
+      download: onDownload,
+      refresh: onRefresh,
+    };
+    return menuActions
+      .filter((action) => handlers[action.key])
+      .map((action, index) => (index === 0 ? { ...action, showDividerBefore: false } : action));
+  }, [menuActions, onCopyPath, onDelete, onDownload, onNewFile, onNewFolder, onRefresh, onRename, onUpload]);
+
   useEffect(() => {
     if (!isMenuOpen) {
       return;
@@ -295,7 +313,7 @@ export default function FileContextMenu({
               <span className="ml-2 text-sm text-muted-foreground">{t('fileTree.context.loading', 'Loading...')}</span>
             </div>
           ) : (
-            menuActions.map((action) => (
+            visibleMenuActions.map((action) => (
               <Fragment key={action.key}>
                 {action.showDividerBefore && <div className="mx-2 my-1 h-px bg-border" />}
                 <button

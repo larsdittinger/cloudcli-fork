@@ -39,6 +39,9 @@ const BASE_TABS: BuiltInTab[] = [
   { kind: 'builtin', id: 'git',   labelKey: 'tabs.git',   icon: GitBranch },
 ];
 
+/** Built-in tabs a restricted user sees; everything else stays admin-only. */
+export const RESTRICTED_TAB_IDS: ReadonlySet<AppTab> = new Set<AppTab>(['chat', 'files']);
+
 const BROWSER_TAB: BuiltInTab = {
   kind: 'builtin',
   id: 'browser',
@@ -64,26 +67,25 @@ export default function WorkspaceTabs({
   const { t } = useTranslation();
   const { plugins } = usePlugins();
 
-  // Restricted users only get the chat tab.
+  // Restricted users get chat and read-only files.
   const builtInTabs: BuiltInTab[] = restrictedMode
-    ? BASE_TABS.filter((tab) => tab.id === 'chat')
+    ? BASE_TABS.filter((tab) => RESTRICTED_TAB_IDS.has(tab.id))
     : [
         ...BASE_TABS,
         ...(shouldShowBrowserTab ? [BROWSER_TAB] : []),
         ...(shouldShowTasksTab ? [TASKS_TAB] : []),
       ];
 
-  const pluginTabs: PluginTab[] = restrictedMode
-    ? []
-    : plugins
-        .filter((p) => p.enabled)
-        .map((p) => ({
-          kind: 'plugin',
-          id: `plugin:${p.name}` as AppTab,
-          label: p.displayName,
-          pluginName: p.name,
-          iconFile: p.icon,
-        }));
+  // The server lists only the plugins a restricted user may open.
+  const pluginTabs: PluginTab[] = plugins
+    .filter((p) => p.enabled)
+    .map((p) => ({
+      kind: 'plugin',
+      id: `plugin:${p.name}` as AppTab,
+      label: p.displayName,
+      pluginName: p.name,
+      iconFile: p.icon,
+    }));
 
   const tabs: TabDefinition[] = [...builtInTabs, ...pluginTabs];
 

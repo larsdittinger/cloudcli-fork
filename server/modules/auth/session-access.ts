@@ -103,3 +103,22 @@ export function assertProjectPathAccess(user: SessionAccessUser, projectPath: st
     });
   }
 }
+
+/**
+ * Throws 403 when a restricted user reaches for a project by its id without a
+ * grant. Used by read-only routes a restricted user is allowed to call (File
+ * Tree), where the project id comes straight from the URL.
+ */
+export function assertProjectIdAccess(user: SessionAccessUser, projectId: string): void {
+  const ownerScope = resolveSessionOwnerScope(user);
+  if (ownerScope === null) {
+    return;
+  }
+
+  if (!userProjectAccessDb.canAccess(ownerScope, projectId)) {
+    throw new AppError('Project access denied', {
+      code: 'PROJECT_ACCESS_DENIED',
+      statusCode: 403,
+    });
+  }
+}

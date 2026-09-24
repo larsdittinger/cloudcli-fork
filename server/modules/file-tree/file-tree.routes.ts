@@ -7,7 +7,7 @@ import type {
   FileTreeUploadedFile,
 } from '@/shared/types.js';
 import { AppError } from '@/shared/utils.js';
-import { requireAdmin } from '@/modules/auth/index.js';
+import { assertProjectIdAccess, requireAdmin } from '@/modules/auth/index.js';
 
 type FileTreeUploadLimits = {
   maximumFileSizeMegabytes: number;
@@ -38,8 +38,14 @@ function readOptionalString(value: unknown): string | null {
   return typeof value === 'string' ? value : null;
 }
 
+/**
+ * Reads the project id and checks it against the caller's project grants, so a
+ * restricted user can browse files only in the projects an admin gave them.
+ */
 function readProjectId(request: Request): string {
-  return readRequiredString(request.params.projectId, 'projectId');
+  const projectId = readRequiredString(request.params.projectId, 'projectId');
+  assertProjectIdAccess((request as Request & { user?: Parameters<typeof assertProjectIdAccess>[0] }).user, projectId);
+  return projectId;
 }
 
 function readEntryType(value: unknown): 'file' | 'directory' {
@@ -116,7 +122,7 @@ export function createFileTreeRouter(
 ): express.Router {
   const router = express.Router();
 
-  router.get('/browse-filesystem', createRouteHandler(async (request, response) => {
+  router.get('/browse-filesystem', requireAdmin, createRouteHandler(async (request, response) => {
     response.json(await services.browseWorkspace(readOptionalString(request.query.path)));
   }, logger));
 

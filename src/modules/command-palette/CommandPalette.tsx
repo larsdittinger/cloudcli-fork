@@ -71,7 +71,7 @@ function CommandPalette({
   const navigate = useNavigate();
   const ops = usePaletteOps();
   const isAdmin = useIsAdmin();
-  const navTabs = isAdmin ? NAV_TABS : NAV_TABS.filter((tab) => tab.id === 'chat');
+  const navTabs = isAdmin ? NAV_TABS : NAV_TABS.filter((tab) => tab.id === 'chat' || tab.id === 'files');
 
   const page = pages.at(-1);
 

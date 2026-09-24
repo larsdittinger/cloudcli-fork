@@ -28,6 +28,8 @@ type CodeEditorProps = {
   isExpanded?: boolean;
   onToggleExpand?: (() => void) | null;
   onPopOut?: (() => void) | null;
+  /** View only: the text cannot be changed and there is no save (restricted users). */
+  readOnly?: boolean;
 };
 
 /** Rendered by the code-editor module's own EditorSidebar, and re-exported on the module barrel, as the full CodeMirror editor for one open file. */
@@ -39,6 +41,7 @@ export default function CodeEditor({
   isExpanded = false,
   onToggleExpand = null,
   onPopOut = null,
+  readOnly = false,
 }: CodeEditorProps) {
   const { t } = useTranslation('codeEditor');
   const paletteOps = usePaletteOps();
@@ -177,8 +180,10 @@ export default function CodeEditor({
     wordWrap,
   ]);
 
+  const noop = useCallback(() => {}, []);
+
   useEditorKeyboardShortcuts({
-    onSave: handleSave,
+    onSave: readOnly ? noop : handleSave,
     onClose,
     dependency: content,
   });
@@ -258,9 +263,9 @@ export default function CodeEditor({
             saveSuccess={saveSuccess}
             onToggleMarkdownPreview={() => setMarkdownPreview((previous) => !previous)}
             onOpenHtmlPreview={openHtmlPreview}
-            onOpenSettings={() => paletteOps.openSettings('appearance')}
+            onOpenSettings={readOnly ? undefined : () => paletteOps.openSettings('appearance')}
             onDownload={handleDownload}
-            onSave={handleSave}
+            onSave={readOnly ? undefined : handleSave}
             onToggleFullscreen={() => setIsFullscreen((previous) => !previous)}
             onClose={onClose}
             labels={{
@@ -297,6 +302,7 @@ export default function CodeEditor({
               fontSize={fontSize}
               showLineNumbers={showLineNumbers}
               extensions={extensions}
+              readOnly={readOnly}
             />
           </div>
 

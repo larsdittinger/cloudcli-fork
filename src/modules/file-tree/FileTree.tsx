@@ -25,10 +25,12 @@ import ImageViewer from '@/modules/file-tree/ImageViewer';
 type FileTreeProps = {
   selectedProject: Project | null;
   onFileOpen?: (filePath: string) => void;
+  /** Browse and open only: no create, rename, delete or upload (restricted users). */
+  readOnly?: boolean;
 };
 
 /** Exported through the file-tree barrel; the project-workspace module renders it as the Files sidebar tab. */
-export default function FileTree({ selectedProject, onFileOpen }: FileTreeProps) {
+export default function FileTree({ selectedProject, onFileOpen, readOnly = false }: FileTreeProps) {
   const { t } = useTranslation();
   const [selectedImage, setSelectedImage] = useState<FileTreeImageSelection | null>(null);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
@@ -153,10 +155,10 @@ export default function FileTree({ selectedProject, onFileOpen }: FileTreeProps)
     <div
       ref={treeRef}
       className="relative flex h-full flex-col bg-background"
-      onDragEnter={upload.handleDragEnter}
-      onDragOver={upload.handleDragOver}
-      onDragLeave={upload.handleDragLeave}
-      onDrop={upload.handleDrop}
+      onDragEnter={readOnly ? undefined : upload.handleDragEnter}
+      onDragOver={readOnly ? undefined : upload.handleDragOver}
+      onDragLeave={readOnly ? undefined : upload.handleDragLeave}
+      onDrop={readOnly ? undefined : upload.handleDrop}
     >
       {/* Hidden input for folder-targeted uploads (context menu / hover button) */}
       <input
@@ -190,9 +192,9 @@ export default function FileTree({ selectedProject, onFileOpen }: FileTreeProps)
         onViewModeChange={changeViewMode}
         searchQuery={searchQuery}
         onSearchQueryChange={setSearchQuery}
-        onUploadFiles={upload.handleFileSelect}
-        onNewFile={() => operations.handleStartCreate('', 'file')}
-        onNewFolder={() => operations.handleStartCreate('', 'directory')}
+        onUploadFiles={readOnly ? undefined : upload.handleFileSelect}
+        onNewFile={readOnly ? undefined : () => operations.handleStartCreate('', 'file')}
+        onNewFolder={readOnly ? undefined : () => operations.handleStartCreate('', 'directory')}
         onRefresh={refreshFiles}
         onCollapseAll={collapseAll}
         loading={loading}
@@ -249,16 +251,16 @@ export default function FileTree({ selectedProject, onFileOpen }: FileTreeProps)
           renderFileIcon={renderFileIcon}
           formatFileSize={formatFileSize}
           formatRelativeTime={formatRelativeTimeLabel}
-          onRename={operations.handleStartRename}
-          onDelete={operations.handleStartDelete}
-          onNewFile={(path) => operations.handleStartCreate(path, 'file')}
-          onNewFolder={(path) => operations.handleStartCreate(path, 'directory')}
+          onRename={readOnly ? undefined : operations.handleStartRename}
+          onDelete={readOnly ? undefined : operations.handleStartDelete}
+          onNewFile={readOnly ? undefined : (path) => operations.handleStartCreate(path, 'file')}
+          onNewFolder={readOnly ? undefined : (path) => operations.handleStartCreate(path, 'directory')}
           onCopyPath={operations.handleCopyPath}
           onDownload={operations.handleDownload}
-          onUpload={handleUploadToFolder}
+          onUpload={readOnly ? undefined : handleUploadToFolder}
           onRefresh={refreshFiles}
           dropTarget={upload.dropTarget}
-          onItemDragOver={upload.handleItemDragOver}
+          onItemDragOver={readOnly ? undefined : upload.handleItemDragOver}
           // Pass rename state and handlers for inline editing
           renamingItem={operations.renamingItem}
           renameValue={operations.renameValue}

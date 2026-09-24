@@ -15,6 +15,7 @@ import { EditorSidebar, useEditorSidebar } from '@/modules/code-editor';
 import WorkspaceHeader from '@/modules/project-workspace/WorkspaceHeader';
 import WorkspaceStateView from '@/modules/project-workspace/WorkspaceStateView';
 import WorkspaceErrorBoundary from '@/modules/project-workspace/WorkspaceErrorBoundary';
+import { RESTRICTED_TAB_IDS } from '@/modules/project-workspace/WorkspaceTabs';
 import { useIsAdmin } from '@/shared/hooks/useIsAdmin';
 
 type WorkspaceMainProps = {
@@ -94,9 +95,10 @@ function WorkspaceMain({
     }
   }, [shouldShowTasksTab, activeTab, setActiveTab]);
 
-  // Restricted users only get the chat tab; bounce them off anything else.
+  // Restricted users get chat, files and the plugins the server lists for
+  // them; bounce them off anything else.
   useEffect(() => {
-    if (!isAdmin && activeTab !== 'chat') {
+    if (!isAdmin && !RESTRICTED_TAB_IDS.has(activeTab) && !activeTab.startsWith('plugin:')) {
       setActiveTab('chat');
     }
   }, [isAdmin, activeTab, setActiveTab]);
@@ -115,16 +117,14 @@ function WorkspaceMain({
   }, [setActiveTab]);
 
   const openFile = useCallback((filePath: string) => {
-    if (!isAdmin) return;
     setActiveTab('files');
     handleFileOpen(filePath);
-  }, [handleFileOpen, isAdmin, setActiveTab]);
+  }, [handleFileOpen, setActiveTab]);
 
   // Opens the editor side panel in place, keeping the current tab (e.g. chat).
   const openFileInEditor = useCallback((filePath: string) => {
-    if (!isAdmin) return;
     resolvedFileOpen(filePath);
-  }, [isAdmin, resolvedFileOpen]);
+  }, [resolvedFileOpen]);
 
   // Stable arguments keep usePaletteOpsRegister's effect from tearing down and
   // rewriting the whole palette registry on every render.
@@ -162,7 +162,7 @@ function WorkspaceMain({
                 selectedSession={selectedSession}
                 ws={ws}
                 sendMessage={sendMessage}
-                onFileOpen={isAdmin ? handleFileOpen : undefined}
+                onFileOpen={handleFileOpen}
                 onNavigateToSession={onNavigateToSession}
                 onSessionEstablished={onSessionEstablished}
                 onShowSettings={onShowSettings}
@@ -176,9 +176,9 @@ function WorkspaceMain({
             </WorkspaceErrorBoundary>
           </div>
 
-          {isAdmin && activeTab === 'files' && (
+          {activeTab === 'files' && (
             <div className="h-full overflow-hidden">
-              <FileTree selectedProject={selectedProject} onFileOpen={handleFileOpen} />
+              <FileTree selectedProject={selectedProject} onFileOpen={handleFileOpen} readOnly={!isAdmin} />
             </div>
           )}
 
@@ -213,7 +213,7 @@ function WorkspaceMain({
             </div>
           )}
 
-          {isAdmin && activeTab.startsWith('plugin:') && (
+          {activeTab.startsWith('plugin:') && (
             <div className="h-full overflow-hidden">
               <PluginTabContent
                 pluginName={activeTab.replace('plugin:', '')}
@@ -224,7 +224,6 @@ function WorkspaceMain({
           )}
         </div>
 
-        {isAdmin && (
         <EditorSidebar
           editingFile={editingFile}
           isMobile={isMobile}
@@ -237,8 +236,8 @@ function WorkspaceMain({
           onToggleEditorExpand={handleToggleEditorExpand}
           projectPath={selectedProject.path}
           fillSpace={activeTab === 'files'}
+          readOnly={!isAdmin}
         />
-        )}
       </div>
     </div>
   );

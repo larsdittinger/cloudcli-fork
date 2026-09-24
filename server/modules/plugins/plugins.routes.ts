@@ -15,6 +15,26 @@ function routeParameter(value: string | string[]): string {
   return Array.isArray(value) ? value[0] ?? '' : value;
 }
 
+/**
+ * Plugins a restricted user may see and call. Plugin RPC runs with the
+ * server's rights, so anything that can start work (e.g. scheduled prompts)
+ * stays admin-only; only read-only dashboards belong here.
+ */
+const RESTRICTED_USER_PLUGINS = new Set(['claude-usage']);
+
+function isRestrictedUser(req: express.Request): boolean {
+  return (req as express.Request & { user?: { role?: string } }).user?.role === 'restricted';
+}
+
+/** Hides plugins outside RESTRICTED_USER_PLUGINS from restricted users (404, as if not installed). */
+const requirePluginAccess: express.RequestHandler = (req, res, next) => {
+  if (isRestrictedUser(req) && !RESTRICTED_USER_PLUGINS.has(routeParameter(req.params.name))) {
+    res.status(404).json({ error: 'Plugin not found' });
+    return;
+  }
+  next();
+};
+
 /** Creates plugin routes; transport streaming remains here while decisions live in the service. */
 export function createPluginsRouter(service: ReturnType<typeof createPluginsService>): express.Router {
   const router = express.Router();
@@ -23,9 +43,14 @@ export function createPluginsRouter(service: ReturnType<typeof createPluginsServ
       try { res.json(await operation(req)); } catch (error) { next(error); }
     };
 
-  router.get('/', respond(() => service.list()));
-  router.get('/:name/manifest', respond((req) => service.getManifest(routeParameter(req.params.name))));
-  router.get('/:name/assets/*', async (req, res, next) => {
+  router.get('/', respond((req) => {
+    const result = service.list();
+    return isRestrictedUser(req)
+      ? { ...result, plugins: result.plugins.filter((plugin) => RESTRICTED_USER_PLUGINS.has(plugin.name)) }
+      : result;
+  }));
+  router.get('/:name/manifest', requirePluginAccess, respond((req) => service.getManifest(routeParameter(req.params.name))));
+  router.get('/:name/assets/*', requirePluginAccess, async (req, res, next) => {
     try {
       const asset = service.resolveAsset(routeParameter(req.params.name), wildcardPath(req));
       res.setHeader('Content-Type', asset.contentType);
@@ -38,7 +63,7 @@ export function createPluginsRouter(service: ReturnType<typeof createPluginsServ
   router.put('/:name/enable', requireAdmin, respond((req) => service.setEnabled(routeParameter(req.params.name), req.body?.enabled)));
   router.post('/install', requireAdmin, respond((req) => service.install(req.body?.url)));
   router.post('/:name/update', requireAdmin, respond((req) => service.update(routeParameter(req.params.name))));
-  router.all('/:name/rpc/*', async (req, res, next) => {
+  router.all('/:name/rpc/*', requirePluginAccess, async (req, res, next) => {
     try {
       const { port, secrets } = await service.prepareRpc(routeParameter(req.params.name));
       const headers: Record<string, string> = {

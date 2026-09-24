@@ -13,6 +13,7 @@ export { requireAdmin } from './auth.middleware.js';
 // Session access helpers: used by Projects, Providers, and the chat WebSocket to
 // keep restricted users inside their own chats and granted projects.
 export {
+  assertProjectIdAccess,
   assertProjectPathAccess,
   assertSessionAccess,
   canAccessSession,

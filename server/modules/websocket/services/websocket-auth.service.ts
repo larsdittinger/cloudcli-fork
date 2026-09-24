@@ -60,6 +60,13 @@ export function verifyWebSocketClient(
     return false;
   }
 
+  // Plugin sockets reach plugin servers with the server's rights; the plugins a
+  // restricted user may open (read-only dashboards) only use HTTP RPC.
+  if (upgradeUrl.pathname.startsWith('/plugin-ws/') && user.role === 'restricted') {
+    console.log('[WARN] Plugin WebSocket denied for restricted user:', user.username);
+    return false;
+  }
+
   request.user = user;
   console.log('[OK] WebSocket authenticated for user:', user.username);
   return true;
