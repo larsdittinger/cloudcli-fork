@@ -97,6 +97,7 @@ test('offers every current-generation model under its exact id', () => {
     'claude-fable-5',
     'claude-sonnet-5',
     'claude-sonnet-4-6',
+    'claude-opus-5-5',
     'claude-opus-5',
     'claude-opus-4-8',
     'claude-opus-4-7',
@@ -116,6 +117,7 @@ test('pins each model to the effort levels it actually accepts', () => {
   assert.deepEqual(effortsOf('claude-sonnet-4-6'), ['low', 'medium', 'high', 'max']);
   assert.ok(effortsOf('claude-opus-4-7').includes('xhigh'));
   assert.ok(effortsOf('claude-fable-5').includes('xhigh'));
+  assert.deepEqual(effortsOf('claude-opus-5-5'), ['low', 'medium', 'high', 'xhigh', 'max']);
 
   // Haiku rejects the effort parameter, so it carries no effort block at all.
   assert.equal(findClaudeModelOption('claude-haiku-4-5')?.effort, undefined);

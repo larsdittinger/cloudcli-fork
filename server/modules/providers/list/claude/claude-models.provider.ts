@@ -179,15 +179,21 @@ export const CLAUDE_PREDEFINED_MODELS: ProviderModelsDefinition = {
       },
     },
     {
+      value: 'claude-opus-5-5',
+      label: 'Opus 5.5',
+      description: 'Pinned to claude-opus-5-5 instead of following the "opus" alias.',
+      effort: { default: 'high', values: EFFORT_WITH_XHIGH },
+    },
+    {
       value: 'claude-opus-5',
       label: 'Opus 5',
-      description: 'Pinned to claude-opus-5 instead of following the "opus" alias.',
+      description: 'Pinned to claude-opus-5, the previous Opus release.',
       effort: { default: 'high', values: EFFORT_WITH_XHIGH },
     },
     {
       value: 'claude-opus-4-8',
       label: 'Opus 4.8',
-      description: 'Pinned to claude-opus-4-8, the previous Opus release.',
+      description: 'Pinned to claude-opus-4-8.',
       effort: { default: 'high', values: EFFORT_WITH_XHIGH },
     },
     {
