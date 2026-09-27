@@ -78,13 +78,17 @@ const TOOLS_REQUIRING_INTERACTION = new Set(['AskUserQuestion', 'ExitPlanMode'])
 // selection is translated back into the two options the SDK actually understands here.
 const ULTRACODE_SDK_EFFORT = 'xhigh';
 
+// "Default" in the picker falls back to the catalog's per-model default, so a model can
+// start lower (Opus 5.5 at medium) than the CLI would on its own.
 function resolveClaudeEffort(model, effort, modelsDefinition = CLAUDE_PREDEFINED_MODELS) {
   const selectedModel = modelsDefinition?.OPTIONS?.find((option) => option.value === model) || null;
   const allowedEfforts = selectedModel?.effort?.values
     ?.map((value) => value.value) || [];
-  return typeof effort === 'string' && effort !== 'default' && allowedEfforts.includes(effort)
-    ? effort
-    : undefined;
+  if (typeof effort === 'string' && effort !== 'default' && allowedEfforts.includes(effort)) {
+    return effort;
+  }
+  const catalogDefault = selectedModel?.effort?.default;
+  return catalogDefault && allowedEfforts.includes(catalogDefault) ? catalogDefault : undefined;
 }
 
 /**
@@ -1206,6 +1210,7 @@ export const claudeRuntime = {
 // Export public API
 export {
   queryClaudeSDK,
+  resolveClaudeEffort,
   abortClaudeSDKSession,
   isClaudeSDKSessionActive,
   getActiveClaudeSDKSessions,

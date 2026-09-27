@@ -6,6 +6,7 @@ import {
   extractClaudeEventModel,
   findClaudeModelOption,
 } from '@/modules/providers/list/claude/claude-models.provider.js';
+import { resolveClaudeEffort } from '@/modules/providers/list/claude/claude-runtime.provider.js';
 
 const SESSION_ID = 'session-1';
 
@@ -131,4 +132,13 @@ test('keeps ultracode off pinned model ids', () => {
     const efforts = option.effort?.values.map((value) => value.value) ?? [];
     assert.ok(!efforts.includes('ultracode'), `${option.value} must not offer ultracode`);
   }
+});
+
+test('falls back to the catalog default effort when none is chosen', () => {
+  assert.equal(resolveClaudeEffort('claude-opus-5-5', 'default'), 'medium');
+  assert.equal(resolveClaudeEffort('claude-opus-5-5', undefined), 'medium');
+  assert.equal(resolveClaudeEffort('claude-opus-5-5', 'high'), 'high');
+  // Unknown models and Haiku still send no effort at all.
+  assert.equal(resolveClaudeEffort('claude-unknown', 'high'), undefined);
+  assert.equal(resolveClaudeEffort('claude-haiku-4-5', 'default'), undefined);
 });

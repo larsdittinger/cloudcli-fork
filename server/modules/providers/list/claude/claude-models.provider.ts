@@ -182,7 +182,7 @@ export const CLAUDE_PREDEFINED_MODELS: ProviderModelsDefinition = {
       value: 'claude-opus-5-5',
       label: 'Opus 5.5',
       description: 'Pinned to claude-opus-5-5 instead of following the "opus" alias.',
-      effort: { default: 'high', values: EFFORT_WITH_XHIGH },
+      effort: { default: 'medium', values: EFFORT_WITH_XHIGH },
     },
     {
       value: 'claude-opus-5',
