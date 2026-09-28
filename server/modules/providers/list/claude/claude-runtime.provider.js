@@ -51,24 +51,25 @@ const supersededInstances = new WeakSet();
 
 const TOOL_APPROVAL_TIMEOUT_MS = parseInt(process.env.CLAUDE_TOOL_APPROVAL_TIMEOUT_MS, 10) || 55000;
 
-// How long background work is allowed to keep running after a turn ends. This drives
-// two halves of the same behaviour:
+// Background work must survive the end of the turn that started it, the same way it
+// does in the terminal CLI, however long it runs. Two things used to cut it short:
 //
-//  1. Passed to the spawned CLI as CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS, which is how
-//     long it waits for still-running background *agents* before killing them.
-//  2. A backstop on how long we hold the SDK's stdin open after a turn's `result`.
-//     The SDK closes stdin as soon as a turn ends, and the CLI reads that EOF as
-//     "print wind-down" — killing background *shells* after a short grace period,
-//     which the ceiling above does not cover. Holding stdin open also lets the CLI
-//     push follow-up turns (background-task completions, Monitor notifications,
-//     scheduled wake-ups).
+//  1. CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS: once stdin is closed the CLI kills
+//     still-running background agents after this long (measured from the close).
+//     0 disables the ceiling — the CLI then waits for agents to finish on their own.
+//     A fixed 30 min here killed every subagent that ran longer than that.
+//  2. Closing the SDK's stdin. The CLI reads that EOF as "print wind-down" and kills
+//     background *shells* after a 5 s grace, and a closed stdin also means the next
+//     user message has to start a new CLI process instead of reaching this one.
 //
-// The hold normally ends long before this: a turn with nothing outstanding closes
-// stdin immediately, background work releases it as soon as it reports back, and a
-// new turn supersedes the previous hold. This ceiling only catches background work
-// that never reports at all, so an abandoned session cannot leak a CLI process
-// forever. The timer resets on every message, so it measures silence, not total time.
-const BG_WAIT_CEILING_MS = 30 * 60 * 1000;
+// So stdin stays open while the CLI reports background tasks (`background_tasks_changed`
+// carries the full list). Agents, workflows and teammates end on their own and are held
+// without a time limit. Shells and monitors can legitimately run forever (dev servers,
+// `tail -f`), so a hold that only waits on those ends after BG_IDLE_RELEASE_MS of
+// silence — otherwise an abandoned session would leak its CLI process.
+const CLI_BG_WAIT_CEILING_MS = '0';
+const BG_IDLE_RELEASE_MS = parseInt(process.env.CLOUDCLI_BG_IDLE_RELEASE_MS, 10) || 2 * 60 * 60 * 1000;
+const OPEN_ENDED_TASK_TYPES = new Set(['local_bash', 'monitor_mcp', 'monitor_ws']);
 
 const TOOLS_REQUIRING_INTERACTION = new Set(['AskUserQuestion', 'ExitPlanMode']);
 
@@ -226,7 +227,7 @@ function mapCliOptionsToSDK(options = {}) {
 
   // Forward all host env vars (e.g. ANTHROPIC_BASE_URL) to the subprocess.
   // Since SDK 0.2.113, options.env replaces process.env instead of overlaying it.
-  sdkOptions.env = { ...process.env, CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS: String(BG_WAIT_CEILING_MS) };
+  sdkOptions.env = { ...process.env, CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS: CLI_BG_WAIT_CEILING_MS };
 
   // Resolve the executable eagerly on Windows because the SDK uses raw child_process.spawn,
   // which does not reliably follow npm's shell wrappers like cross-spawn does.
@@ -315,8 +316,9 @@ function mapCliOptionsToSDK(options = {}) {
  * @param {Object} queryInstance - SDK query instance
  * @param {Object} writer - WebSocket writer for reconnect support
  * @param {Function} releaseInput - Closes the held stdin stream so the CLI can exit
+ * @param {Function} injectTurn - Feeds a later turn into the live process
  */
-function addSession(sessionId, queryInstance, writer = null, releaseInput = null) {
+function addSession(sessionId, queryInstance, writer = null, releaseInput = null, injectTurn = null) {
   const existing = activeSessions.get(sessionId);
   // A different live instance under the same key means an earlier run was
   // superseded without being stopped (e.g. an abort that raced run setup and
@@ -344,7 +346,8 @@ function addSession(sessionId, queryInstance, writer = null, releaseInput = null
     status: 'active',
     writer,
     // Re-registered mid-run once the provider session id lands; keep the closer.
-    releaseInput: releaseInput || carried?.releaseInput || null
+    releaseInput: releaseInput || carried?.releaseInput || null,
+    injectTurn: injectTurn || carried?.injectTurn || null
   });
 }
 
@@ -543,9 +546,12 @@ function extractCumulativeTokenBudget(sdkMessage) {
   };
 }
 
-// Tool calls that leave work running past the end of a turn. Bash only counts
-// when it is explicitly backgrounded; the rest defer or watch work by nature.
+// Tool calls that leave work running past the end of a turn. Bash and subagents
+// only count when explicitly backgrounded; the rest defer or watch work by nature.
+// This is only a first signal — `background_tasks_changed` is the authoritative
+// list, but tools like ScheduleWakeup defer work without registering a task.
 const DEFERRED_WORK_TOOLS = new Set(['Monitor', 'ScheduleWakeup', 'CronCreate', 'TaskCreate']);
+const BACKGROUNDABLE_TOOLS = new Set(['Bash', 'Agent', 'Task']);
 
 /**
  * Detects tool calls that keep working after the turn's `result` arrives.
@@ -566,7 +572,7 @@ function startsBackgroundWork(sdkMessage) {
     if (block?.type !== 'tool_use') {
       return false;
     }
-    if (block.name === 'Bash') {
+    if (BACKGROUNDABLE_TOOLS.has(block.name)) {
       return block.input?.run_in_background === true;
     }
     return DEFERRED_WORK_TOOLS.has(block.name);
@@ -612,24 +618,48 @@ async function buildPromptMessages(command, images, files, cwd) {
  * The SDK closes the CLI's stdin as soon as its input iterable is exhausted (and
  * immediately on `result` for string prompts). The CLI reads that EOF as the end
  * of the run and kills anything still going in the background, so the iterable
- * has to stay pending until we actually want the process gone.
+ * has to stay pending until we actually want the process gone. While it is
+ * parked, `push` feeds a later turn into the same live process.
  *
  * @param {Array<Object>} messages - SDKUserMessage records to send
- * @returns {{ stream: AsyncIterable, release: () => void }} Stream plus its closer
+ * @returns {{ stream: AsyncIterable, push: (more: Array<Object>) => boolean,
+ *   release: () => void, isReleased: () => boolean }} Stream plus its controls
  */
 function createHeldPromptStream(messages) {
-  let release;
-  const held = new Promise((resolve) => { release = resolve; });
+  const queue = [...messages];
+  let released = false;
+  let wake = null;
 
   const stream = (async function* () {
-    for (const message of messages) {
-      yield message;
+    while (true) {
+      while (queue.length > 0) {
+        yield queue.shift();
+      }
+      // Keeps stdin open — the CLI stays alive until release() is called.
+      if (released) {
+        return;
+      }
+      await new Promise((resolve) => { wake = resolve; });
+      wake = null;
     }
-    // Keeps stdin open — the CLI stays alive until release() is called.
-    await held;
   })();
 
-  return { stream, release };
+  return {
+    stream,
+    push(more) {
+      if (released) {
+        return false;
+      }
+      queue.push(...more);
+      wake?.();
+      return true;
+    },
+    release() {
+      released = true;
+      wake?.();
+    },
+    isReleased: () => released,
+  };
 }
 
 /**
@@ -734,6 +764,28 @@ async function queryClaudeSDK(command, options = {}, ws, context) {
   // Set once a turn publishes a budget read from an assistant message, so the
   // turn-ending `result` is only mined for usage when nothing better arrived.
   let assistantBudgetSent = false;
+  // Background tasks the CLI currently runs, as its last `background_tasks_changed`
+  // reported them ({ task_id, task_type, description, ambient? }).
+  let backgroundTasks = [];
+  // Feeds a later turn into this live process (see injectTurn). Replaced once
+  // the stream exists.
+  let pushPrompt = () => false;
+  let promptReleased = () => true;
+  // Resolvers for later turns fed into this process, settled by their `result`.
+  const injectedTurnWaiters = [];
+  let processEnded = false;
+
+  // A session whose CLI is still alive — held open because background work is
+  // running — takes the next message on that same process, exactly like typing
+  // into the terminal CLI while agents work. Starting a second process instead
+  // would interrupt the first one, and interrupt() kills every background agent.
+  // Edits rewind the conversation, so those still need a fresh process.
+  if (sessionKey() && !options.resumeAnchorId && !options.resumeFromScratch) {
+    const live = getSession(sessionKey());
+    if (live?.injectTurn && await live.injectTurn(command, options, ws)) {
+      return;
+    }
+  }
 
   // A new turn supersedes any earlier one still holding this session's process
   // open, so held runs cannot stack up across a conversation.
@@ -741,18 +793,36 @@ async function queryClaudeSDK(command, options = {}, ws, context) {
     getSession(sessionKey())?.releaseInput?.();
   }
 
-  // Arms (or re-arms) the idle countdown that eventually closes stdin.
-  const scheduleRelease = () => {
+  const clearIdleRelease = () => {
     if (idleReleaseTimer) {
       clearTimeout(idleReleaseTimer);
       idleReleaseTimer = null;
     }
+  };
+
+  // Arms (or re-arms) the idle countdown that eventually closes stdin.
+  const scheduleRelease = () => {
+    clearIdleRelease();
     idleReleaseTimer = setTimeout(() => {
       idleReleaseTimer = null;
       releasePromptStream();
-    }, BG_WAIT_CEILING_MS);
+    }, BG_IDLE_RELEASE_MS);
     // Never let the hold keep the server process alive on its own.
     idleReleaseTimer.unref?.();
+  };
+
+  // Agents, workflows and teammates finish on their own — while one runs, the
+  // hold has no time limit. Only open-ended work (shells, monitors, wake-ups)
+  // falls back to the idle countdown.
+  const runsBoundedWork = () => backgroundTasks.some(
+    (task) => !task.ambient && !OPEN_ENDED_TASK_TYPES.has(task.task_type)
+  );
+  const refreshHold = () => {
+    if (runsBoundedWork()) {
+      clearIdleRelease();
+    } else {
+      scheduleRelease();
+    }
   };
 
   // Hoisted above the try so the catch's cleanup can tell whether this run
@@ -914,10 +984,80 @@ async function queryClaudeSDK(command, options = {}, ws, context) {
         options: sdkOptions
       });
     }
+    pushPrompt = heldPrompt.push;
+    promptReleased = heldPrompt.isReleased;
+
+    // Feeds the next user turn into this process while it is held open for
+    // background work (see the top of queryClaudeSDK). Resolves true once that
+    // turn's `result` arrives, or false when this process cannot take the turn
+    // and the caller has to start a fresh one.
+    const injectTurn = async (nextCommand, nextOptions, nextWs) => {
+      const canTakeTurn = () => !processEnded && turnCompleteSent && !promptReleased();
+      if (!canTakeTurn()) {
+        return false;
+      }
+
+      const nextSdkOptions = mapCliOptionsToSDK({
+        ...nextOptions,
+        providerSessionId,
+        model: (await context.resolveResumeModel(sessionId, nextOptions.model)) || nextOptions.model,
+        effortModels,
+      });
+      // Effort is fixed when the CLI starts. With no background work to protect,
+      // a fresh process is the simpler way to honour a changed effort.
+      if (nextSdkOptions.effort !== sdkOptions.effort && !runsBoundedWork()) {
+        return false;
+      }
+      const nextMessages = await buildPromptMessages(
+        nextCommand, nextOptions.images, nextOptions.files, nextOptions.cwd || options.cwd
+      );
+      if (!canTakeTurn()) {
+        return false;
+      }
+
+      try {
+        if (nextSdkOptions.model !== sdkOptions.model) {
+          await queryInstance.setModel(nextSdkOptions.model);
+          sdkOptions.model = nextSdkOptions.model;
+        }
+        if ((nextSdkOptions.permissionMode || 'default') !== (sdkOptions.permissionMode || 'default')) {
+          await queryInstance.setPermissionMode(nextSdkOptions.permissionMode || 'default');
+          sdkOptions.permissionMode = nextSdkOptions.permissionMode;
+        }
+      } catch (error) {
+        console.warn('[Claude SDK] Could not switch model/permission mode of the live session:', error?.message || error);
+      }
+      // canUseTool reads these live, so the new turn's tool settings apply.
+      sdkOptions.allowedTools = nextSdkOptions.allowedTools;
+      sdkOptions.disallowedTools = nextSdkOptions.disallowedTools;
+      if (!canTakeTurn()) {
+        return false;
+      }
+
+      // From here on the process streams into the new turn's writer.
+      ws = nextWs;
+      if (capturedSessionId && typeof ws.setSessionId === 'function') {
+        ws.setSessionId(capturedSessionId);
+      }
+      const entry = getSession(sessionKey());
+      if (entry) {
+        entry.writer = ws;
+      }
+      abortedSessionIds.delete(sessionKey());
+      turnCompleteSent = false;
+      assistantBudgetSent = false;
+      clearIdleRelease();
+
+      const turnDone = new Promise((resolve) => { injectedTurnWaiters.push(resolve); });
+      pushPrompt(nextMessages);
+      console.log(`[Claude SDK] Turn fed into live session ${sessionKey()} (${backgroundTasks.length} background task(s) running)`);
+      await turnDone;
+      return true;
+    };
 
     // Track the query instance for abort capability
     if (sessionKey()) {
-      addSession(sessionKey(), queryInstance, ws, releasePromptStream);
+      addSession(sessionKey(), queryInstance, ws, releasePromptStream, injectTurn);
     }
 
     // Process streaming messages
@@ -927,7 +1067,7 @@ async function queryClaudeSDK(command, options = {}, ws, context) {
       if (message.session_id && !capturedSessionId) {
 
         capturedSessionId = message.session_id;
-        addSession(sessionKey(), queryInstance, ws, releasePromptStream);
+        addSession(sessionKey(), queryInstance, ws, releasePromptStream, injectTurn);
 
         // Set session ID on writer
         if (ws.setSessionId && typeof ws.setSessionId === 'function') {
@@ -999,24 +1139,34 @@ async function queryClaudeSDK(command, options = {}, ws, context) {
             sessionName: sessionSummary
           });
         }
-        if (backgroundWorkPending) {
+        // A turn fed into this live process is over once its `result` lands.
+        while (injectedTurnWaiters.length > 0) {
+          injectedTurnWaiters.shift()();
+        }
+        if (backgroundWorkPending || backgroundTasks.length > 0) {
           // Work started during this turn is still running. Hold the process
-          // open so it can finish and report back in a follow-up turn; the
-          // ceiling is only a backstop for work that never reports.
+          // open so it can finish and report back in a follow-up turn.
           backgroundWorkPending = false;
           heldForBackgroundWork = true;
-          scheduleRelease();
+          refreshHold();
         } else {
           // Either nothing was backgrounded, or the background work just
           // reported in — let the CLI exit now, as it always has.
           heldForBackgroundWork = false;
           releasePromptStream();
         }
+      } else if (message.type === 'system' && message.subtype === 'background_tasks_changed') {
+        backgroundTasks = Array.isArray(message.tasks) ? message.tasks : [];
+        if (heldForBackgroundWork && turnCompleteSent) {
+          refreshHold();
+        }
       } else if (idleReleaseTimer) {
         // Background activity after the turn — push the countdown back out.
         scheduleRelease();
       }
     }
+
+    processEnded = true;
 
     // Clean up session on completion — only while this run still owns the map
     // entry. A superseding run may have replaced it, and deleting here would
@@ -1049,6 +1199,7 @@ async function queryClaudeSDK(command, options = {}, ws, context) {
     // Complete
 
   } catch (error) {
+    processEnded = true;
     console.error('SDK query error:', error);
 
     // Clean up session on error — only while this run still owns the map entry
@@ -1093,11 +1244,13 @@ async function queryClaudeSDK(command, options = {}, ws, context) {
   } finally {
     // Always close stdin — otherwise an aborted or failed run leaves the CLI
     // process (and its MCP servers) alive until the server exits.
-    if (idleReleaseTimer) {
-      clearTimeout(idleReleaseTimer);
-      idleReleaseTimer = null;
-    }
+    processEnded = true;
+    clearIdleRelease();
     releasePromptStream();
+    // A turn fed into this process whose `result` never came ends with it.
+    while (injectedTurnWaiters.length > 0) {
+      injectedTurnWaiters.shift()();
+    }
   }
 }
 
@@ -1218,5 +1371,7 @@ export {
   getPendingApprovalsForSession,
   reconnectSessionWriter,
   extractTokenBudget,
-  extractCumulativeTokenBudget
+  extractCumulativeTokenBudget,
+  startsBackgroundWork,
+  createHeldPromptStream
 };
