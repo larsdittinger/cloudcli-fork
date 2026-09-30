@@ -5,7 +5,10 @@ import type { Project,FileTreeNode } from '@/shared/types';
 
 type UseFileTreeDataResult = {
   files: FileTreeNode[];
+  /** First load of a project: nothing to show yet. */
   loading: boolean;
+  /** Reload of a project already on screen; the current tree stays visible. */
+  refreshing: boolean;
   error: string | null;
   refreshFiles: () => void;
 };
@@ -30,9 +33,11 @@ function readResponseErrorMessage(responseBody: string): string | null {
 export function useFileTreeData(selectedProject: Project | null): UseFileTreeDataResult {
   const [files, setFiles] = useState<FileTreeNode[]>([]);
   const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const loadedProjectIdRef = useRef<string | null>(null);
 
   const refreshFiles = useCallback(() => {
     setRefreshKey((prev) => prev + 1);
@@ -44,10 +49,22 @@ export function useFileTreeData(selectedProject: Project | null): UseFileTreeDat
     const projectId = selectedProject?.projectId;
 
     if (!projectId) {
+      loadedProjectIdRef.current = null;
       setFiles([]);
       setLoading(false);
+      setRefreshing(false);
       setError(null);
       return;
+    }
+
+    // Swapping the tree for the loading placeholder unmounts every row, which
+    // drops the scroll position, an open context menu and a rename in progress.
+    // Only a project that has nothing on screen yet gets the placeholder.
+    const isRefresh = loadedProjectIdRef.current === projectId;
+    const setBusy = isRefresh ? setRefreshing : setLoading;
+    if (!isRefresh) {
+      loadedProjectIdRef.current = projectId;
+      setFiles([]);
     }
 
     // Abort previous request
@@ -61,7 +78,7 @@ export function useFileTreeData(selectedProject: Project | null): UseFileTreeDat
 
     const fetchFiles = async () => {
       if (isActive) {
-        setLoading(true);
+        setBusy(true);
         setError(null);
       }
       try {
@@ -93,7 +110,7 @@ export function useFileTreeData(selectedProject: Project | null): UseFileTreeDat
         }
       } finally {
         if (isActive) {
-          setLoading(false);
+          setBusy(false);
         }
       }
     };
@@ -103,12 +120,14 @@ export function useFileTreeData(selectedProject: Project | null): UseFileTreeDat
     return () => {
       isActive = false;
       abortControllerRef.current?.abort();
+      setBusy(false);
     };
   }, [selectedProject?.projectId, refreshKey]);
 
   return {
     files,
     loading,
+    refreshing,
     error,
     refreshFiles,
   };

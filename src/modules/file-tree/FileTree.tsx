@@ -50,7 +50,7 @@ export default function FileTree({ selectedProject, onFileOpen, readOnly = false
     }
   }, [toast]);
 
-  const { files, loading, error, refreshFiles } = useFileTreeData(selectedProject);
+  const { files, loading, refreshing, error, refreshFiles } = useFileTreeData(selectedProject);
   const { viewMode, changeViewMode } = useFileTreeViewMode();
   const { expandedDirs, toggleDirectory, expandDirectories, collapseAll } = useExpandedDirectories();
   const { searchQuery, setSearchQuery, filteredFiles } = useFileTreeSearch({
@@ -72,6 +72,9 @@ export default function FileTree({ selectedProject, onFileOpen, readOnly = false
     onRefresh: refreshFiles,
     showToast,
   });
+  // The header's upload/new/refresh buttons wait for an upload too; the inline
+  // rename/create inputs and the delete dialog only for their own request, so
+  // they keep working while a long upload runs.
   const operationLoading = operations.operationLoading || upload.operationLoading;
 
   // Folder-targeted uploads (context menu / hover button) share one hidden
@@ -197,7 +200,7 @@ export default function FileTree({ selectedProject, onFileOpen, readOnly = false
         onNewFolder={readOnly ? undefined : () => operations.handleStartCreate('', 'directory')}
         onRefresh={refreshFiles}
         onCollapseAll={collapseAll}
-        loading={loading}
+        loading={loading || refreshing}
         operationLoading={operationLoading}
         isUploading={upload.uploadProgress?.status === 'uploading'}
         uploadProgress={upload.uploadProgress?.progress ?? null}
@@ -235,7 +238,7 @@ export default function FileTree({ selectedProject, onFileOpen, readOnly = false
                 }, 100);
               }}
               className="h-6 flex-1 text-sm"
-              disabled={operationLoading}
+              disabled={operations.operationLoading}
             />
           </div>
         )}
@@ -268,7 +271,7 @@ export default function FileTree({ selectedProject, onFileOpen, readOnly = false
           handleConfirmRename={operations.handleConfirmRename}
           handleCancelRename={operations.handleCancelRename}
           renameInputRef={renameInputRef}
-          operationLoading={operationLoading}
+          operationLoading={operations.operationLoading}
         />
       </ScrollArea>
 
@@ -306,17 +309,17 @@ export default function FileTree({ selectedProject, onFileOpen, readOnly = false
             <div className="flex justify-end gap-2">
               <button
                 onClick={operations.handleCancelDelete}
-                disabled={operationLoading}
+                disabled={operations.operationLoading}
                 className="rounded-md px-3 py-1.5 text-sm transition-colors hover:bg-accent"
               >
                 {t('common.cancel', 'Cancel')}
               </button>
               <button
                 onClick={operations.handleConfirmDelete}
-                disabled={operationLoading}
+                disabled={operations.operationLoading}
                 className="flex items-center gap-2 rounded-md bg-red-600 px-3 py-1.5 text-sm text-white transition-colors hover:bg-red-700 disabled:opacity-50"
               >
-                {operationLoading && <Loader2 className="h-4 w-4 animate-spin" />}
+                {operations.operationLoading && <Loader2 className="h-4 w-4 animate-spin" />}
                 {t('fileTree.delete.confirm', 'Delete')}
               </button>
             </div>
