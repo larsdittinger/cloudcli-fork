@@ -22,6 +22,17 @@ function readEmulationInput(input: Record<string, unknown>) {
   };
 }
 
+function readCwdHeader(header: unknown): string | null {
+  if (typeof header !== 'string' || !header) {
+    return null;
+  }
+  try {
+    return decodeURIComponent(header);
+  } catch {
+    return null;
+  }
+}
+
 function readBearerToken(header: unknown): string | null {
   if (typeof header !== 'string') {
     return null;
@@ -51,6 +62,7 @@ router.post('/tools/:toolName', async (req, res) => {
       case 'browser_create_session':
         result = await browserUseService.createAgentSession({
           profileName: typeof input.profileName === 'string' ? input.profileName : null,
+          projectPath: readCwdHeader(req.headers['x-browser-use-cwd']),
           ...readEmulationInput(input),
         });
         break;

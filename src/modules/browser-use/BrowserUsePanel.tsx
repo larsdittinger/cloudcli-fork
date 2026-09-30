@@ -27,6 +27,7 @@ import { cn } from '@/shared/utils';
 import { Badge, Button } from '@/shared/ui';
 import { api, authenticatedFetch, readApiJson, ApiRequestError } from '@/shared/api';
 import type { SettingsMainTab } from '@/shared/types';
+import { useIsAdmin } from '@/shared/hooks/useIsAdmin';
 
 type BrowserUseStatus = {
   enabled: boolean;
@@ -222,6 +223,7 @@ const INTERACTIVE_KEYS = new Set([
 /** Used by the project-workspace module to render the Browser tab's session list and live preview. */
 export default function BrowserUsePanel({ isVisible, onShowSettings }: BrowserUsePanelProps) {
   const { t } = useTranslation('settings');
+  const isAdmin = useIsAdmin();
   const [status, setStatus] = useState<BrowserUseStatus | null>(null);
   const [sessions, setSessions] = useState<BrowserUseSession[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
@@ -527,6 +529,7 @@ export default function BrowserUsePanel({ isVisible, onShowSettings }: BrowserUs
           <div className="mt-4 rounded-md border border-border bg-muted/30 p-3">
             <div className="text-sm font-medium text-foreground">{t('browserUse.runtimeSetupTitle')}</div>
             <p className="mt-1 text-sm text-muted-foreground">{status?.message}</p>
+            {isAdmin && (
             <Button
               type="button"
               size="sm"
@@ -541,6 +544,7 @@ export default function BrowserUsePanel({ isVisible, onShowSettings }: BrowserUs
               )}
               {isInstalling || status?.installInProgress ? t('browserUse.installing') : t('browserUse.installRuntime')}
             </Button>
+            )}
           </div>
         )}
 

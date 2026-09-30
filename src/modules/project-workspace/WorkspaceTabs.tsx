@@ -40,7 +40,7 @@ const BASE_TABS: BuiltInTab[] = [
 ];
 
 /** Built-in tabs a restricted user sees; everything else stays admin-only. */
-export const RESTRICTED_TAB_IDS: ReadonlySet<AppTab> = new Set<AppTab>(['chat', 'files']);
+export const RESTRICTED_TAB_IDS: ReadonlySet<AppTab> = new Set<AppTab>(['chat', 'files', 'browser']);
 
 const BROWSER_TAB: BuiltInTab = {
   kind: 'builtin',
@@ -67,9 +67,12 @@ export default function WorkspaceTabs({
   const { t } = useTranslation();
   const { plugins } = usePlugins();
 
-  // Restricted users get chat and read-only files.
+  // Restricted users get chat, read-only files and the browser sessions of their projects.
   const builtInTabs: BuiltInTab[] = restrictedMode
-    ? BASE_TABS.filter((tab) => RESTRICTED_TAB_IDS.has(tab.id))
+    ? [
+        ...BASE_TABS.filter((tab) => RESTRICTED_TAB_IDS.has(tab.id)),
+        ...(shouldShowBrowserTab ? [BROWSER_TAB] : []),
+      ]
     : [
         ...BASE_TABS,
         ...(shouldShowBrowserTab ? [BROWSER_TAB] : []),

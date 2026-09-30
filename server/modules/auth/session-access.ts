@@ -7,6 +7,8 @@
  * used to read or continue somebody else's conversation.
  */
 
+import path from 'node:path';
+
 import { projectsDb, sessionsDb, userProjectAccessDb } from '@/modules/database/index.js';
 import { AppError } from '@/shared/utils.js';
 
@@ -101,6 +103,35 @@ export function assertProjectPathAccess(user: SessionAccessUser, projectPath: st
       code: 'PROJECT_ACCESS_DENIED',
       statusCode: 403,
     });
+  }
+}
+
+/**
+ * Tells whether the user may see something that happened in a directory, such
+ * as a browser session an agent started there. The directory may sit below a
+ * project root, so the nearest registered project up the tree decides; a
+ * restricted user never reaches a directory that belongs to no project.
+ */
+export function canAccessProjectPath(user: SessionAccessUser, projectPath: string | null | undefined): boolean {
+  const ownerScope = resolveSessionOwnerScope(user);
+  if (ownerScope === null) {
+    return true;
+  }
+  if (!projectPath) {
+    return false;
+  }
+
+  let current = path.resolve(projectPath);
+  for (;;) {
+    const project = projectsDb.getProjectPath(current);
+    if (project) {
+      return userProjectAccessDb.canAccess(ownerScope, project.project_id);
+    }
+    const parent = path.dirname(current);
+    if (parent === current) {
+      return false;
+    }
+    current = parent;
   }
 }
 

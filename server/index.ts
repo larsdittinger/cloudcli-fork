@@ -215,7 +215,7 @@ app.use('/api/channels', authenticateToken, requireAdmin, channelsRoutes);
 app.use('/api/browser-use-mcp', browserUseMcpRoutes);
 
 // Browser API Routes (protected)
-app.use('/api/browser-use', authenticateToken, requireAdmin, browserUseRoutes);
+app.use('/api/browser-use', authenticateToken, browserUseRoutes);
 
 // Unified provider MCP routes (protected)
 app.use('/api/providers', authenticateToken, providerRoutes);

@@ -10,12 +10,14 @@ export { validateApiKey } from './auth.middleware.js';
 // requireAdmin: used by the server entrypoint and route modules to gate admin-only endpoints.
 export { requireAdmin } from './auth.middleware.js';
 
-// Session access helpers: used by Projects, Providers, and the chat WebSocket to
+// Session access helpers: used by Projects, Providers, Browser, and the chat WebSocket to
 // keep restricted users inside their own chats and granted projects.
 export {
   assertProjectIdAccess,
   assertProjectPathAccess,
+  canAccessProjectPath,
   assertSessionAccess,
   canAccessSession,
   resolveSessionOwnerScope,
 } from './session-access.js';
+export type { SessionAccessUser } from './session-access.js';

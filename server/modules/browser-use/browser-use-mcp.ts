@@ -62,6 +62,9 @@ async function callBrowserUseApi(toolName: string, input: Record<string, unknown
     headers: {
       Authorization: `Bearer ${apiToken}`,
       'Content-Type': 'application/json',
+      // ethia fork: Claude starts MCP servers in the session's project, which
+      // decides who besides admins may watch the browser session.
+      'X-Browser-Use-Cwd': encodeURIComponent(process.cwd()),
     },
     body: JSON.stringify(input),
     signal: AbortSignal.timeout(API_TIMEOUT_MS),

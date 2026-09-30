@@ -11,8 +11,8 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { assertSessionAccess, canAccessSession, resolveSessionOwnerScope } from '@/modules/auth/index.js';
-import { closeConnection, initializeDatabase, sessionsDb } from '@/modules/database/index.js';
+import { assertSessionAccess, canAccessProjectPath, canAccessSession, resolveSessionOwnerScope } from '@/modules/auth/index.js';
+import { closeConnection, initializeDatabase, projectsDb, sessionsDb, userDb, userProjectAccessDb } from '@/modules/database/index.js';
 import { AppError } from '@/shared/utils.js';
 
 async function withIsolatedDatabase(runTest: () => void | Promise<void>): Promise<void> {
@@ -105,5 +105,23 @@ test('assertSessionAccess throws 403 for someone else\'s session', async () => {
         && error.code === 'SESSION_ACCESS_DENIED',
     );
     assert.doesNotThrow(() => assertSessionAccess(otherRestricted, 'theirs-1'));
+  });
+});
+
+test('canAccessProjectPath follows project grants, also below the project root', async () => {
+  await withIsolatedDatabase(() => {
+    userDb.createUser('admin', 'hash');
+    const viewer = { id: Number(userDb.createUserWithRole('viewer', 'hash', 'restricted').id), role: 'restricted' as const };
+    const granted = projectsDb.createProjectPath('/workspace/granted');
+    projectsDb.createProjectPath('/workspace/other');
+    userProjectAccessDb.setProjectsForUser(viewer.id, [granted.project!.project_id]);
+
+    assert.equal(canAccessProjectPath(viewer, '/workspace/granted'), true);
+    assert.equal(canAccessProjectPath(viewer, '/workspace/granted/sub/dir'), true);
+    assert.equal(canAccessProjectPath(viewer, '/workspace/other'), false);
+    assert.equal(canAccessProjectPath(viewer, '/somewhere/else'), false);
+    assert.equal(canAccessProjectPath(viewer, null), false);
+    assert.equal(canAccessProjectPath(admin, null), true);
+    assert.equal(canAccessProjectPath(admin, '/workspace/other'), true);
   });
 });

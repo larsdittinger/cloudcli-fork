@@ -62,6 +62,9 @@ type BrowserUseSession = {
   lastAction: string | null;
   message: string | null;
   profileName: string | null;
+  // ethia fork: directory the agent's MCP server runs in (its project), so a
+  // restricted user sees only sessions started from projects they were granted.
+  projectPath: string | null;
   viewport: {
     width: number;
     height: number;
@@ -867,7 +870,7 @@ export const browserUseService = {
       .map(publicSession);
   },
 
-  async createAgentSession(options?: { profileName?: string | null } & EmulationInput) {
+  async createAgentSession(options?: { profileName?: string | null; projectPath?: string | null } & EmulationInput) {
     const settings = readSettings();
     if (!settings.enabled) {
       throw new Error('Browser agent tools are disabled.');
@@ -893,6 +896,7 @@ export const browserUseService = {
       lastAction: 'create',
       message: null,
       profileName,
+      projectPath: options?.projectPath || null,
       viewport: { width: emulation.width, height: emulation.height },
       emulation,
       cursor: null,
@@ -1314,6 +1318,12 @@ export const browserUseService = {
       await captureSession(session, page);
     }
     return publicSession(session);
+  },
+
+  /** Project directory of an agent session, `null` when unknown or missing. */
+  getSessionProjectPath(sessionId: string): string | null {
+    const session = sessions.get(sessionId);
+    return session && session.ownerId === AGENT_OWNER_ID ? session.projectPath : null;
   },
 
   async stopSession(sessionId: string) {

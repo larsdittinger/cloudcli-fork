@@ -1,6 +1,8 @@
 import express from 'express';
-import type { Response } from 'express';
+import type { NextFunction, Request, Response } from 'express';
 
+import { canAccessProjectPath, requireAdmin } from '@/modules/auth/index.js';
+import type { SessionAccessUser } from '@/modules/auth/index.js';
 import { browserUseService } from '@/modules/browser-use/browser-use.service.js';
 
 const router = express.Router();
@@ -21,6 +23,7 @@ export const BROWSER_USE_ERROR_CODES = {
   SESSIONS_LOAD_FAILED: 'BROWSER_USE_SESSIONS_LOAD_FAILED',
   SESSION_STOP_FAILED: 'BROWSER_USE_SESSION_STOP_FAILED',
   SESSION_DELETE_FAILED: 'BROWSER_USE_SESSION_DELETE_FAILED',
+  SESSION_ACCESS_DENIED: 'BROWSER_USE_SESSION_ACCESS_DENIED',
 } as const;
 
 function sendError(
@@ -43,6 +46,27 @@ function sendError(
 function readParam(value: string | string[] | undefined): string {
   return Array.isArray(value) ? value[0] || '' : value || '';
 }
+
+// ethia fork: restricted users get the Browser tab too, but only for sessions
+// their agents started in granted projects; settings and runtime stay admin-only.
+function canSeeSession(req: Request, projectPath: string | null): boolean {
+  try {
+    return canAccessProjectPath((req as Request & { user?: SessionAccessUser }).user, projectPath);
+  } catch {
+    return false;
+  }
+}
+
+function requireSessionAccess(req: Request, res: Response, next: NextFunction): void {
+  const sessionId = readParam(req.params.sessionId);
+  if (!canSeeSession(req, browserUseService.getSessionProjectPath(sessionId))) {
+    sendError(res, 403, BROWSER_USE_ERROR_CODES.SESSION_ACCESS_DENIED, 'Browser session access denied.');
+    return;
+  }
+  next();
+}
+
+router.use('/sessions/:sessionId', requireSessionAccess);
 
 router.get('/status', async (_req, res) => {
   try {
@@ -72,7 +96,7 @@ router.get('/settings', async (_req, res) => {
   }
 });
 
-router.put('/settings', async (req, res) => {
+router.put('/settings', requireAdmin, async (req, res) => {
   try {
     const settings = await browserUseService.updateSettings(req.body || {});
     res.json({ success: true, data: { settings } });
@@ -87,7 +111,7 @@ router.put('/settings', async (req, res) => {
   }
 });
 
-router.post('/runtime/install', async (_req, res) => {
+router.post('/runtime/install', requireAdmin, async (_req, res) => {
   try {
     const result = await browserUseService.installRuntime();
     if (result.success) {
@@ -112,9 +136,11 @@ router.post('/runtime/install', async (_req, res) => {
   }
 });
 
-router.get('/sessions', async (_req, res) => {
+router.get('/sessions', async (req, res) => {
   try {
-    res.json({ success: true, data: { sessions: await browserUseService.listSessions() } });
+    const sessions = (await browserUseService.listSessions())
+      .filter((session) => canSeeSession(req, session.projectPath));
+    res.json({ success: true, data: { sessions } });
   } catch (error) {
     sendError(
       res,
@@ -126,7 +152,7 @@ router.get('/sessions', async (_req, res) => {
   }
 });
 
-// ethia fork: interactive input from the admin Browser tab into a live session.
+// ethia fork: interactive input from the Browser tab into a live session.
 router.post('/sessions/:sessionId/input', async (req, res) => {
   try {
     const session = await browserUseService.adminInput(readParam(req.params.sessionId), req.body || {});
@@ -139,7 +165,7 @@ router.post('/sessions/:sessionId/input', async (req, res) => {
   }
 });
 
-// ethia fork: device emulation catalog + switching from the admin Browser tab.
+// ethia fork: device emulation catalog + switching from the Browser tab.
 router.get('/devices', (_req, res) => {
   res.json({ success: true, data: browserUseService.listDevices() });
 });
