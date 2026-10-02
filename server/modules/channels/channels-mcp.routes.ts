@@ -64,16 +64,18 @@ router.post('/tools/:toolName', async (req, res) => {
         const row = await outboxService.createReply({
           messageId: readString(input.message_id, 'message_id'),
           text: readString(input.text, 'text'),
+          action: input.action as 'reply' | 'escalate' | undefined,
           createdBy: 'agent',
         });
         result = {
           outboxId: row.id,
+          action: row.action,
           status: row.status,
           deliveredNow: row.status === 'sent',
           note: row.status === 'draft'
             ? 'The reply is waiting for the user to approve it in CloudCLI. Do not send it again.'
             : row.status === 'sent'
-              ? 'The reply was sent.'
+              ? (row.action === 'escalate' ? 'The internal handoff was published for the application to notify a human. It is not a customer reply.' : 'The reply was sent or published for polling.')
               : `Sending failed: ${row.status_detail ?? 'unknown error'}.`,
         };
         break;

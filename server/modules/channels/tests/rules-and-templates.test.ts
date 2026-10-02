@@ -113,3 +113,12 @@ test('validateRuleInput refuses autonomy without a sender filter', () => {
   validateRuleInput({ name: 'x', conditions: {}, projectPath: '/p', provider: 'claude', replyMode: 'draft' });
   validateRuleInput({ name: 'x', conditions: { senders: ['jan@firma.cz'] }, projectPath: '/p', provider: 'claude', permissionMode: 'bypassPermissions', replyMode: 'auto' });
 });
+
+
+test('handoff instructions are opt-in and remain disabled for non-webhook messages and reply mode none', () => {
+  const message = makeMessage({ channel: 'webhook' });
+  assert.match(buildTemplateVars({ message, accountLabel: 'Meta', replyMode: 'auto', allowEscalation: true }).replyInstructions, /action="escalate"/);
+  assert.doesNotMatch(buildTemplateVars({ message, accountLabel: 'Meta', replyMode: 'auto' }).replyInstructions, /escalate/);
+  assert.equal(buildTemplateVars({ message, accountLabel: 'Meta', replyMode: 'none', allowEscalation: true }).replyInstructions, '');
+  assert.doesNotMatch(buildTemplateVars({ message: makeMessage({ channel: 'email' }), accountLabel: 'Mail', replyMode: 'auto', allowEscalation: true }).replyInstructions, /escalate/);
+});

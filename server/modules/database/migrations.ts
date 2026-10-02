@@ -554,6 +554,7 @@ export const runMigrations = (db: Database) => {
     ensureProjectsForSessionPaths(db);
     db.exec(SCHEDULED_MESSAGES_TABLE_SCHEMA_SQL);
     db.exec(CHANNELS_TABLES_SCHEMA_SQL);
+    addColumnToTableIfNotExists(db, 'channel_outbox', getTableInfo(db, 'channel_outbox').map((column) => column.name), 'action', "TEXT NOT NULL DEFAULT 'reply'");
 
     db.exec('CREATE INDEX IF NOT EXISTS idx_session_ids_lookup ON sessions(session_id)');
     db.exec('CREATE INDEX IF NOT EXISTS idx_sessions_provider_session_id ON sessions(provider_session_id)');
@@ -567,6 +568,7 @@ export const runMigrations = (db: Database) => {
     db.exec('CREATE INDEX IF NOT EXISTS idx_channel_messages_thread ON channel_messages(account_id, thread_key)');
     db.exec('CREATE INDEX IF NOT EXISTS idx_channel_outbox_status ON channel_outbox(status)');
     db.exec('CREATE INDEX IF NOT EXISTS idx_channel_outbox_session ON channel_outbox(session_id)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_channel_outbox_message ON channel_outbox(in_reply_to_message_id)');
     db.exec('CREATE INDEX IF NOT EXISTS idx_sessions_is_archived ON sessions(isArchived)');
     db.exec('CREATE INDEX IF NOT EXISTS idx_sessions_owner_user_id ON sessions(owner_user_id)');
     db.exec('CREATE INDEX IF NOT EXISTS idx_projects_is_starred ON projects(isStarred)');

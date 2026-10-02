@@ -143,9 +143,18 @@ export default function AccountForm({ open, account, onOpenChange, onSubmit }: P
           )}
 
           {values.type === 'webhook' && (
-            <Field label="Reply URL" hint="Optional. Where agent replies are POSTed as JSON ({ to, text, subject, inReplyTo }). Without it the webhook is inbound only.">
-              <Input value={String(config.replyUrl ?? '')} onChange={(event) => setConfig({ replyUrl: event.target.value })} placeholder="https://…" />
-            </Field>
+            <>
+              <Field label="Reply URL" hint="Optional. Receives JSON decisions ({ id, action: reply or escalate, to, text, subject, inReplyTo }). Only reply goes to the customer; escalate is an internal handoff. Leave blank to poll results with the webhook token.">
+                <Input value={String(config.replyUrl ?? '')} onChange={(event) => setConfig({ replyUrl: event.target.value })} placeholder="https://…" />
+              </Field>
+              <label className="flex items-start gap-2 text-sm">
+                <input type="checkbox" checked={config.allowEscalation === true} onChange={(event) => setConfig({ allowEscalation: event.target.checked })} />
+                My application handles action=escalate as an internal notification, never as a customer reply
+              </label>
+              <Field label="Callback token" hint="Optional. Sent as Authorization: Bearer to the Reply URL. Leave blank to keep the saved value.">
+                <Input type="password" value={values.secrets.replyToken ?? ''} onChange={(event) => setSecret('replyToken', event.target.value)} autoComplete="new-password" />
+              </Field>
+            </>
           )}
 
           <Field label="Agents may send new messages" hint="Replies to inbound messages are governed by the rule that handled them; this covers everything else.">

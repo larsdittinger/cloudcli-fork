@@ -136,13 +136,19 @@ export function createWebhookAdapter(deps: AdapterDeps): WebhookAdapter {
     async send(input: SendInput) {
       const config = account ? (JSON.parse(account.config || '{}') as { replyUrl?: string }) : {};
       const replyUrl = typeof config.replyUrl === 'string' ? config.replyUrl.trim() : '';
-      if (!replyUrl) {
-        throw new Error('This webhook account has no replyUrl, so there is nowhere to send a reply.');
-      }
+      // Without a callback, sending publishes the persisted outbox item for polling.
+      const outboxId = input.outboxId ?? randomUUID();
+      if (!replyUrl) return { externalId: `webhook-poll:${outboxId}` };
+      const secrets = account ? JSON.parse(account.secrets || '{}') as { replyToken?: string } : {};
+      const replyToken = typeof secrets.replyToken === 'string' ? secrets.replyToken.trim() : '';
       const response = await fetch(replyUrl, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...(replyToken ? { Authorization: `Bearer ${replyToken}` } : {}) },
+        // Do not forward a callback credential to a redirect target.
+        redirect: 'error',
         body: JSON.stringify({
+          id: outboxId,
+          action: input.action ?? 'reply',
           to: input.to,
           text: input.text,
           subject: input.subject ?? null,
@@ -153,12 +159,12 @@ export function createWebhookAdapter(deps: AdapterDeps): WebhookAdapter {
       if (!response.ok) {
         throw new Error(`replyUrl answered ${response.status}.`);
       }
-      return { externalId: `webhook:${randomUUID()}` };
+      return { externalId: `webhook:${outboxId}` };
     },
 
     async probe(config) {
       const replyUrl = typeof config.replyUrl === 'string' ? config.replyUrl.trim() : '';
-      return { ok: true, detail: replyUrl ? `Replies will be posted to ${replyUrl}.` : 'Inbound only — no replyUrl configured.' };
+      return { ok: true, detail: replyUrl ? `Replies will be posted to ${replyUrl}.` : 'Replies and human handoffs are available through the result polling endpoint.' };
     },
   };
 }

@@ -136,7 +136,7 @@ export async function dispatchMessage(
 
   const prompt = renderPromptTemplate(
     rule.prompt_template.trim() || DEFAULT_PROMPT_TEMPLATE,
-    buildTemplateVars({ message: rowToInboundMessage(message), accountLabel: account.label, replyMode: rule.reply_mode }),
+    buildTemplateVars({ message: rowToInboundMessage(message), accountLabel: account.label, replyMode: rule.reply_mode, allowEscalation: parseJson<Record<string, unknown>>(account.config, {}).allowEscalation === true }),
   );
 
   let result: { started: boolean; error: string | null };

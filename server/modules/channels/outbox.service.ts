@@ -58,7 +58,7 @@ async function deliverNow(id: string): Promise<ChannelOutboxRow> {
     }
     const inReplyTo = row.in_reply_to_message_id ? channelMessagesDb.get(row.in_reply_to_message_id) : null;
     try {
-      const { externalId } = await adapter.send({ to: row.to_address, text: row.text, subject: row.subject ?? undefined, inReplyTo });
+      const { externalId } = await adapter.send({ to: row.to_address, text: row.text, subject: row.subject ?? undefined, inReplyTo, outboxId: row.id, action: row.action });
       lastSendAt.set(row.account_id, Date.now());
       channelOutboxDb.setStatus(id, 'sent', { externalId });
     } catch (error) {
@@ -76,10 +76,23 @@ function ruleForMessage(message: ChannelMessageRow): ChannelRuleRow | null {
 
 export const outboxService = {
   /** An answer to one inbound message; the message's rule decides whether it goes out now, waits for approval, or is refused. */
-  async createReply(input: { messageId: string; text: string; createdBy: 'agent' | 'user' }): Promise<ChannelOutboxRow> {
+  async createReply(input: { messageId: string; text: string; action?: 'reply' | 'escalate'; createdBy: 'agent' | 'user' }): Promise<ChannelOutboxRow> {
     const message = channelMessagesDb.get(input.messageId);
     if (!message) {
       throw new AppError('The message to reply to was not found.', { code: 'CHANNEL_MESSAGE_NOT_FOUND', statusCode: 404 });
+    }
+    const action = input.action ?? 'reply';
+    if (action !== 'reply' && action !== 'escalate') {
+      throw new AppError('Unknown reply action.', { code: 'REPLY_ACTION_INVALID', statusCode: 400 });
+    }
+    if (action === 'escalate' && message.channel !== 'webhook') {
+      throw new AppError('Human handoffs are supported only for webhook messages.', { code: 'REPLY_ACTION_INVALID', statusCode: 400 });
+    }
+    if (action === 'escalate') {
+      const account = channelAccountsDb.get(message.account_id);
+      if (!account || parseJson<Record<string, unknown>>(account.config, {}).allowEscalation !== true) {
+        throw new AppError('Enable human handoffs on this webhook account first.', { code: 'ESCALATION_NOT_ALLOWED', statusCode: 403 });
+      }
     }
     const text = input.text.trim();
     if (!text) {
@@ -98,6 +111,7 @@ export const outboxService = {
       to,
       subject,
       text,
+      action,
       status: mode === 'auto' ? 'approved' : 'draft',
       createdBy: input.createdBy,
     });

@@ -15,7 +15,7 @@ test('MCP endpoint: token gate, reply as draft, get and list', async () => {
     channelsService.setRuntime(createRuntime([]));
     channelsService.registerAdapterFactory('webhook', createWebhookAdapter);
     appConfigDb.set('channels_enabled', 'true');
-    const account = await channelsService.createAccount({ type: 'webhook', label: 'Hook' });
+    const account = await channelsService.createAccount({ type: 'webhook', label: 'Hook', config: { allowEscalation: true } });
     const rule = channelRulesDb.create({ name: 'r', conditions: {}, projectPath: dir, provider: 'claude', replyMode: 'draft' });
     const message = channelMessagesDb.insert(makeMessage({ accountId: account.id, channel: 'webhook' }), 'dispatched')!;
     channelMessagesDb.attachRule(message.id, rule.id, 'session-9');
@@ -44,6 +44,12 @@ test('MCP endpoint: token gate, reply as draft, get and list', async () => {
       assert.equal(reply.status, 200);
       assert.equal(reply.json.data.status, 'draft');
       assert.equal(reply.json.data.deliveredNow, false);
+
+      const escalation = await call('channels_reply', { message_id: message.id, text: 'Needs a human: refund exception.', action: 'escalate' });
+      assert.equal(escalation.status, 200);
+      assert.equal(escalation.json.data.action, 'escalate');
+      assert.equal(escalation.json.data.status, 'draft');
+      assert.equal((await call('channels_reply', { message_id: message.id, text: 'x', action: 'bad' })).status, 400);
 
       const missing = await call('channels_get_message', { message_id: 'nope' });
       assert.equal(missing.status, 404);

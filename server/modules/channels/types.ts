@@ -143,6 +143,8 @@ export type ChannelOutboxRow = {
   to_address: string;
   subject: string | null;
   text: string;
+  /** Webhook decision: customer reply or an internal handoff to a human. */
+  action: 'reply' | 'escalate';
   status: OutboxStatus;
   status_detail: string | null;
   external_id: string | null;

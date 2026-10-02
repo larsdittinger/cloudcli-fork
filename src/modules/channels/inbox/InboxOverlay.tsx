@@ -146,7 +146,7 @@ function OutboxTab() {
         return (
           <li key={item.id} className="rounded-md border border-border/60 p-3 text-sm">
             <div className="mb-1.5 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-              <span className="text-foreground">To {item.to_address}</span>
+              <span className="text-foreground">{item.action === 'escalate' ? `Internal handoff about ${item.to_address}` : `To ${item.to_address}`}</span>
               {item.subject && <span>· {item.subject}</span>}
               <OutboxStatusBadge status={item.status} />
               <span>{formatWhen(item.sent_at ?? item.created_at)}</span>

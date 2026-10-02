@@ -47,18 +47,19 @@ export function renderPromptTemplate(template: string, vars: TemplateVars): stri
   return rendered.join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
-function replyInstructions(replyMode: ReplyMode, messageId: string): string {
+function replyInstructions(replyMode: ReplyMode, messageId: string, allowEscalation: boolean): string {
   if (replyMode === 'none') return '';
   const tail = replyMode === 'draft'
     ? 'Odpověď půjde uživateli ke schválení, neodešle se sama — nezkoušej ji posílat znovu.'
     : 'Odpověď se odešle okamžitě.';
-  return `ID zprávy je \`${messageId}\`. Když chceš odpovědět, zavolej nástroj \`channels_reply\` z MCP serveru \`cloudcli-channels\` s tímto ID a textem odpovědi. ${tail}`;
+  return `ID zprávy je \`${messageId}\`. Když chceš odpovědět, zavolej nástroj \`channels_reply\` z MCP serveru \`cloudcli-channels\` s tímto ID a textem odpovědi. ${tail}${allowEscalation ? ' Pokud zprávu musí vyřídit člověk, zavolej stejný nástroj s action="escalate" a do textu napiš interní shrnutí a důvod předání. Aplikace to předá člověku; tento text není odpověď zákazníkovi. Zvol jen jednu akci.' : ''}`;
 }
 
 export function buildTemplateVars(input: {
   message: InboundMessage;
   accountLabel: string;
   replyMode: ReplyMode;
+  allowEscalation?: boolean;
 }): TemplateVars {
   const { message } = input;
   const text = message.text.trim();
@@ -77,6 +78,6 @@ export function buildTemplateVars(input: {
     attachments: message.attachments.map((attachment) => `${attachment.path} (${attachment.mime}, ${attachment.size} B)`).join('\n'),
     messageId: message.id,
     isGroup: message.isGroup ? 'ano' : '',
-    replyInstructions: replyInstructions(input.replyMode, message.id),
+    replyInstructions: replyInstructions(input.replyMode, message.id, message.channel === 'webhook' && input.allowEscalation === true),
   };
 }

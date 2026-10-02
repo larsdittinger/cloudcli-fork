@@ -267,3 +267,117 @@ CloudCLI UI - (https://cloudcli.ai).
 <div align="center">
  <strong>Made with care for the Claude Code, Cursor and Codex community.</strong>
 </div>
+
+### External applications → Channels webhook (fork)
+
+The fork's **Settings → Channels** accepts messages from an existing watcher,
+n8n, or another application. Runs appear as normal chats; rules choose the
+project, provider/model, permissions, conversation threading and reply policy.
+This is an application webhook, not a native Meta subscription endpoint: your
+watcher verifies Meta events and normalizes them before calling CloudCLI.
+
+1. Enable Channels and create a **Webhook** account. Save the token shown once.
+2. For polling, leave **Reply URL** empty. For callbacks, configure a fixed HTTP(S)
+   Reply URL and optionally a **Callback token** (sent as `Authorization: Bearer`).
+3. Enable human handoffs only when your consumer understands `action=escalate`:
+   it must send an internal notification, never post that text to the customer.
+   The account option is `config.allowEscalation: true`, disabled by default for
+   compatibility with existing callback consumers.
+4. Create a rule for this account/project, use Claude for the supplied Channels
+   MCP workflow, conversation `thread`, reply mode `draft` initially. Include
+   `{{text}}` and `{{replyInstructions}}` in a custom prompt. Define which requests
+   the agent may answer and when it must hand off (missing facts, complaints,
+   commitments requiring your approval, etc.).
+5. For trusted watcher automation, use a sender condition such as `meta-monitor`
+   and `replyMode: auto`. The watcher sets `from` to its own identity and includes
+   the customer's name/id/text in `text`. The allowlist authenticates your
+   integration's envelope, not the customer or the safety of their content.
+   The webhook token must stay only in your watcher; agent permissions and project
+   instructions still apply. Never choose project/model/permissions from an
+   incoming customer's payload.
+
+POST `/api/channels/webhook/<accountId>` with `Authorization: Bearer <token>`:
+
+```json
+{
+  "id": "meta:page-123:mid.456",
+  "thread": "meta:page-123:customer-789",
+  "from": "meta-monitor",
+  "subject": "Messenger message",
+  "text": "Customer: Jan (789)\nMessage: When will my order arrive?"
+}
+```
+
+`id` is the stable event id, deduplicated per account. Retries return the same
+`messageId` with HTTP 202 and never dispatch it again. `thread` must include the
+platform/page and customer/conversation so distinct conversations do not mix.
+Optional fields: `name`, `attachments: [{ name, mime, contentBase64 }]` (25 MB cap).
+
+The POST returns `{ success: true, data: { messageId, status, sessionId } }`.
+`dispatched` means the agent turn started, not that it finished successfully.
+Keep the same id on a timeout/retry, and review `unmatched`/`failed` in the Inbox.
+
+The agent uses `channels_reply({ message_id, text, action })`. `action` defaults
+`reply`; `escalate` is an internal handoff summary and is only allowed for webhook
+accounts that opted in. Both actions obey the rule's `none`/`draft`/`auto` policy.
+A handoff without a callback needs your consumer to send the notification.
+Writing an answer in chat alone does not publish a webhook result.
+
+**Polling:** GET `/api/channels/webhook/<accountId>/messages/<messageId>` using the
+same account token. The response's `data` contains `messageId`, `externalId`,
+`thread`, `status`, `statusDetail`, `sessionId`, `processing`, and `results`:
+
+```json
+{
+  "id": "stable-outbox-id",
+  "action": "escalate",
+  "text": "Refund exceeds our policy. Please review the customer's request.",
+  "to": "meta-monitor",
+  "status": "sent",
+  "statusDetail": null,
+  "createdAt": "2026-10-02 08:00:00"
+}
+```
+
+Only process `status: sent`; drafts wait for approval in CloudCLI. In polling mode,
+`sent` means **published for your application**, not delivered to Meta or email.
+Results are durable through redeploys and are scoped to that account and message;
+the endpoint does not expose the chat transcript. Messages expire after 90 days.
+If no decision appears, use a bounded timeout and inspect the chat/Inbox.
+
+**Callbacks:** receive `{ id, action, to, text, subject, inReplyTo: { id, externalId,
+thread } }`. `to` is the webhook `from`, which can be the integration identity;
+use `inReplyTo.thread`/`externalId` to resolve the actual Meta recipient. Existing
+callback fields remain unchanged; `id` and `action` are additive. A callback has
+15 seconds to return 2xx. Failures are recorded in the Outbox and can be retried
+from CloudCLI; redirects are rejected and retries keep the same outbox id.
+
+The consumer must deduplicate by the **outbox id**, including callback retries or
+repeated polling. CloudCLI ingress deduplication prevents duplicate agent runs;
+it cannot guarantee exactly-once external sends. Choose callback or polling as
+your delivery method to avoid sending the same decision through both paths.
+
+[examples/channel_webhook.py](examples/channel_webhook.py) is a dependency-free
+Python client for your watcher. It posts normalized JSON from stdin, waits for an
+approved decision, and prints JSON for your existing Meta sending function.
+`--email-handoff` additionally emails escalations to a fixed operator-configured
+recipient using SMTP. Its module docstring lists the required environment values.
+Your watcher must record processed decision ids before invoking external actions
+again; a stable email Message-ID is not an SMTP deduplication guarantee.
+
+```python
+from channel_webhook import run_agent, email_handoff
+
+decision = run_agent(normalized_event)
+if already_processed(decision['id']):
+    return
+if decision['action'] == 'reply':
+    send_via_your_meta_integration(decision['thread'], decision['text'])
+else:
+    email_handoff(decision)
+mark_processed(decision['id'])
+```
+
+The watcher should handle ambiguous send failures with manual review rather than
+blindly retrying a customer reply. Meta receiving/sending permissions and tokens
+remain in that integration; CloudCLI stays independent of Messenger/Instagram APIs.

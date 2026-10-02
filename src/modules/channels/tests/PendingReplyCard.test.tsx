@@ -14,6 +14,7 @@ function item(overrides: Partial<OutboxItem> = {}): OutboxItem {
     subject: 'Re: Objednavka',
     text: 'Dobry den, potvrzuji.',
     status: 'draft',
+    action: 'reply',
     status_detail: null,
     external_id: null,
     created_by: 'agent',
@@ -44,6 +45,12 @@ describe('PendingReplyCard', () => {
     expect(screen.queryByLabelText('Reply text')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: /retry/i }));
     expect(onRetry).toHaveBeenCalledWith('out-1');
+  });
+
+  it('clearly labels an internal handoff instead of a customer reply', () => {
+    render(<PendingReplyCard item={item({ action: 'escalate' })} busy={false} onApprove={vi.fn()} onDiscard={vi.fn()} onRetry={vi.fn()} />);
+    expect(screen.getByText('Hand off to a human')).toBeTruthy();
+    expect(screen.getByText(/Internal note about/)).toBeTruthy();
   });
 
   it('renders a sent reply read-only without actions', () => {

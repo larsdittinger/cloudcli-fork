@@ -22,7 +22,7 @@ const RULE_COLUMNS =
 const MESSAGE_COLUMNS =
   'id, account_id, channel, external_id, thread_key, from_address, from_name, to_json, subject, text, html, is_group, attachments_json, raw_json, received_at, rule_id, session_id, status, status_detail, created_at';
 const OUTBOX_COLUMNS =
-  'id, account_id, session_id, in_reply_to_message_id, to_address, subject, text, status, status_detail, external_id, created_by, created_at, sent_at';
+  'id, account_id, session_id, in_reply_to_message_id, to_address, subject, text, action, status, status_detail, external_id, created_by, created_at, sent_at';
 
 export const channelAccountsDb = {
   create(input: {
@@ -217,6 +217,10 @@ export const channelMessagesDb = {
     return (getConnection().prepare(`SELECT ${MESSAGE_COLUMNS} FROM channel_messages WHERE id = ?`).get(id) as ChannelMessageRow | undefined) ?? null;
   },
 
+  getByExternalId(accountId: string, externalId: string): ChannelMessageRow | null {
+    return (getConnection().prepare(`SELECT ${MESSAGE_COLUMNS} FROM channel_messages WHERE account_id = ? AND external_id = ?`).get(accountId, externalId) as ChannelMessageRow | undefined) ?? null;
+  },
+
   list(filter: { accountId?: string; status?: MessageStatus; limit?: number; before?: string } = {}): ChannelMessageRow[] {
     const clauses: string[] = [];
     const params: unknown[] = [];
@@ -300,15 +304,16 @@ export const channelOutboxDb = {
     subject?: string | null;
     text: string;
     status: OutboxStatus;
+    action?: 'reply' | 'escalate';
     createdBy: 'agent' | 'user';
   }): ChannelOutboxRow {
     const id = randomUUID();
     getConnection()
       .prepare(
-        `INSERT INTO channel_outbox (id, account_id, session_id, in_reply_to_message_id, to_address, subject, text, status, created_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO channel_outbox (id, account_id, session_id, in_reply_to_message_id, to_address, subject, text, status, created_by, action)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(id, input.accountId, input.sessionId ?? null, input.inReplyToMessageId ?? null, input.to, input.subject ?? null, input.text, input.status, input.createdBy);
+      .run(id, input.accountId, input.sessionId ?? null, input.inReplyToMessageId ?? null, input.to, input.subject ?? null, input.text, input.status, input.createdBy, input.action ?? 'reply');
     return this.get(id) as ChannelOutboxRow;
   },
 
@@ -329,6 +334,10 @@ export const channelOutboxDb = {
     return getConnection()
       .prepare(`SELECT ${OUTBOX_COLUMNS} FROM channel_outbox ${where} ORDER BY created_at DESC LIMIT ?`)
       .all(...params) as ChannelOutboxRow[];
+  },
+
+  listByMessage(messageId: string): ChannelOutboxRow[] {
+    return getConnection().prepare(`SELECT ${OUTBOX_COLUMNS} FROM channel_outbox WHERE in_reply_to_message_id = ? ORDER BY created_at ASC, id ASC`).all(messageId) as ChannelOutboxRow[];
   },
 
   setStatus(id: string, status: OutboxStatus, patch: { detail?: string | null; externalId?: string | null; text?: string } = {}): void {

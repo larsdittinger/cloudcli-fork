@@ -151,6 +151,22 @@ function validateAccountInput(type: unknown, label: unknown, config: unknown, se
   if (agentSend !== undefined && !AGENT_SEND_MODES.includes(agentSend as AgentSendMode)) {
     throw new AppError('Unknown agentSend mode.', { code: 'CHANNEL_AGENT_SEND_INVALID', statusCode: 400 });
   }
+  if (type === 'webhook') {
+    const c = (config ?? {}) as Record<string, unknown>;
+    if (c.replyUrl !== undefined && c.replyUrl !== '') {
+      let url: URL;
+      try { url = new URL(String(c.replyUrl)); } catch {
+        throw new AppError('Reply URL must be an HTTP(S) URL.', { code: 'CHANNEL_CONFIG_INVALID', statusCode: 400 });
+      }
+      if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password) {
+        throw new AppError('Reply URL must be HTTP(S) without embedded credentials.', { code: 'CHANNEL_CONFIG_INVALID', statusCode: 400 });
+      }
+    }
+    const s = (secrets ?? {}) as Record<string, unknown>;
+    if (s.replyToken !== undefined && (typeof s.replyToken !== 'string' || /[\r\n]/.test(s.replyToken))) {
+      throw new AppError('Callback token must be a single-line string.', { code: 'CHANNEL_SECRETS_INVALID', statusCode: 400 });
+    }
+  }
   if (type === 'email') {
     const c = (config ?? {}) as Record<string, unknown>;
     for (const field of ['host', 'user']) {
@@ -452,7 +468,8 @@ export const channelsService = {
     return channelMessagesDb.get(row.id);
   },
 
-  async ingestWebhook(accountId: string, token: string, body: unknown): Promise<ChannelMessageRow> {
+  /** Shared account-scoped authentication for webhook ingress and result polling. */
+  authorizeWebhook(accountId: string, token: string): ChannelAccountRow {
     const row = channelAccountsDb.get(accountId);
     if (!row || row.type !== 'webhook') {
       throw new AppError('Unknown webhook.', { code: 'WEBHOOK_NOT_FOUND', statusCode: 404 });
@@ -466,14 +483,28 @@ export const channelsService = {
     if (!this.isEnabled() || row.enabled !== 1) {
       throw new AppError('This webhook is disabled.', { code: 'WEBHOOK_DISABLED', statusCode: 503 });
     }
+    return row;
+  },
+
+  async ingestWebhook(accountId: string, token: string, body: unknown): Promise<ChannelMessageRow> {
+    this.authorizeWebhook(accountId, token);
+    const payload = body && typeof body === 'object' ? body as { id?: unknown } : {};
+    const externalId = typeof payload.id === 'string' ? payload.id.trim() : '';
+    if (externalId) {
+      const existing = channelMessagesDb.getByExternalId(accountId, externalId);
+      if (existing) return existing;
+    }
     const adapter = running.get(accountId)?.adapter as WebhookAdapter | undefined;
     if (!adapter || typeof adapter.ingestPayload !== 'function') {
       throw new AppError('Webhook account is not running.', { code: 'WEBHOOK_ACCOUNT_STOPPED', statusCode: 503 });
     }
     const message = await adapter.ingestPayload(body);
-    const stored = channelMessagesDb.get(message.id);
+    const stored = channelMessagesDb.getByExternalId(accountId, message.externalId);
+    if (stored && stored.id !== message.id) {
+      fs.rmSync(path.join(CHANNELS_ROOT, 'attachments', message.id), { recursive: true, force: true });
+    }
     if (!stored) {
-      throw new AppError('Duplicate message.', { code: 'WEBHOOK_DUPLICATE', statusCode: 409 });
+      throw new AppError('Message was not stored.', { code: 'WEBHOOK_STORE_FAILED', statusCode: 500 });
     }
     return stored;
   },

@@ -61,7 +61,8 @@ const tools: ToolDefinition[] = [
       type: 'object',
       properties: {
         message_id: { type: 'string', description: 'The CloudCLI id of the inbound message you are answering.' },
-        text: { type: 'string', description: 'Plain-text reply. For e-mail the subject and threading headers are added automatically.' },
+        text: { type: 'string', description: 'Plain-text reply, or an internal summary and reason for a human handoff. For e-mail the subject and threading headers are added automatically.' },
+        action: { type: 'string', enum: ['reply', 'escalate'], description: 'Default reply. For webhooks only, escalate asks the calling application to notify a human instead of replying to the customer. The same draft/auto rule applies.' },
       },
       required: ['message_id', 'text'],
     },
@@ -118,6 +119,7 @@ async function callTool(name: string, args: Record<string, unknown>) {
       return jsonResponse(await callChannelsApi(name, {
         message_id: readString(args.message_id, 'message_id'),
         text: readString(args.text, 'text'),
+        action: args.action,
       }));
     case 'channels_send_message':
       return jsonResponse(await callChannelsApi(name, {

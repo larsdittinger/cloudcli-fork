@@ -10,6 +10,7 @@ import channelsWebhookRoutes from '@/modules/channels/channels-webhook.routes.js
 import { __setMcpRegistrar, channelsService } from '@/modules/channels/channels.service.js';
 import { createRuntime, withIsolatedDatabase } from '@/modules/channels/tests/helpers.js';
 import type { RunCall } from '@/modules/channels/tests/helpers.js';
+import { outboxService } from '@/modules/channels/outbox.service.js';
 import { appConfigDb } from '@/modules/database/index.js';
 import { AppError } from '@/shared/utils.js';
 
@@ -88,7 +89,31 @@ test('admin REST: accounts, rules validation, webhook ingest, inbox and outbox',
       assert.equal(accepted.json.data.status, 'dispatched');
       assert.equal(runs.length, 1);
 
-      const messages = await call('GET', '/api/channels/messages?status=dispatched');
+      const auth = { Authorization: `Bearer ${account.secretsOnce.token}` };
+      const duplicate = await call('POST', `/api/channels/webhook/${account.id}`, { from: 'jan@firma.cz', text: 'ahoj', id: 'e1' }, auth);
+      assert.equal(duplicate.status, 202);
+      assert.equal(duplicate.json.data.messageId, accepted.json.data.messageId);
+      assert.equal(runs.length, 1);
+
+      const resultPath = `/api/channels/webhook/${account.id}/messages/${accepted.json.data.messageId}`;
+      assert.equal((await call('GET', resultPath)).status, 401);
+      assert.equal((await call('GET', resultPath, undefined, { Authorization: 'Bearer wrong' })).status, 401);
+      const pending = await call('GET', resultPath, undefined, auth);
+      assert.equal(pending.status, 200);
+      assert.deepEqual(pending.json.data.results, []);
+      const draft = await outboxService.createReply({ messageId: accepted.json.data.messageId, text: 'Diky!', createdBy: 'agent' });
+      assert.equal((await call('GET', resultPath, undefined, auth)).json.data.results[0].status, 'draft');
+      await outboxService.approve(draft.id);
+      const published = await call('GET', resultPath, undefined, auth);
+      assert.equal(published.json.data.results[0].status, 'sent');
+      assert.equal(published.json.data.results[0].action, 'reply');
+      assert.equal(published.json.data.results[0].text, 'Diky!');
+      assert.equal(published.json.data.results[0].id, draft.id);
+      const other = await call('POST', '/api/channels/accounts', { type: 'webhook', label: 'Other' });
+      assert.equal((await call('GET', `/api/channels/webhook/${other.json.data.id}/messages/${accepted.json.data.messageId}`, undefined, { Authorization: `Bearer ${other.json.data.secretsOnce.token}` })).status, 404);
+      assert.equal((await call('GET', resultPath.replace(accepted.json.data.messageId, 'missing'), undefined, auth)).status, 404);
+
+      const messages = await call('GET' , '/api/channels/messages?status=dispatched');
       assert.equal(messages.json.data.length, 1);
       assert.equal(messages.json.data[0].ruleName, 'all');
       const messageId = messages.json.data[0].id;
@@ -113,6 +138,7 @@ test('admin REST: accounts, rules validation, webhook ingest, inbox and outbox',
       assert.equal(disabled.json.data.enabled, false);
       const afterDisable = await call('POST', `/api/channels/webhook/${account.id}`, { from: 'a', text: 'b' }, { Authorization: `Bearer ${account.secretsOnce.token}` });
       assert.equal(afterDisable.status, 503);
+      assert.equal((await call('GET', resultPath, undefined, auth)).status, 503);
     });
 
     await channelsService.stopAll();

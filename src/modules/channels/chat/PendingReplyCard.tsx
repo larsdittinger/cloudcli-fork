@@ -31,8 +31,8 @@ export default function PendingReplyCard({ item, busy, onApprove, onDiscard, onR
       )}
     >
       <div className="mb-1.5 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-        <span className="font-medium text-foreground">{sent ? 'Reply sent' : 'Reply from the agent'}</span>
-        <span>to {item.to_address}</span>
+        <span className="font-medium text-foreground">{item.action === 'escalate' ? (sent ? 'Handoff published' : 'Hand off to a human') : sent ? 'Reply sent' : 'Reply from the agent'}</span>
+        <span>{item.action === 'escalate' ? `Internal note about ${item.to_address} — not a customer reply` : `to ${item.to_address}`}</span>
         {item.subject && <span className="truncate">· {item.subject}</span>}
         <OutboxStatusBadge status={item.status} />
         {sent && item.sent_at && <span>{formatWhen(item.sent_at)}</span>}

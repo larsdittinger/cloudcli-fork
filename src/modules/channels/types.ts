@@ -90,6 +90,7 @@ export type OutboxItem = {
   to_address: string;
   subject: string | null;
   text: string;
+  action: 'reply' | 'escalate';
   status: OutboxStatus;
   status_detail: string | null;
   external_id: string | null;

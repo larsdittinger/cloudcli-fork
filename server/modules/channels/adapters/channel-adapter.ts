@@ -7,6 +7,9 @@ export type AdapterHooks = {
 };
 
 export type SendInput = {
+  /** Stable across retries; callback consumers deduplicate by this id. */
+  outboxId?: string;
+  action?: 'reply' | 'escalate';
   to: string;
   text: string;
   subject?: string;

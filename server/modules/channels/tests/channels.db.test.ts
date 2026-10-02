@@ -7,6 +7,8 @@ import {
   channelOutboxDb,
   channelRulesDb,
   channelThreadsDb,
+  getConnection,
+  initializeDatabase,
 } from '@/modules/database/index.js';
 import { makeMessage, withIsolatedDatabase } from '@/modules/channels/tests/helpers.js';
 
@@ -82,5 +84,18 @@ test('threads and outbox', async () => {
     assert.equal(sent.text, 'Ahoj!');
     assert.ok(sent.sent_at);
     assert.equal(channelOutboxDb.list({ status: ['sent'] }).length, 1);
+  });
+});
+
+
+test('upgrade preserves old outbox messages and defaults their action to reply', async () => {
+  await withIsolatedDatabase(async () => {
+    const row = channelOutboxDb.create({ accountId: 'acc', to: 'jan', text: 'Old reply', status: 'draft', createdBy: 'agent' });
+    getConnection().exec('ALTER TABLE channel_outbox DROP COLUMN action');
+    await initializeDatabase();
+    assert.equal(channelOutboxDb.get(row.id)?.action, 'reply');
+    assert.equal(channelOutboxDb.get(row.id)?.text, 'Old reply');
+    await initializeDatabase();
+    assert.equal(channelOutboxDb.get(row.id)?.action, 'reply');
   });
 });

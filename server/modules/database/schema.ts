@@ -347,6 +347,7 @@ CREATE TABLE IF NOT EXISTS channel_outbox (
     to_address TEXT NOT NULL,
     subject TEXT,
     text TEXT NOT NULL,
+    action TEXT NOT NULL DEFAULT 'reply',
     -- draft | approved | sending | sent | failed | discarded
     status TEXT NOT NULL DEFAULT 'draft',
     status_detail TEXT,
