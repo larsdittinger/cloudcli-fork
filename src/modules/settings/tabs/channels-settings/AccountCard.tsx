@@ -7,7 +7,7 @@ import { Button } from '@/shared/ui';
 import { copyTextToClipboard } from '@/shared/utils';
 import { AccountStatusBadge, ChannelIcon, channelName } from '@/modules/channels';
 import type { ChannelAccount, ChannelRule } from '@/modules/channels';
-import { buildWebhookAgentGuide } from '@/modules/settings/tabs/channels-settings/webhookAgentGuide';
+import { buildWebhookAgentGuide } from '@/modules/settings/utils/webhookAgentGuide';
 import WhatsAppPairing from '@/modules/settings/tabs/channels-settings/WhatsAppPairing';
 
 type Props = {
@@ -45,8 +45,10 @@ function CopyButton({ value, label }: { value: string; label: string }) {
 
 const AGENT_SEND_LABEL = { off: 'agents cannot send', draft: 'agent sends need approval', auto: 'agents send freely' } as const;
 
+/** Used by Settings to manage a channel account and hand its webhook contract to an integration agent. */
 export default function AccountCard({ account, rules, channelsEnabled, tokenOnce, onEdit, onDelete, onChanged }: Props) {
   const { t } = useTranslation('settings');
+  // Shows copy confirmation or opens the manual-copy preview when clipboard access fails.
   const [guideCopyStatus, setGuideCopyStatus] = useState<'idle' | 'copied' | 'error'>('idle');
   const [busy, setBusy] = useState<'test' | 'reconnect' | 'delete' | 'toggle' | null>(null);
   const [testResult, setTestResult] = useState<{ ok: boolean; detail: string } | null>(null);

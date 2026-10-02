@@ -1,6 +1,6 @@
 import type { ChannelAccount, ChannelRule } from '@/modules/channels';
 
-/** A handoff for the agent building the calling application; account credentials stay separate. */
+/** Used only by the Settings account card to generate an integration handoff without account credentials. */
 export function buildWebhookAgentGuide({ account, webhookUrl, rules, channelsEnabled }: {
   account: ChannelAccount;
   webhookUrl: string;
