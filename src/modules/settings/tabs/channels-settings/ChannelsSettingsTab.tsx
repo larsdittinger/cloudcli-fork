@@ -121,6 +121,8 @@ export default function ChannelsSettingsTab() {
             <AccountCard
               key={account.id}
               account={account}
+              rules={rules}
+              channelsEnabled={Boolean(settings?.enabled)}
               tokenOnce={tokensOnce[account.id]}
               onEdit={() => setAccountDialog({ open: true, account })}
               onDelete={async () => { await readApiJson(await api.channels.deleteAccount(account.id)); await load(); }}

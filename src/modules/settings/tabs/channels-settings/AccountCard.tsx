@@ -1,14 +1,19 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Check, Copy, Loader2, Pencil, Plug, RefreshCw, Trash2 } from 'lucide-react';
 
 import { api, readApiJson } from '@/shared/api';
 import { Button } from '@/shared/ui';
+import { copyTextToClipboard } from '@/shared/utils';
 import { AccountStatusBadge, ChannelIcon, channelName } from '@/modules/channels';
-import type { ChannelAccount } from '@/modules/channels';
+import type { ChannelAccount, ChannelRule } from '@/modules/channels';
+import { buildWebhookAgentGuide } from '@/modules/settings/tabs/channels-settings/webhookAgentGuide';
 import WhatsAppPairing from '@/modules/settings/tabs/channels-settings/WhatsAppPairing';
 
 type Props = {
   account: ChannelAccount;
+  rules: ChannelRule[];
+  channelsEnabled: boolean;
   /** The webhook token is shown once, right after the account is created. */
   tokenOnce?: string;
   onEdit: () => void;
@@ -40,11 +45,20 @@ function CopyButton({ value, label }: { value: string; label: string }) {
 
 const AGENT_SEND_LABEL = { off: 'agents cannot send', draft: 'agent sends need approval', auto: 'agents send freely' } as const;
 
-export default function AccountCard({ account, tokenOnce, onEdit, onDelete, onChanged }: Props) {
+export default function AccountCard({ account, rules, channelsEnabled, tokenOnce, onEdit, onDelete, onChanged }: Props) {
+  const { t } = useTranslation('settings');
+  const [guideCopyStatus, setGuideCopyStatus] = useState<'idle' | 'copied' | 'error'>('idle');
   const [busy, setBusy] = useState<'test' | 'reconnect' | 'delete' | 'toggle' | null>(null);
   const [testResult, setTestResult] = useState<{ ok: boolean; detail: string } | null>(null);
 
   const webhookUrl = account.webhookUrlPath ? `${window.location.origin}${account.webhookUrlPath}` : null;
+
+  const agentGuide = webhookUrl ? buildWebhookAgentGuide({ account, webhookUrl, rules, channelsEnabled }) : '';
+  const copyAgentGuide = async () => {
+    const copied = await copyTextToClipboard(agentGuide);
+    setGuideCopyStatus(copied ? 'copied' : 'error');
+    if (copied) setTimeout(() => setGuideCopyStatus('idle'), 2000);
+  };
 
   const test = async () => {
     setBusy('test');
@@ -145,8 +159,20 @@ export default function AccountCard({ account, tokenOnce, onEdit, onDelete, onCh
               <CopyButton value={tokenOnce} label="Copy webhook token" />
             </div>
           ) : (
-            <p className="text-muted-foreground">Send with <code>Authorization: Bearer &lt;token&gt;</code> and a JSON body <code>{'{ from, text, subject?, name?, id?, thread? }'}</code>.</p>
+            <p className="text-muted-foreground">Send with <code>Authorization: Bearer &lt;token&gt;</code> and a JSON body <code>{'{ from, text, subject?, name?, id?, thread?, metadata?, attachments? }'}</code>.</p>
           )}
+          <div className="pt-2">
+            <Button size="sm" variant="outline" onClick={() => { void copyAgentGuide(); }}>
+              {guideCopyStatus === 'copied' ? <Check className="mr-1 h-3.5 w-3.5" aria-hidden /> : <Copy className="mr-1 h-3.5 w-3.5" aria-hidden />}
+              {t(guideCopyStatus === 'copied' ? 'channels.guideCopied' : 'channels.copyAgentGuide')}
+            </Button>
+            <p className="mt-1 text-muted-foreground">{t('channels.agentGuideDescription')}</p>
+            {guideCopyStatus === 'error' && <p role="alert" className="mt-1 text-red-600 dark:text-red-300">{t('channels.agentGuideCopyFailed')}</p>}
+            <details className="mt-2" open={guideCopyStatus === 'error' ? true : undefined}>
+              <summary className="cursor-pointer text-muted-foreground">{t('channels.previewAgentGuide')}</summary>
+              <textarea readOnly value={agentGuide} aria-label={t('channels.previewAgentGuide')} className="mt-2 h-64 w-full rounded-md border border-border bg-muted/50 p-2 font-mono text-xs" />
+            </details>
+          </div>
         </div>
       )}
 

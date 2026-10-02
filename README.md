@@ -275,6 +275,10 @@ n8n, or another application. Runs appear as normal chats; rules choose the
 project, provider/model, permissions, conversation threading and reply policy.
 This is an application webhook, not a native Meta subscription endpoint: your
 watcher verifies Meta events and normalizes them before calling CloudCLI.
+Each webhook account card includes **Copy agent guide (.md)** and a Markdown
+preview: a Czech handoff with the account URL, current applicable rules and
+request/result examples for the agent building the caller. The token is configured
+separately in the caller's environment.
 
 1. Enable Channels and create a **Webhook** account. Save the token shown once.
 2. For polling, leave **Reply URL** empty. For callbacks, configure a fixed HTTP(S)
