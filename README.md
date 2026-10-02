@@ -285,7 +285,7 @@ watcher verifies Meta events and normalizes them before calling CloudCLI.
    compatibility with existing callback consumers.
 4. Create a rule for this account/project, use Claude for the supplied Channels
    MCP workflow, conversation `thread`, reply mode `draft` initially. Include
-   `{{text}}` and `{{replyInstructions}}` in a custom prompt. Define which requests
+   `{{text}}`, `{{metadata}}` and `{{replyInstructions}}` in a custom prompt. Define which requests
    the agent may answer and when it must hand off (missing facts, complaints,
    commitments requiring your approval, etc.).
 5. For trusted watcher automation, use a sender condition such as `meta-monitor`
@@ -304,14 +304,15 @@ POST `/api/channels/webhook/<accountId>` with `Authorization: Bearer <token>`:
   "thread": "meta:page-123:customer-789",
   "from": "meta-monitor",
   "subject": "Messenger message",
-  "text": "Customer: Jan (789)\nMessage: When will my order arrive?"
+  "text": "Customer: Jan (789)\nMessage: When will my order arrive?",
+  "metadata": { "platform": "facebook", "kind": "message", "pageId": "123", "senderId": "789" }
 }
 ```
 
 `id` is the stable event id, deduplicated per account. Retries return the same
 `messageId` with HTTP 202 and never dispatch it again. `thread` must include the
 platform/page and customer/conversation so distinct conversations do not mix.
-Optional fields: `name`, `attachments: [{ name, mime, contentBase64 }]` (25 MB cap).
+Optional fields: `name`, `metadata` (JSON object, max 16 KiB), `attachments: [{ name, mime, contentBase64 }]` (25 MB cap).
 
 The POST returns `{ success: true, data: { messageId, status, sessionId } }`.
 `dispatched` means the agent turn started, not that it finished successfully.
@@ -325,7 +326,7 @@ Writing an answer in chat alone does not publish a webhook result.
 
 **Polling:** GET `/api/channels/webhook/<accountId>/messages/<messageId>` using the
 same account token. The response's `data` contains `messageId`, `externalId`,
-`thread`, `status`, `statusDetail`, `sessionId`, `processing`, and `results`:
+`thread`, `metadata`, `status`, `statusDetail`, `sessionId`, `processing`, and `results`:
 
 ```json
 {
@@ -346,7 +347,7 @@ the endpoint does not expose the chat transcript. Messages expire after 90 days.
 If no decision appears, use a bounded timeout and inspect the chat/Inbox.
 
 **Callbacks:** receive `{ id, action, to, text, subject, inReplyTo: { id, externalId,
-thread } }`. `to` is the webhook `from`, which can be the integration identity;
+thread, metadata } }`. `to` is the webhook `from`, which can be the integration identity;
 use `inReplyTo.thread`/`externalId` to resolve the actual Meta recipient. Existing
 callback fields remain unchanged; `id` and `action` are additive. A callback has
 15 seconds to return 2xx. Failures are recorded in the Outbox and can be retried
@@ -372,7 +373,7 @@ decision = run_agent(normalized_event)
 if already_processed(decision['id']):
     return
 if decision['action'] == 'reply':
-    send_via_your_meta_integration(decision['thread'], decision['text'])
+    send_via_your_meta_integration(decision['metadata'], decision['thread'], decision['text'])
 else:
     email_handoff(decision)
 mark_processed(decision['id'])
@@ -381,3 +382,21 @@ mark_processed(decision['id'])
 The watcher should handle ambiguous send failures with manual review rather than
 blindly retrying a customer reply. Meta receiving/sending permissions and tokens
 remain in that integration; CloudCLI stays independent of Messenger/Instagram APIs.
+
+For Facebook Page messages, Instagram messages and public video comments, keep
+separate conversation keys and attach the transport's reply destination as metadata:
+
+| Event | Example thread | Example metadata |
+| --- | --- | --- |
+| Facebook Page message | `facebook:page-123:dm:sender-789` | `{ "platform": "facebook", "kind": "message", "pageId": "123", "senderId": "789" }` |
+| Instagram DM | `instagram:account-123:dm:sender-789` | `{ "platform": "instagram", "kind": "message", "accountId": "123", "senderId": "789" }` |
+| Facebook video comment | `facebook:page-123:comment:root-456` | `{ "platform": "facebook", "kind": "comment", "pageId": "123", "postId": "video-9", "commentId": "456" }` |
+| Instagram video comment | `instagram:account-123:comment:root-456` | `{ "platform": "instagram", "kind": "comment", "accountId": "123", "mediaId": "video-9", "commentId": "456" }` |
+
+Use a fresh event `id` for each incoming message or comment; reuse `thread` only for
+follow-ups in that same DM or root comment thread. Do not put all comments under
+one video into one agent conversation. The adapter stores metadata unchanged,
+gives it to the agent as **data**, and echoes it in polling (`data.metadata`) and
+callbacks (`inReplyTo.metadata`). It never uses metadata to choose a project,
+permissions, callback URL or email recipient. Each company has its own account
+token and rule/project; avoid sharing customer conversations between companies.

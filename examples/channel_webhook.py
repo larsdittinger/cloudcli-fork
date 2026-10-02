@@ -67,7 +67,7 @@ def run_agent(payload, timeout=600):
             decision = ready[0]
             if decision['action'] not in ('reply', 'escalate'):
                 raise RuntimeError('Unsupported decision action')
-            return {**decision, 'messageId': data['messageId'], 'externalId': data['externalId'], 'thread': data['thread']}
+            return {**decision, 'messageId': data['messageId'], 'externalId': data['externalId'], 'thread': data['thread'], 'metadata': data.get('metadata')}
         if any(item['status'] in ('failed', 'discarded') for item in data['results']):
             raise RuntimeError('Decision failed or was discarded; review it in CloudCLI')
         time.sleep(2)
@@ -83,7 +83,7 @@ def email_handoff(decision):
     mail['To'] = os.environ['HANDOFF_EMAIL_TO']
     mail['Subject'] = 'CloudCLI: zprávu musí vyřídit člověk'
     mail['Message-ID'] = '<cloudcli-' + decision['id'] + '@' + os.environ['SMTP_FROM'].split('@')[-1] + '>'
-    mail.set_content('Vlákno: ' + decision['thread'] + '\nID zprávy: ' + decision['externalId'] + '\n\n' + decision['text'])
+    mail.set_content('Vlákno: ' + decision['thread'] + '\nID zprávy: ' + decision['externalId'] + '\nKontext: ' + json.dumps(decision.get('metadata') or {}, ensure_ascii=False) + '\n\n' + decision['text'])
     port = int(os.environ.get('SMTP_PORT', '465'))
     context = ssl.create_default_context()
     if port == 465:

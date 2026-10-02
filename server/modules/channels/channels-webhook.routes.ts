@@ -2,6 +2,7 @@ import express from 'express';
 import type { Request, Response } from 'express';
 
 import { channelsService } from '@/modules/channels/channels.service.js';
+import { parseJson } from '@/modules/channels/types.js';
 import { channelMessagesDb, channelOutboxDb } from '@/modules/database/index.js';
 import { chatRunRegistry } from '@/modules/websocket/index.js';
 import { AppError, asyncHandler, createApiSuccessResponse } from '@/shared/utils.js';
@@ -43,6 +44,7 @@ router.get('/:accountId/messages/:messageId', asyncHandler(async (req: Request, 
     messageId: message.id,
     externalId: message.external_id,
     thread: message.thread_key,
+    metadata: parseJson<Record<string, unknown>>(message.raw_json, {}).metadata ?? null,
     status: message.status,
     statusDetail: message.status_detail,
     sessionId: message.session_id,

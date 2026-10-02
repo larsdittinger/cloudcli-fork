@@ -29,9 +29,14 @@ test('normalizeWebhookPayload validates and stores attachments', async () => {
       name: 'Jan',
       text: 'ahoj',
       thread: 'chat-9',
+      metadata: { platform: 'instagram', kind: 'comment', commentId: 'ig-comment-123' },
       attachments: [{ name: 'note.txt', mime: 'text/plain', contentBase64: Buffer.from('hello').toString('base64') }],
     }, deps(dir));
     assert.equal(message.channel, 'webhook');
+    assert.deepEqual(message.raw.metadata, { platform: 'instagram', kind: 'comment', commentId: 'ig-comment-123' });
+    for (const metadata of [null, 'bad', [], { text: 'x'.repeat(16385) }]) {
+      assert.throws(() => normalizeWebhookPayload('acc', { from: 'a', text: 'b', metadata }, deps(dir)), { code: 'WEBHOOK_PAYLOAD_INVALID' });
+    }
     assert.equal(message.externalId, 'evt-1');
     assert.equal(message.threadKey, 'chat-9');
     assert.equal(message.from.name, 'Jan');

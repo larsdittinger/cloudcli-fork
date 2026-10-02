@@ -17,7 +17,7 @@ type Props = {
   onSubmit: (values: ChannelRuleInput) => Promise<void>;
 };
 
-const DEFAULT_TEMPLATE_HINT = `Leave empty for the default prompt. Placeholders: {{channel}} {{account}} {{from}} {{fromName}} {{to}} {{subject}} {{text}} {{threadKey}} {{receivedAt}} {{attachments}} {{messageId}} {{replyInstructions}}`;
+const DEFAULT_TEMPLATE_HINT = `Leave empty for the default prompt. Placeholders: {{channel}} {{account}} {{from}} {{fromName}} {{to}} {{subject}} {{text}} {{metadata}} {{threadKey}} {{receivedAt}} {{attachments}} {{messageId}} {{replyInstructions}}`;
 
 type FormState = {
   name: string;

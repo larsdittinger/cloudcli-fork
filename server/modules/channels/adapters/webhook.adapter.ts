@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import type { AdapterDeps, AdapterHooks, ChannelAdapter, SendInput } from '@/modules/channels/adapters/channel-adapter.js';
+import { parseJson } from '@/modules/channels/types.js';
 import type { ChannelAccountRow, InboundAttachment, InboundMessage } from '@/modules/channels/types.js';
 import { AppError } from '@/shared/utils.js';
 
@@ -52,6 +53,7 @@ type WebhookPayload = {
   text?: unknown;
   thread?: unknown;
   attachments?: unknown;
+  metadata?: unknown;
 };
 
 /** Turns a webhook body into the normalized shape; throws 400 on anything unusable. */
@@ -67,6 +69,21 @@ export function normalizeWebhookPayload(accountId: string, body: unknown, deps: 
   }
   if (!text.trim()) {
     throw new AppError('Webhook body needs a "text".', { code: 'WEBHOOK_PAYLOAD_INVALID', statusCode: 400 });
+  }
+
+  let metadata: Record<string, unknown> | undefined;
+  if (payload.metadata !== undefined) {
+    if (!payload.metadata || typeof payload.metadata !== 'object' || Array.isArray(payload.metadata)) {
+      throw new AppError('Webhook metadata must be a JSON object.', { code: 'WEBHOOK_PAYLOAD_INVALID', statusCode: 400 });
+    }
+    let encoded: string;
+    try { encoded = JSON.stringify(payload.metadata); } catch {
+      throw new AppError('Webhook metadata must be serializable JSON.', { code: 'WEBHOOK_PAYLOAD_INVALID', statusCode: 400 });
+    }
+    if (Buffer.byteLength(encoded, 'utf8') > 16 * 1024) {
+      throw new AppError('Webhook metadata is limited to 16 KiB.', { code: 'WEBHOOK_PAYLOAD_INVALID', statusCode: 400 });
+    }
+    metadata = JSON.parse(encoded) as Record<string, unknown>;
   }
 
   const receivedAt = new Date().toISOString();
@@ -100,7 +117,7 @@ export function normalizeWebhookPayload(accountId: string, body: unknown, deps: 
     isGroup: false,
     attachments,
     receivedAt,
-    raw: { ...(skipped.length ? { skippedAttachments: skipped } : {}) },
+    raw: { ...(metadata ? { metadata } : {}), ...(skipped.length ? { skippedAttachments: skipped } : {}) },
   };
 }
 
@@ -152,7 +169,7 @@ export function createWebhookAdapter(deps: AdapterDeps): WebhookAdapter {
           to: input.to,
           text: input.text,
           subject: input.subject ?? null,
-          inReplyTo: input.inReplyTo ? { id: input.inReplyTo.id, externalId: input.inReplyTo.external_id, thread: input.inReplyTo.thread_key } : null,
+          inReplyTo: input.inReplyTo ? { id: input.inReplyTo.id, externalId: input.inReplyTo.external_id, thread: input.inReplyTo.thread_key, metadata: parseJson<Record<string, unknown>>(input.inReplyTo.raw_json, {}).metadata ?? null } : null,
         }),
         signal: AbortSignal.timeout(15_000),
       });

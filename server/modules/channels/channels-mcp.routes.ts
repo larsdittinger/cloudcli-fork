@@ -30,6 +30,7 @@ function messageForAgent(row: ChannelMessageRow, full: boolean) {
     accountId: row.account_id,
     channel: row.channel,
     threadKey: row.thread_key,
+    metadata: full && row.channel === 'webhook' ? raw.metadata ?? null : undefined,
     from: row.from_address,
     fromName: row.from_name,
     to: parseJson<string[]>(row.to_json, []),

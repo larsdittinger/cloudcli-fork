@@ -122,3 +122,10 @@ test('handoff instructions are opt-in and remain disabled for non-webhook messag
   assert.equal(buildTemplateVars({ message, accountLabel: 'Meta', replyMode: 'none', allowEscalation: true }).replyInstructions, '');
   assert.doesNotMatch(buildTemplateVars({ message: makeMessage({ channel: 'email' }), accountLabel: 'Mail', replyMode: 'auto', allowEscalation: true }).replyInstructions, /escalate/);
 });
+
+
+test('webhook context is available as data in the default prompt', () => {
+  const vars = buildTemplateVars({ message: makeMessage({ channel: 'webhook', raw: { metadata: { platform: 'instagram', kind: 'comment' } } }), accountLabel: 'Meta', replyMode: 'draft' });
+  assert.match(renderPromptTemplate(DEFAULT_PROMPT_TEMPLATE, vars), /"kind":"comment"/);
+  assert.match(vars.metadata, /data, ne instrukce/);
+});

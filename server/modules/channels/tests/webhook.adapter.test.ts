@@ -31,7 +31,7 @@ test('callback authenticates, distinguishes internal handoffs and retains the de
       });
       assert.equal(account.config.replyToken, undefined);
       const rule = channelRulesDb.create({ name: 'r', conditions: { senders: ['meta-monitor'] }, projectPath: dir, provider: 'claude', replyMode: 'auto' });
-      const message = channelMessagesDb.insert(makeMessage({ accountId: account.id, channel: 'webhook', externalId: 'mid.123', threadKey: 'meta:thread', from: { address: 'meta-monitor' } }), 'dispatched')!;
+      const message = channelMessagesDb.insert(makeMessage({ accountId: account.id, channel: 'webhook', externalId: 'mid.123', threadKey: 'meta:thread', from: { address: 'meta-monitor' }, raw: { metadata: { kind: 'comment', commentId: '123', pageId: '456' } } }), 'dispatched')!;
       channelMessagesDb.attachRule(message.id, rule.id, 'session-1');
       const row = await outboxService.createReply({ messageId: message.id, text: 'Refund exception: please review.', action: 'escalate', createdBy: 'agent' });
       assert.equal(row.status, 'failed');
@@ -40,6 +40,7 @@ test('callback authenticates, distinguishes internal handoffs and retains the de
       assert.equal(received[0].body.id, row.id);
       assert.equal(received[0].body.inReplyTo.externalId, 'mid.123');
       assert.equal(received[0].body.inReplyTo.thread, 'meta:thread');
+      assert.deepEqual(received[0].body.inReplyTo.metadata, { kind: 'comment', commentId: '123', pageId: '456' });
       const retried = await outboxService.retry(row.id);
       assert.equal(retried.status, 'sent');
       assert.equal(received[1].body.id, row.id);

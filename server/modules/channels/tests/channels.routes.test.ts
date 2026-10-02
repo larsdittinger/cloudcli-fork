@@ -84,7 +84,7 @@ test('admin REST: accounts, rules validation, webhook ingest, inbox and outbox',
       const unauthorized = await call('POST', `/api/channels/webhook/${account.id}`, { from: 'a', text: 'b' });
       assert.equal(unauthorized.status, 401);
 
-      const accepted = await call('POST', `/api/channels/webhook/${account.id}`, { from: 'jan@firma.cz', text: 'ahoj', id: 'e1' }, { Authorization: `Bearer ${account.secretsOnce.token}` });
+      const accepted = await call('POST', `/api/channels/webhook/${account.id}`, { from: 'jan@firma.cz', text: 'ahoj', id: 'e1', metadata: { platform: 'facebook', kind: 'message', pageId: '123', senderId: '789' } }, { Authorization: `Bearer ${account.secretsOnce.token}` });
       assert.equal(accepted.status, 202);
       assert.equal(accepted.json.data.status, 'dispatched');
       assert.equal(runs.length, 1);
@@ -100,6 +100,7 @@ test('admin REST: accounts, rules validation, webhook ingest, inbox and outbox',
       assert.equal((await call('GET', resultPath, undefined, { Authorization: 'Bearer wrong' })).status, 401);
       const pending = await call('GET', resultPath, undefined, auth);
       assert.equal(pending.status, 200);
+      assert.deepEqual(pending.json.data.metadata, { platform: 'facebook', kind: 'message', pageId: '123', senderId: '789' });
       assert.deepEqual(pending.json.data.results, []);
       const draft = await outboxService.createReply({ messageId: accepted.json.data.messageId, text: 'Diky!', createdBy: 'agent' });
       assert.equal((await call('GET', resultPath, undefined, auth)).json.data.results[0].status, 'draft');

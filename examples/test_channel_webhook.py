@@ -11,6 +11,7 @@ class WebhookClientTests(unittest.TestCase):
 
     def snapshot(self, status, action='reply'):
         return {'messageId': 'message', 'externalId': 'mid.1', 'thread': self.payload['thread'], 'status': 'dispatched',
+                'metadata': {'platform': 'instagram', 'kind': 'comment', 'commentId': '123'},
                 'results': [{'id': 'outbox', 'status': status, 'action': action, 'text': 'Answer'}]}
 
     def test_drafts_wait_for_approval(self):
@@ -18,6 +19,7 @@ class WebhookClientTests(unittest.TestCase):
             result = run_agent(self.payload)
             self.assertEqual(result['action'], 'reply')
             self.assertEqual(result['id'], 'outbox')
+            self.assertEqual(result['metadata']['commentId'], '123')
             self.assertEqual(api.call_args_list[0].args[2]['id'], 'mid.1')
             sleep.assert_called_once_with(2)
 
