@@ -19,9 +19,9 @@ import {
 export const CODEX_PREDEFINED_MODELS: ProviderModelsDefinition = {
   OPTIONS: [
     {
-      value: 'gpt-6-astra',
-      label: 'GPT-6 Astra',
-      description: 'Our most capable model for complex, demanding work.',
+      value: 'gpt-6.1-sol',
+      label: 'GPT-6.1 Sol',
+      description: 'Latest workhorse model for coding and everyday work.',
       effort: {
         default: 'low',
         values: [
@@ -35,9 +35,56 @@ export const CODEX_PREDEFINED_MODELS: ProviderModelsDefinition = {
       },
     },
     {
+      value: 'gpt-6-astra',
+      label: 'GPT-6 Astra',
+      description: 'Frontier intelligence for the most demanding work.',
+      effort: {
+        default: 'medium',
+        values: [
+          { value: 'low' },
+          { value: 'medium' },
+          { value: 'high' },
+          { value: 'xhigh' },
+          { value: 'max' },
+          { value: 'ultra' },
+        ],
+      },
+    },
+    {
+      value: 'gpt-6-sol',
+      label: 'GPT-6 Sol',
+      description: 'Previous generation workhorse model.',
+      effort: {
+        default: 'medium',
+        values: [
+          { value: 'low' },
+          { value: 'medium' },
+          { value: 'high' },
+          { value: 'xhigh' },
+          { value: 'max' },
+          { value: 'ultra' },
+        ],
+      },
+    },
+    {
+      value: 'gpt-6-luna',
+      label: 'GPT-6 Luna',
+      description: 'Fast and affordable model for easier tasks.',
+      effort: {
+        default: 'medium',
+        values: [
+          { value: 'low' },
+          { value: 'medium' },
+          { value: 'high' },
+          { value: 'xhigh' },
+          { value: 'max' },
+        ],
+      },
+    },
+    {
       value: 'gpt-5.6-sol',
       label: 'GPT-5.6 Sol',
-      description: 'Latest frontier agentic coding model.',
+      description: 'Older generation workhorse model.',
       effort: {
         default: 'low',
         values: [
@@ -53,7 +100,7 @@ export const CODEX_PREDEFINED_MODELS: ProviderModelsDefinition = {
     {
       value: 'gpt-5.6-terra',
       label: 'GPT-5.6 Terra',
-      description: 'Balanced agentic coding model for everyday work.',
+      description: 'Older balanced model for straightforward work.',
       effort: {
         default: 'medium',
         values: [
@@ -69,7 +116,7 @@ export const CODEX_PREDEFINED_MODELS: ProviderModelsDefinition = {
     {
       value: 'gpt-5.6-luna',
       label: 'GPT-5.6 Luna',
-      description: 'Fast and affordable agentic coding model.',
+      description: 'Older fast and efficient model.',
       effort: {
         default: 'medium',
         values: [
@@ -84,32 +131,19 @@ export const CODEX_PREDEFINED_MODELS: ProviderModelsDefinition = {
     {
       value: 'gpt-5.5',
       label: 'GPT-5.5',
-      description: 'Frontier model for complex coding, research, and real-world work.',
+      description: 'Legacy coding model.',
       effort: {
         default: 'medium',
-        values: [{ value: 'low' }, { value: 'medium' }, { value: 'high' }, { value: 'xhigh' }],
-      },
-    },
-    {
-      value: 'gpt-5.4',
-      label: 'GPT-5.4',
-      description: 'Strong model for everyday coding.',
-      effort: {
-        default: 'medium',
-        values: [{ value: 'low' }, { value: 'medium' }, { value: 'high' }, { value: 'xhigh' }],
-      },
-    },
-    {
-      value: 'gpt-5.4-mini',
-      label: 'GPT-5.4 Mini',
-      description: 'Small, fast, and cost-efficient model for simpler coding tasks.',
-      effort: {
-        default: 'medium',
-        values: [{ value: 'low' }, { value: 'medium' }, { value: 'high' }, { value: 'xhigh' }],
+        values: [
+          { value: 'low' },
+          { value: 'medium' },
+          { value: 'high' },
+          { value: 'xhigh' },
+        ],
       },
     },
   ],
-  DEFAULT: 'gpt-5.6-sol',
+  DEFAULT: 'gpt-6.1-sol',
 };
 
 const CODEX_CONFIG_PATH = path.join(os.homedir(), '.codex', 'config.toml');
