@@ -27,6 +27,8 @@ import {
 } from '@/modules/chat/composer/PromptInput';
 import CommandMenu from '@/modules/chat/composer/CommandMenu';
 import ActivityIndicator from '@/modules/chat/composer/ActivityIndicator';
+import BackgroundTasksTab from '@/modules/chat/composer/BackgroundTasksTab';
+import { useViewedBackgroundTasks } from '@/modules/chat/context/BackgroundTasksContext';
 import ComposerAttachment from '@/modules/chat/composer/ComposerAttachment';
 import VoiceInputButton from '@/modules/chat/composer/VoiceInputButton';
 import PermissionRequestsBanner from '@/modules/chat/composer/PermissionRequestsBanner';
@@ -249,7 +251,10 @@ export default function ChatComposer({
 
   // Hide the thinking/status bar while any permission request is pending
   const hasPendingPermissions = pendingPermissionRequests.length > 0;
-  const hasActivityIndicator = Boolean(activity && !hasPendingPermissions);
+  // Agents left running after the reply get a tab in the same slot.
+  const backgroundTasks = useViewedBackgroundTasks() ?? [];
+  const hasBackgroundTasks = backgroundTasks.length > 0;
+  const hasActivityIndicator = Boolean((activity || hasBackgroundTasks) && !hasPendingPermissions);
 
   const hasQueuedDraft = Boolean(queuedDraft);
   const canQueueDraft = isLoading && Boolean(input.trim() || attachedFiles.length > 0);
@@ -272,7 +277,20 @@ export default function ChatComposer({
     <div className="chat-composer-shell relative flex-shrink-0 px-2 pb-2 pt-0 sm:px-4 sm:pb-4 md:px-4 md:pb-6">
       {!hasPendingPermissions && (
         <div className="pointer-events-none absolute bottom-full left-1/2 z-10 w-[calc(100%-1rem)] max-w-[54.25rem] -translate-x-1/2 translate-y-px bg-transparent sm:w-[calc(100%-2rem)]">
-          <ActivityIndicator activity={activity} onAbort={onAbortSession} isInputFocused={isInputFocused} />
+          <ActivityIndicator
+            activity={activity}
+            onAbort={onAbortSession}
+            isInputFocused={isInputFocused}
+            accessory={activity && hasBackgroundTasks
+              ? <BackgroundTasksTab tasks={backgroundTasks} isInputFocused={isInputFocused} />
+              : undefined}
+          />
+          {!activity && hasBackgroundTasks && (
+            // Overlaps the "Thinking…" tab while that one fades out, instead of stacking above it.
+            <div className="absolute bottom-0 left-0">
+              <BackgroundTasksTab tasks={backgroundTasks} isInputFocused={isInputFocused} />
+            </div>
+          )}
         </div>
       )}
 

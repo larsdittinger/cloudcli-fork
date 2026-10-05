@@ -767,6 +767,11 @@ async function queryClaudeSDK(command, options = {}, ws, context) {
   // Background tasks the CLI currently runs, as its last `background_tasks_changed`
   // reported them ({ task_id, task_type, description, ambient? }).
   let backgroundTasks = [];
+  // What only `task_started` / `task_progress` say about a task — the tool call
+  // that started it and what an agent is doing right now — keyed by task_id.
+  const taskDetails = new Map();
+  // The last list the client got, so repeated progress events send nothing new.
+  let sentBackgroundTasksKey = '[]';
   // Feeds a later turn into this live process (see injectTurn). Replaced once
   // the stream exists.
   let pushPrompt = () => false;
@@ -823,6 +828,65 @@ async function queryClaudeSDK(command, options = {}, ws, context) {
     } else {
       scheduleRelease();
     }
+  };
+
+  // The turn reports `complete` while background work still runs, so the chat
+  // would look idle with agents working. The client gets the full list instead
+  // (see BackgroundTask) whenever it changes; `force` re-sends it to a new writer.
+  const sendBackgroundTasks = (force = false) => {
+    const tasks = backgroundTasks.map((task) => {
+      const details = taskDetails.get(task.task_id) || {};
+      return {
+        taskId: task.task_id,
+        taskType: task.task_type || 'unknown',
+        description: task.description || details.description || '',
+        toolUseId: details.toolUseId || null,
+        subagentType: details.subagentType || null,
+        startedAt: details.startedAt || null,
+        activity: details.activity || null,
+        toolUses: details.toolUses ?? null,
+      };
+    });
+    const key = JSON.stringify(tasks);
+    if (!force && key === sentBackgroundTasksKey) {
+      return;
+    }
+    sentBackgroundTasksKey = key;
+    ws.send(createNormalizedMessage({
+      kind: 'background_tasks',
+      backgroundTasks: tasks,
+      sessionId: capturedSessionId || sessionId || null,
+      provider: 'claude',
+    }));
+  };
+
+  const trackTaskEvent = (message) => {
+    const taskId = message.task_id;
+    if (!taskId) {
+      return;
+    }
+    if (message.subtype === 'task_started') {
+      taskDetails.set(taskId, {
+        toolUseId: message.tool_use_id || null,
+        subagentType: message.subagent_type || null,
+        description: message.description || '',
+        startedAt: Date.now(),
+        activity: null,
+        toolUses: null,
+      });
+    } else if (message.subtype === 'task_progress') {
+      const details = taskDetails.get(taskId);
+      if (details) {
+        details.activity = message.description || details.activity;
+        details.toolUses = message.usage?.tool_uses ?? details.toolUses;
+        if (backgroundTasks.some((task) => task.task_id === taskId)) {
+          sendBackgroundTasks();
+        }
+      }
+    }
+    // Details outlive `task_notification` on purpose: an agent whose own
+    // background shell reports back resumes under the same task id without a
+    // new `task_started`. They go away with the process.
   };
 
   // Hoisted above the try so the catch's cleanup can tell whether this run
@@ -1043,6 +1107,11 @@ async function queryClaudeSDK(command, options = {}, ws, context) {
       if (entry) {
         entry.writer = ws;
       }
+      // The new turn is a new run on the client side; it starts out knowing
+      // nothing about the agents this process already runs.
+      if (backgroundTasks.length > 0) {
+        sendBackgroundTasks(true);
+      }
       abortedSessionIds.delete(sessionKey());
       turnCompleteSent = false;
       assistantBudgetSent = false;
@@ -1116,6 +1185,10 @@ async function queryClaudeSDK(command, options = {}, ws, context) {
         backgroundWorkPending = true;
       }
 
+      if (message.type === 'system') {
+        trackTaskEvent(message);
+      }
+
       if (message.type === 'result') {
         // The turn is done as far as the client is concerned.
         const abortPending = sessionKey() ? abortedSessionIds.has(sessionKey()) : false;
@@ -1157,6 +1230,7 @@ async function queryClaudeSDK(command, options = {}, ws, context) {
         }
       } else if (message.type === 'system' && message.subtype === 'background_tasks_changed') {
         backgroundTasks = Array.isArray(message.tasks) ? message.tasks : [];
+        sendBackgroundTasks();
         if (heldForBackgroundWork && turnCompleteSent) {
           refreshHold();
         }
@@ -1247,6 +1321,9 @@ async function queryClaudeSDK(command, options = {}, ws, context) {
     processEnded = true;
     clearIdleRelease();
     releasePromptStream();
+    // Whatever still ran in the background ended with the process.
+    backgroundTasks = [];
+    sendBackgroundTasks();
     // A turn fed into this process whose `result` never came ends with it.
     while (injectedTurnWaiters.length > 0) {
       injectedTurnWaiters.shift()();

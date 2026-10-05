@@ -518,10 +518,13 @@ function handleChatSubscribe(
 
     const run = chatRunRegistry.getRun(sessionId);
     const isProcessing = chatRunRegistry.isProcessing(sessionId);
+    const backgroundTasks = chatRunRegistry.getBackgroundTasks(sessionId);
 
     // Future live events for this run should land on the socket that asked —
     // this is what makes mid-stream page refreshes work for all providers.
-    if (isProcessing) {
+    // Background work counts too: its progress and the turn it reports back
+    // with stream through the same run.
+    if (isProcessing || backgroundTasks.length > 0) {
       chatRunRegistry.attachConnection(sessionId, ws);
     }
 
@@ -535,6 +538,7 @@ function handleChatSubscribe(
       isProcessing,
       lastSeq: run?.lastSeq ?? 0,
       pendingPermissions,
+      backgroundTasks,
       timestamp: new Date().toISOString(),
     });
 

@@ -2,6 +2,7 @@ import { sessionsDb } from '@/modules/database/index.js';
 import { ChatSessionWriter } from '@/modules/websocket/services/chat-session-writer.service.js';
 import { broadcastSessionUpserted } from '@/modules/websocket/services/session-upsert-broadcast.service.js';
 import type {
+  BackgroundTask,
   LLMProvider,
   NormalizedMessage,
   RealtimeClientConnection,
@@ -22,6 +23,9 @@ type ChatRunStatus = 'running' | 'completed';
  * - `lastSeq` / `events`: the per-run event log. Every live event gets a
  *   monotonically increasing `seq` and is buffered so a reconnecting client
  *   can replay exactly the events it missed via `chat.subscribe`.
+ * - `backgroundTasks`: work the provider still runs after the turn completed
+ *   (agents started with `run_in_background`…). `chat.subscribe` hands it to
+ *   clients that open the session later, and it keeps the run from eviction.
  */
 type ChatRun = {
   appSessionId: string;
@@ -33,6 +37,7 @@ type ChatRun = {
   writer: ChatSessionWriter;
   startedAt: number;
   completedAt: number | null;
+  backgroundTasks: BackgroundTask[];
 };
 
 /**
@@ -62,7 +67,9 @@ const runs = new Map<string, ChatRun>();
 function evictRunLater(appSessionId: string): void {
   const timer = setTimeout(() => {
     const run = runs.get(appSessionId);
-    if (run && run.status === 'completed') {
+    // A run whose agents still work in the background stays subscribable;
+    // the empty list that ends them schedules the eviction again.
+    if (run && run.status === 'completed' && run.backgroundTasks.length === 0) {
       runs.delete(appSessionId);
     }
   }, COMPLETED_RUN_RETENTION_MS);
@@ -88,6 +95,17 @@ function decorateAndRecordEvent(run: ChatRun, message: NormalizedMessage): Norma
   // Whichever arrives first wins; the duplicate is dropped here.
   if (message.kind === 'complete' && run.status === 'completed') {
     return null;
+  }
+
+  // A snapshot of state, not a transcript event: kept on the run for
+  // `chat.subscribe` and forwarded live, but never sequenced or replayed.
+  if (message.kind === 'background_tasks') {
+    const hadTasks = run.backgroundTasks.length > 0;
+    run.backgroundTasks = Array.isArray(message.backgroundTasks) ? message.backgroundTasks : [];
+    if (hadTasks && run.backgroundTasks.length === 0 && run.status === 'completed') {
+      evictRunLater(run.appSessionId);
+    }
+    return { ...message, sessionId: run.appSessionId };
   }
 
   run.lastSeq += 1;
@@ -192,6 +210,7 @@ export const chatRunRegistry = {
       writer: null as unknown as ChatSessionWriter,
       startedAt: Date.now(),
       completedAt: null,
+      backgroundTasks: [],
     };
 
     run.writer = new ChatSessionWriter({
@@ -215,6 +234,11 @@ export const chatRunRegistry = {
 
   isProcessing(appSessionId: string): boolean {
     return runs.get(appSessionId)?.status === 'running';
+  },
+
+  /** Work the session's provider still runs in the background (empty when none). */
+  getBackgroundTasks(appSessionId: string): BackgroundTask[] {
+    return runs.get(appSessionId)?.backgroundTasks ?? [];
   },
 
   listRunningRuns(): Array<{

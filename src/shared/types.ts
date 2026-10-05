@@ -263,6 +263,25 @@ export type SubagentActivity = {
   content?: string;
 };
 
+/** One piece of work a session's CLI keeps running after its turn ended (an agent started with `run_in_background`, a background shell, a monitor), as the backend's `background_tasks` event and `chat_subscribed` ack report it; the chat shows these so a session does not look idle while agents still work. */
+export type BackgroundTask = {
+  /** CLI task id; for an agent it equals the agent's `agentId`. */
+  taskId: string;
+  /** CLI task type: `local_agent`, `local_bash`, `local_workflow`, `monitor_mcp`… */
+  taskType: string;
+  description: string;
+  /** The tool call that started the task, which lets its transcript card show it running. */
+  toolUseId: string | null;
+  /** Agent preset (`general-purpose`, `Explore`…), for agents. */
+  subagentType: string | null;
+  /** Epoch ms when the server saw the task start. */
+  startedAt: number | null;
+  /** What the agent is doing right now. */
+  activity: string | null;
+  /** Tool calls the agent has made so far. */
+  toolUses: number | null;
+};
+
 /** Identity and lifecycle of one spawned subagent as the backend reports it; present on the tool call that spawned the agent and used to draw its container header. */
 export type SubagentInfo = {
   id: string;
@@ -501,7 +520,8 @@ type MessageKind =
   | 'permission_cancelled'
   | 'session_created'
   | 'history_truncated'
-  | 'task_notification';
+  | 'task_notification'
+  | 'background_tasks';
 
 // ---------------------------
 

@@ -6,6 +6,7 @@ import { useTasksSettings } from '@/modules/task-master';
 import { ChatChannelPanel } from '@/modules/channels';
 import { useWebSocket } from '@/shared/context/WebSocketContext';
 import PermissionContext from '@/modules/chat/context/PermissionContext';
+import { BackgroundTasksContext } from '@/modules/chat/context/BackgroundTasksContext';
 import { api } from '@/shared/api';
 import type {
   ChatMessage,
@@ -20,6 +21,7 @@ import { useChatSessionState } from '@/modules/chat/hooks/useChatSessionState';
 import { useChatRealtimeHandlers } from '@/modules/chat/hooks/useChatRealtimeHandlers';
 import { useChatComposerState } from '@/modules/chat/hooks/useChatComposerState';
 import { useSessionStore } from '@/modules/chat/hooks/useSessionStore';
+import { useBackgroundTasks } from '@/modules/chat/hooks/useBackgroundTasks';
 import {
   useProcessingSessions,
   useSessionProtectionActions,
@@ -274,6 +276,11 @@ function ChatInterface({
     });
   }, [isActive, requestLatestMessages, selectedProject, selectedSession, sendMessage]);
 
+  const backgroundTasks = useBackgroundTasks({
+    subscribe,
+    sessionId: currentSessionId || selectedSession?.id || null,
+  });
+
   useChatRealtimeHandlers({
     isActive,
     subscribe,
@@ -389,7 +396,9 @@ function ChatInterface({
   // Mirrors ChatComposer's own visibility check so the message pane can
   // reserve enough bottom space to keep the floating status tab from
   // overlapping the last message.
-  const hasActivityIndicator = Boolean(sessionActivity && pendingPermissionRequests.length === 0);
+  const hasActivityIndicator = Boolean(
+    (sessionActivity || (backgroundTasks?.length ?? 0) > 0) && pendingPermissionRequests.length === 0,
+  );
 
   const selectedProviderLabel =
     provider === 'cursor'
@@ -418,6 +427,7 @@ function ChatInterface({
 
   return (
     <PermissionContext.Provider value={permissionContextValue}>
+      <BackgroundTasksContext.Provider value={backgroundTasks}>
       <div className="flex h-full min-h-0 flex-col">
         <ChatChannelPanel sessionId={currentSessionId || selectedSession?.id || null} slot="top" />
         <ChatMessagesPane
@@ -575,6 +585,7 @@ function ChatInterface({
         currentSessionId={currentSessionId || selectedSession?.id || null}
         onSelectProviderModel={selectProviderModel}
       />
+      </BackgroundTasksContext.Provider>
     </PermissionContext.Provider>
   );
 }

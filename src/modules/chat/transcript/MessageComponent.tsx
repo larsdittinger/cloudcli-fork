@@ -210,6 +210,7 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, s
                  result — so it never goes through the tool input/result pair. */
               <SubagentPanel
                 toolInput={message.toolInput}
+                toolId={message.toolId}
                 toolResult={message.toolResult}
                 subagent={message.subagent}
                 activity={message.subagentActivity}

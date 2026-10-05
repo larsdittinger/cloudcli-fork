@@ -28,6 +28,11 @@ nasazuje — je v `../CLAUDE.md`.
   `browser_evaluate`, `browser_get_html`. Emulace sedí i pro server-side detekci
   (`Sec-CH-UA`), kliky jdou jako tap, screenshot chodí z MCP jako obrázek.
 - **`VITE_HIDE_COMMUNITY_LINKS`** build flag — skryje GitHub badge, Report issue, Discord.
+- **Agenti na pozadí jsou vidět** — Claude runtime posílá klientovi `background_tasks`
+  (celý seznam z `background_tasks_changed` + `tool_use_id`/činnost z `task_started`/
+  `task_progress`), registr ho drží na běhu a `chat_subscribed` ho vrací pozdě
+  připojeným klientům. V composeru fialový štítek „N agents in background“
+  (`BackgroundTasksTab`), Agent karta je „running“ podle toho seznamu, ne podle odhadu.
 - **Channels** (`server/modules/channels`, `src/modules/channels`, Settings tab
   `tabs/channels-settings`): příchozí e-mail (imapflow) / WhatsApp (baileys) / webhook
   → pravidla → chat přes `createAppSession` + `runDetachedChatTurn`; odpovědi přes

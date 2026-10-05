@@ -255,6 +255,19 @@
       "assistant": "Assistant"
     }
   },
+  "backgroundTasks": {
+    "agents_one": "{{count}} agent",
+    "agents_other": "{{count}} agents",
+    "tasks_one": "{{count}} task",
+    "tasks_other": "{{count}} tasks",
+    "suffix": "in background",
+    "title": "Still running in the background after the reply",
+    "toolUses_one": "{{count}} tool",
+    "toolUses_other": "{{count}} tools",
+    "elapsed": {
+      "hoursMinutes": "{{hours}}h {{minutes}}m"
+    }
+  },
   "projectSelection": {
     "startChatWithProvider": "Select a project to start chatting with {{provider}}"
   },

@@ -5,11 +5,14 @@ import type { DiffLine, Project, SubagentActivity, SubagentInfo, ToolResult } fr
 import { cn } from '@/shared/utils';
 import { ToolRenderer } from '@/modules/chat/tools/ToolRenderer';
 import { useIsExportingTranscript } from '@/modules/chat/context/TranscriptRenderContext';
+import { useViewedBackgroundTasks } from '@/modules/chat/context/BackgroundTasksContext';
 import { MarkdownContent } from '@/modules/chat/tools/ContentRenderers/MarkdownContent';
 
 type SubagentPanelProps = {
   /** Raw tool input of the call that spawned the agent, used for the prompt. */
   toolInput: unknown;
+  /** Id of the spawning tool call; matches a background task's `toolUseId`. */
+  toolId?: string;
   toolResult?: ToolResult | null;
   subagent?: SubagentInfo;
   activity?: SubagentActivity[];
@@ -99,6 +102,7 @@ SubagentNote.displayName = 'SubagentNote';
  */
 export const SubagentPanel = memo(({
   toolInput,
+  toolId,
   toolResult,
   subagent,
   activity,
@@ -120,7 +124,21 @@ export const SubagentPanel = memo(({
   const resultText = useMemo(() => readResultText(toolResult?.content), [toolResult?.content]);
 
   const entries = activity ?? [];
-  const status = subagent?.status ?? (toolResult ? 'completed' : 'running');
+  // A background agent's launch result arrives at once, so the result alone
+  // says "done" while it works on. The server's live task list is the truth:
+  // listed means running, and once the list is known an agent missing from it
+  // has stopped, whatever the transcript-based guess said.
+  const backgroundTasks = useViewedBackgroundTasks();
+  // Claude's task id is the agent's id, which covers a task whose start event was missed.
+  const runsInBackground = Boolean(backgroundTasks?.some((task) => (
+    (toolId && task.toolUseId === toolId) || (subagent?.id && task.taskId === subagent.id)
+  )));
+  const guessedStatus = subagent?.status ?? (toolResult ? 'completed' : 'running');
+  const status = runsInBackground
+    ? 'running'
+    : backgroundTasks && toolResult && guessedStatus === 'running'
+      ? 'completed'
+      : guessedStatus;
   const toolCount = entries.filter((entry) => entry.kind === 'tool').length;
   // Claude names its agent presets (Explore, Plan); Codex has none, so the
   // neutral label carries and the assigned nickname shows alongside it.

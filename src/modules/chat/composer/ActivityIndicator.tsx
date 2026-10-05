@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Shimmer } from '@/shared/ui';
@@ -8,6 +9,8 @@ type ActivityIndicatorProps = {
   activity: SessionActivity | null;
   onAbort?: () => void;
   isInputFocused?: boolean;
+  /** Rendered right after the status tab (the background-agents tab). */
+  accessory?: ReactNode;
 };
 
 const ACTION_KEYS = [
@@ -31,7 +34,7 @@ const EXIT_ANIMATION_MS = 220;
  * Rendered by chat's ChatComposer above the input so the user can see and
  * interrupt the in-flight turn without leaving the composer.
  */
-export default function ActivityIndicator({ activity, onAbort, isInputFocused = false }: ActivityIndicatorProps) {
+export default function ActivityIndicator({ activity, onAbort, isInputFocused = false, accessory }: ActivityIndicatorProps) {
   const { t } = useTranslation('chat');
   const [renderedActivity, setRenderedActivity] = useState<SessionActivity | null>(activity);
   const [isExiting, setIsExiting] = useState(false);
@@ -94,6 +97,7 @@ export default function ActivityIndicator({ activity, onAbort, isInputFocused = 
           <Shimmer className="font-medium">{`${label}…`}</Shimmer>
           <span className="tabular-nums text-muted-foreground/60">{elapsedLabel}</span>
         </div>
+        {accessory && <div className="mr-auto">{accessory}</div>}
 
         {renderedActivity.canInterrupt && onAbort && (
           <button

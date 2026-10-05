@@ -311,3 +311,45 @@ test('startRun rejects a second concurrent run for the same session', async () =
     assert.ok(third);
   });
 });
+
+test('background task snapshots are kept on the run but never sequenced or replayed', async () => {
+  await withIsolatedDatabase(() => {
+    sessionsDb.createAppSession('app-run-bg', 'claude', '/workspace/demo');
+    const connection = new FakeConnection();
+    const run = chatRunRegistry.startRun({
+      appSessionId: 'app-run-bg',
+      provider: 'claude',
+      providerSessionId: null,
+      connection,
+      userId: 'user-1',
+    });
+    assert.ok(run);
+
+    const task = {
+      taskId: 'agent-1',
+      taskType: 'local_agent',
+      description: 'count to three',
+      toolUseId: 'toolu_1',
+      subagentType: 'general-purpose',
+      startedAt: 1,
+      activity: null,
+      toolUses: null,
+    };
+    run.writer.send({ kind: 'complete', provider: 'claude', sessionId: 'provider-id', exitCode: 0 });
+    run.writer.send({ kind: 'background_tasks', provider: 'claude', sessionId: 'provider-id', backgroundTasks: [task] });
+
+    // The turn is over, but the agent it started still runs.
+    assert.equal(chatRunRegistry.isProcessing('app-run-bg'), false);
+    assert.deepEqual(chatRunRegistry.getBackgroundTasks('app-run-bg'), [task]);
+
+    const snapshot = connection.frames.at(-1);
+    assert.equal(snapshot?.kind, 'background_tasks');
+    assert.equal(snapshot?.sessionId, 'app-run-bg');
+    assert.equal(snapshot?.seq, undefined);
+    assert.equal(run.lastSeq, 1);
+    assert.equal(chatRunRegistry.replayEvents('app-run-bg', 0).some((event) => event.kind === 'background_tasks'), false);
+
+    run.writer.send({ kind: 'background_tasks', provider: 'claude', sessionId: 'provider-id', backgroundTasks: [] });
+    assert.deepEqual(chatRunRegistry.getBackgroundTasks('app-run-bg'), []);
+  });
+});

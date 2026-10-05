@@ -226,7 +226,9 @@ export function useChatRealtimeHandlers({
         && msg.kind !== 'status'
         && msg.kind !== 'permission_request'
         && msg.kind !== 'permission_resolved'
-        && msg.kind !== 'permission_cancelled';
+        && msg.kind !== 'permission_cancelled'
+        // a state snapshot, tracked by useBackgroundTasks, not a transcript row
+        && msg.kind !== 'background_tasks';
 
       if (sid && shouldPersist) {
         sessionStore.appendRealtime(sid, msg as unknown as NormalizedMessage);

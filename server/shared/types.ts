@@ -191,7 +191,9 @@ export type MessageKind =
   | 'permission_cancelled'
   | 'session_created'
   | 'history_truncated'
-  | 'task_notification';
+  | 'task_notification'
+  // snapshot of the work a session's CLI runs in the background (see BackgroundTask)
+  | 'background_tasks';
 
 /**
  * Event kinds added by the chat gateway layer on top of provider message kinds.
@@ -332,6 +334,8 @@ export type NormalizedMessage = {
   subagent?: SubagentInfo;
   /** Stored memory the reply drew on, when the provider reports it. */
   memoryCitations?: MemoryCitation[];
+  /** Full list of background work still running, on `background_tasks` events. */
+  backgroundTasks?: BackgroundTask[];
   toolUseResult?: unknown;
   sequence?: number;
   rowid?: number;
@@ -375,6 +379,33 @@ export type SubagentActivity = {
   toolResult?: { content?: string; isError?: boolean } | null;
   /** Message body; only set when `kind` is `text` or `thinking`. */
   content?: string;
+};
+
+/**
+ * One piece of work a session's CLI keeps running after its turn ended — a
+ * subagent started with `run_in_background`, a background shell, a monitor.
+ *
+ * The turn reports `complete` while these still run, so without this list the
+ * chat looks idle although agents are working. `background_tasks` events carry
+ * the whole current list (empty once everything finished), and
+ * `chat_subscribed` repeats it for clients that open the session later.
+ */
+export type BackgroundTask = {
+  /** CLI task id; for an agent this is its `agentId`. */
+  taskId: string;
+  /** CLI task type: `local_agent`, `local_bash`, `local_workflow`, `monitor_mcp`… */
+  taskType: string;
+  description: string;
+  /** The tool call that started it, so its transcript card can show it running. */
+  toolUseId: string | null;
+  /** Agent preset (`general-purpose`, `Explore`…), for agents. */
+  subagentType: string | null;
+  /** Epoch ms when the server saw the task start. */
+  startedAt: number | null;
+  /** What the agent is doing right now, from the CLI's progress events. */
+  activity: string | null;
+  /** Tool calls the agent made so far. */
+  toolUses: number | null;
 };
 
 /**
