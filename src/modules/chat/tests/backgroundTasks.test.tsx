@@ -97,14 +97,14 @@ test('useBackgroundTasks follows snapshots and subscribe acks per session', () =
   assert.equal(result.current, null);
 
   act(() => emit({ kind: 'chat_subscribed', sessionId: 'viewed', backgroundTasks: [agentTask()] }));
-  assert.equal(result.current?.length, 1);
+  assert.equal((result.current as unknown[] | null)?.length, 1);
 
   act(() => emit({ kind: 'background_tasks', sessionId: 'other', backgroundTasks: [agentTask(), agentTask()] }));
-  assert.equal(result.current?.length, 1);
+  assert.equal((result.current as unknown[] | null)?.length, 1);
 
   act(() => emit({ kind: 'background_tasks', sessionId: 'viewed', backgroundTasks: [] }));
   assert.deepEqual(result.current, []);
 
   rerender({ sessionId: 'other' });
-  assert.equal(result.current?.length, 2);
+  assert.equal((result.current as unknown[] | null)?.length, 2);
 });

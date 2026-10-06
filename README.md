@@ -426,3 +426,24 @@ the composer — never sent automatically:
 
 The public URL comes from `CLOUDCLI_PUBLIC_URL`, otherwise from the origin the
 admin last opened Settings → Channels from.
+
+### Schedules: recurring AI prompts and scripts (fork)
+
+The admin-only **Schedules** tab of a project runs work on a schedule (daily, weekly,
+monthly, every N minutes/hours, once, or a cron expression; Europe/Prague by default):
+
+- **AI prompt** — each run is a normal chat in the sidebar, no time limit, with its own
+  provider, model and permission mode (autonomous by default). "Continue one chat"
+  keeps every run in the same conversation.
+- **Script** — a command run with `bash -lc` in the project directory, with a timeout.
+  The run history keeps the exit code, duration and output (full log up to 1 MiB).
+  With **Hand the output to an agent**, a successful run that prints something starts an
+  AI chat with that output (`{{output}}` in the hand-off prompt) — cheap polling, AI only
+  when there is work.
+
+The run history below the schedules shows every run (European date format, status,
+duration, link to the chat or the script output). Agents get the `cloudcli-schedules` MCP
+server (`schedules_get_info`, `schedules_propose`, `schedules_withdraw_proposal`,
+`schedules_list_runs`); what they propose stays disabled until approved in the tab.
+On first start the tasks of the `workspace-scheduled-prompts` plugin are imported and the
+plugin is switched off.

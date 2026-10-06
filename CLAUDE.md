@@ -62,6 +62,18 @@ nasazuje — je v `../CLAUDE.md`.
   `app_config.channels_public_url` z posledního admin requestu na `/api/channels`.
   Spec: `docs/superpowers/specs/2026-10-06-channels-agent-setup-design.md`.
 
+- **Schedules** (`server/modules/schedules`, `src/modules/schedules`, záložka `schedules`
+  jen pro admina; od 2026-10-06, nahrazuje plugin `workspace-scheduled-prompts`): úlohy
+  `prompt` (běh = chat v sidebaru přes `createAppSession` + `runDetachedChatTurn`, bez limitu)
+  a `script` (`bash -lc` v projektu, timeout, log v `~/.cloudcli/schedules/logs`, volitelně
+  `handoff: on_output` → AI chat se stdout). Rozvrh = JSON `ScheduleSpec` (`schedule-spec.ts`,
+  `croner`, Europe/Prague), tabulky `schedules` + `schedule_runs`, ticker 20 s, zmeškané
+  > 5 min = `missed`, překryv = `skipped`, restart = `failed`. Chyby providera chodí jako
+  chat event `error`, ne výjimka — `prompt-runner` je čte z `chatRunRegistry`. MCP
+  `cloudcli-schedules` (registruje se při startu) → návrhy `proposal` jako u Channels.
+  Při prvním startu import úloh z `~/.cloudcli-workspace-scheduled-prompts` a plugin se
+  vypne (`disablePlugin`). Spec: `docs/superpowers/specs/2026-10-06-schedules-design.md` (hub).
+
 Držet **minimal-diff** proti upstreamu — čím menší rozdíl, tím snazší merge. Nové
 featury zvažovat nejdřív jako plugin (viz cron plugin `workspace-scheduled-prompts`,
 žije na persistentním volume, ne ve forku).
