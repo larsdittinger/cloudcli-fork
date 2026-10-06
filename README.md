@@ -447,3 +447,23 @@ server (`schedules_get_info`, `schedules_propose`, `schedules_withdraw_proposal`
 `schedules_list_runs`); what they propose stays disabled until approved in the tab.
 On first start the tasks of the `workspace-scheduled-prompts` plugin are imported and the
 plugin is switched off.
+
+### Agent tasks: work that takes days (fork)
+
+The admin-only **Agent tasks** tab is a board of long-running tasks — "find a printer, ask
+for quotes, compare them, recommend one". The card is the agent's memory: brief, mandate
+(what it may do on its own), its summary of where things stand, a plan checklist and a diary.
+
+- Every **wake-up is a fresh chat** in the task's project whose first message is the card,
+  so context never piles up. A task wakes when it is created, when you comment or answer,
+  at the check time the agent planned, and when a reply to one of its messages arrives.
+  Whatever arrives during a run waits and wakes it right after.
+- Agents use the `cloudcli-tasks` MCP server (`tasks_get_info`, `tasks_list`, `tasks_get`,
+  `tasks_create`, `tasks_update`, `tasks_log`, `tasks_ask_owner`, `tasks_send_message`).
+  Messages go out through a Channels account with a `[#N]` tag in the subject; replies in
+  the thread (or with the tag) come back to the task instead of the Channels rules.
+- **You decide**: questions show their options as buttons; a task created by an agent keeps
+  every outgoing message as a draft until you confirm its mandate; drafts are approved on the card.
+- Safety nets: one run per task, `CLOUDCLI_TASKS_MAX_RUNS` (default 2) at a time, a check
+  in 4 h when the agent planned nothing, retries after failures and a question to you after
+  three of them or after 20 wake-ups in a day.

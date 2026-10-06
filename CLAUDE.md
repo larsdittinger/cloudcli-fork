@@ -76,6 +76,20 @@ nasazuje — je v `../CLAUDE.md`.
   (`repeat_count`, v UI ×N); úprava bez změny rozvrhu drží `next_run_at`; jednorázová úloha
   přeskočená souběhem se zkusí za minutu; smazání úlohy zastaví běžící skript (i potomky).
   Spec: `docs/superpowers/specs/2026-10-06-schedules-design.md` (hub).
+- **Tasks — dlouhé úkoly agentů** (`server/modules/tasks`, `src/modules/agent-tasks`, záložka
+  `agent-tasks` „Agent tasks" jen pro admina; od 2026-10-06; pozor, `tasks` je TaskMaster z upstreamu):
+  karta úkolu (`tasks` + deník `task_events`) je jediná paměť agenta. Každé probuzení = nový chat
+  v projektu úkolu (`createAppSession` + `runDetachedChatTurn`), první zpráva je snímek karty
+  (`task-prompt.ts`). Probouzí založení, komentář/odpověď/„Wake now" od Larse, `next_check_at`
+  a příchozí zpráva k úkolu; co přijde během běhu, čeká v `pending_wake`. Engine (`engine.service.ts`):
+  jeden běh na úkol, limit `CLOUDCLI_TASKS_MAX_RUNS` (výchozí 2), běh bez plánu → kontrola za 4 h
+  (`waiting_external` za 2 dny), chyba → za 30 min, 3× → systémová otázka, > 20 probuzení / 24 h →
+  otázka, restart → wake `restart`. Channels napojení přes hooky (`channels/task-hooks.ts`):
+  `tasks_send_message` → `outboxService.createTaskMessage` (`channel_outbox.task_id`, značka `[#N]`
+  v předmětu, nepotvrzený mandát = vždy koncept), po odeslání se vlákno zapíše do `task_threads`;
+  příchozí zpráva ve vlákně nebo se značkou otevřeného úkolu dostane `status = 'task'` a jde mimo
+  pravidla. MCP `cloudcli-tasks` (`tasks-mcp.ts`, bridge `/api/tasks-mcp`). Úkol od agenta má
+  `mandate_confirmed = 0`, dokud ho admin nepotvrdí. Spec: `docs/superpowers/specs/2026-10-06-tasks-design.md` (hub).
 
 Držet **minimal-diff** proti upstreamu — čím menší rozdíl, tím snazší merge. Nové
 featury zvažovat nejdřív jako plugin (viz cron plugin `workspace-scheduled-prompts`,
