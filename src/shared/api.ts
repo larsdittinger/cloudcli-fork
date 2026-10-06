@@ -590,6 +590,20 @@ export const api = {
     retryOutbox: (id: string) => post(`/api/channels/outbox/${id}/retry`),
   },
 
+  schedules: {
+    list: (projectPath?: string) => get(`/api/schedules${projectPath ? `?projectPath=${encodeURIComponent(projectPath)}` : ''}`),
+    summary: () => get('/api/schedules/summary'),
+    create: (body: unknown) => post('/api/schedules', body),
+    update: (id: string, body: unknown) => put(`/api/schedules/${id}`, body),
+    remove: (id: string) => del(`/api/schedules/${id}`),
+    runNow: (id: string) => post(`/api/schedules/${id}/run`),
+    approve: (id: string) => post(`/api/schedules/${id}/approve`),
+    duplicate: (id: string) => post(`/api/schedules/${id}/duplicate`),
+    preview: (body: unknown) => post('/api/schedules/preview', body),
+    runs: (query = '') => get(`/api/schedules/runs${query}`),
+    run: (id: string, withLog = false) => get(`/api/schedules/runs/${id}${withLog ? '?log=1' : ''}`),
+  },
+
   voice: {
     health: () => get('/api/voice/health'),
     transcribe: (formData: FormData, headers: Record<string, string> = {}) =>

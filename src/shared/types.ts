@@ -51,7 +51,7 @@ export type ProviderModelActions = {
 //----------------- PROJECTS AND SESSIONS ------------
 
 /** Identifies the workspace pane the user is looking at; plugin panes are namespaced by plugin id. */
-export type AppTab = 'chat' | 'files' | 'shell' | 'git' | 'tasks' | 'browser' | `plugin:${string}`;
+export type AppTab = 'chat' | 'files' | 'shell' | 'git' | 'tasks' | 'browser' | 'schedules' | `plugin:${string}`;
 
 /** A message queued to be sent to a session at a future time. */
 export type ScheduledMessage = {
@@ -1582,3 +1582,75 @@ type TaskStatus =
 
 /** A TaskMaster task's priority; high, medium and low are the known values and the string fallback tolerates anything else TaskMaster emits. */
 type TaskPriority = 'high' | 'medium' | 'low' | string;
+
+// ---------------------------
+
+//----------------- SCHEDULES ------------
+
+/** When a schedule fires; mirrors the server's ScheduleSpec. Weekdays are 1 = Monday … 7 = Sunday, times are local HH:mm. */
+export type ScheduleSpec =
+  | { type: 'once'; at: string }
+  | { type: 'interval'; every: number; unit: 'minutes' | 'hours' }
+  | { type: 'daily'; time: string }
+  | { type: 'weekly'; days: number[]; time: string }
+  | { type: 'monthly'; day: number | 'last'; time: string }
+  | { type: 'cron'; expression: string };
+
+/** A scheduled AI prompt or script as the /api/schedules endpoints return it. */
+export type Schedule = {
+  id: string;
+  name: string;
+  projectPath: string;
+  kind: 'prompt' | 'script';
+  enabled: boolean;
+  /** Set while an agent's proposal awaits approval; the schedule stays disabled until then. */
+  proposal: { note: string; projectPath: string | null; createdAt: string } | null;
+  schedule: ScheduleSpec | null;
+  timezone: string;
+  /** Server-rendered one-line description of the schedule. */
+  summary: string;
+  prompt: string;
+  provider: string;
+  model: string | null;
+  effort: string | null;
+  permissionMode: string;
+  sessionMode: 'new' | 'continue';
+  sessionId: string | null;
+  command: string;
+  timeoutSec: number;
+  handoff: 'none' | 'on_output';
+  nextRunAt: string | null;
+  lastRunAt: string | null;
+  lastStatus: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+/** Lifecycle of one run; `missed` and `skipped` never started anything. */
+export type ScheduleRunStatus = 'running' | 'succeeded' | 'failed' | 'timeout' | 'skipped' | 'missed';
+
+/** One run in the history table; `sessionId` links the chat of an AI run or a script hand-off. */
+export type ScheduleRun = {
+  id: string;
+  scheduleId: string;
+  scheduleName: string | null;
+  kind: 'prompt' | 'script' | null;
+  projectPath: string | null;
+  trigger: 'schedule' | 'manual';
+  scheduledFor: string | null;
+  startedAt: string | null;
+  finishedAt: string | null;
+  status: ScheduleRunStatus;
+  sessionId: string | null;
+  exitCode: number | null;
+  output: string | null;
+  hasLog: boolean;
+  error: string | null;
+  /** Only when fetched with the full log. */
+  log?: string;
+};
+
+/** What the schedule form submits to create or update a schedule. */
+export type ScheduleInput = Pick<Schedule,
+  'name' | 'projectPath' | 'kind' | 'timezone' | 'prompt' | 'provider' | 'model' | 'effort' | 'permissionMode' | 'sessionMode'
+  | 'command' | 'timeoutSec' | 'handoff' | 'enabled'> & { schedule: ScheduleSpec };
