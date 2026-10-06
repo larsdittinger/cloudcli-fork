@@ -102,6 +102,11 @@ nasazuje — je v `../CLAUDE.md`.
   agenta má mandát potvrzený). Agenti stav vidí v `*_get_info` (`state.agentsAutoApprove` /
   `state.trustAgentMandates`) a v poznámce odpovědi nástroje. UI: sdílené `SettingSwitch` / `Switch` v `src/shared/ui`. Spec: `docs/superpowers/specs/2026-10-06-tasks-design.md` (hub).
 
+- **Globální WS události** (broadcast všem klientům) pojmenovávat `<modul>_updated`: chat handler
+  (`useChatRealtimeHandlers` → `isAppBroadcast`) je tak ignoruje. Jinak se uloží jako řádek přepisu
+  otevřeného chatu bez `id` a další odeslání v tom chatu spadne (zpráva zůstane v composeru) —
+  stalo se 2026-10-06 s `tasks_updated`.
+
 Držet **minimal-diff** proti upstreamu — čím menší rozdíl, tím snazší merge. Nové
 featury zvažovat nejdřív jako plugin (viz cron plugin `workspace-scheduled-prompts`,
 žije na persistentním volume, ne ve forku).
