@@ -22,7 +22,7 @@ const RULE_COLUMNS =
 const MESSAGE_COLUMNS =
   'id, account_id, channel, external_id, thread_key, from_address, from_name, to_json, subject, text, html, is_group, attachments_json, raw_json, received_at, rule_id, session_id, status, status_detail, created_at';
 const OUTBOX_COLUMNS =
-  'id, account_id, session_id, in_reply_to_message_id, to_address, subject, text, action, status, status_detail, external_id, created_by, created_at, sent_at';
+  'id, account_id, session_id, in_reply_to_message_id, to_address, subject, text, action, status, status_detail, external_id, created_by, created_at, sent_at, task_id';
 
 export const channelAccountsDb = {
   create(input: {
@@ -329,19 +329,26 @@ export const channelOutboxDb = {
     status: OutboxStatus;
     action?: 'reply' | 'escalate';
     createdBy: 'agent' | 'user';
+    /** Set when the message belongs to a long-running task (Tasks module). */
+    taskId?: number | null;
   }): ChannelOutboxRow {
     const id = randomUUID();
     getConnection()
       .prepare(
-        `INSERT INTO channel_outbox (id, account_id, session_id, in_reply_to_message_id, to_address, subject, text, status, created_by, action)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO channel_outbox (id, account_id, session_id, in_reply_to_message_id, to_address, subject, text, status, created_by, action, task_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(id, input.accountId, input.sessionId ?? null, input.inReplyToMessageId ?? null, input.to, input.subject ?? null, input.text, input.status, input.createdBy, input.action ?? 'reply');
+      .run(id, input.accountId, input.sessionId ?? null, input.inReplyToMessageId ?? null, input.to, input.subject ?? null, input.text, input.status, input.createdBy, input.action ?? 'reply', input.taskId ?? null);
     return this.get(id) as ChannelOutboxRow;
   },
 
   get(id: string): ChannelOutboxRow | null {
     return (getConnection().prepare(`SELECT ${OUTBOX_COLUMNS} FROM channel_outbox WHERE id = ?`).get(id) as ChannelOutboxRow | undefined) ?? null;
+  },
+
+  /** Every message of one task, oldest first. */
+  listByTask(taskId: number): ChannelOutboxRow[] {
+    return getConnection().prepare(`SELECT ${OUTBOX_COLUMNS} FROM channel_outbox WHERE task_id = ? ORDER BY created_at ASC`).all(taskId) as ChannelOutboxRow[];
   },
 
   list(filter: { status?: OutboxStatus[]; sessionId?: string; limit?: number } = {}): ChannelOutboxRow[] {

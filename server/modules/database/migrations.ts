@@ -4,6 +4,7 @@ import {
   APP_CONFIG_TABLE_SCHEMA_SQL,
   CHANNELS_TABLES_SCHEMA_SQL,
   SCHEDULES_TABLES_SCHEMA_SQL,
+  TASKS_TABLES_SCHEMA_SQL,
   LAST_SCANNED_AT_SQL,
   NOTIFICATION_CHANNEL_ENDPOINTS_TABLE_SCHEMA_SQL,
   PROJECTS_TABLE_SCHEMA_SQL,
@@ -560,6 +561,9 @@ export const runMigrations = (db: Database) => {
     addColumnToTableIfNotExists(db, 'channel_outbox', getTableInfo(db, 'channel_outbox').map((column) => column.name), 'action', "TEXT NOT NULL DEFAULT 'reply'");
     addColumnToTableIfNotExists(db, 'channel_accounts', getTableInfo(db, 'channel_accounts').map((column) => column.name), 'proposal', 'TEXT');
     addColumnToTableIfNotExists(db, 'channel_rules', getTableInfo(db, 'channel_rules').map((column) => column.name), 'proposal', 'TEXT');
+    db.exec(TASKS_TABLES_SCHEMA_SQL);
+    addColumnToTableIfNotExists(db, 'channel_outbox', getTableInfo(db, 'channel_outbox').map((column) => column.name), 'task_id', 'INTEGER');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_channel_outbox_task ON channel_outbox(task_id)');
 
     db.exec('CREATE INDEX IF NOT EXISTS idx_session_ids_lookup ON sessions(session_id)');
     db.exec('CREATE INDEX IF NOT EXISTS idx_sessions_provider_session_id ON sessions(provider_session_id)');

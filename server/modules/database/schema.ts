@@ -419,6 +419,71 @@ ${SESSION_DRAFTS_TABLE_SCHEMA_SQL}
 ${SUPERSEDED_PROVIDER_SESSIONS_TABLE_SCHEMA_SQL}
 `;
 
+// Tasks: long-running agent tasks — the card is the agent's memory (server/modules/tasks).
+export const TASKS_TABLES_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS tasks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    brief TEXT NOT NULL DEFAULT '',
+    -- what the agent may do on its own; only the owner edits it
+    mandate TEXT NOT NULL DEFAULT '',
+    -- 0 while an agent-created task waits for the owner to confirm the mandate
+    mandate_confirmed INTEGER NOT NULL DEFAULT 1,
+    -- the agent's rolling "where things stand"
+    summary TEXT NOT NULL DEFAULT '',
+    -- JSON [{ text, done }]
+    checklist TEXT NOT NULL DEFAULT '[]',
+    -- new | working | waiting_external | waiting_owner | done | cancelled
+    status TEXT NOT NULL DEFAULT 'new',
+    -- JSON { text, options[], by } while a question waits for the owner
+    question TEXT,
+    next_check_at TEXT,
+    -- JSON array of wake reasons collected until the next run starts
+    pending_wake TEXT NOT NULL DEFAULT '[]',
+    running_session_id TEXT,
+    running_since TEXT,
+    -- events up to this id were already shown to the agent
+    seen_event_id INTEGER NOT NULL DEFAULT 0,
+    failure_count INTEGER NOT NULL DEFAULT 0,
+    project_path TEXT NOT NULL,
+    provider TEXT NOT NULL DEFAULT 'claude',
+    model TEXT,
+    effort TEXT,
+    permission_mode TEXT NOT NULL DEFAULT 'bypassPermissions',
+    owner_user_id INTEGER,
+    -- owner | agent
+    created_by TEXT NOT NULL DEFAULT 'owner',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    closed_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS task_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id INTEGER NOT NULL,
+    at TEXT NOT NULL,
+    -- owner | agent | system | external
+    author TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    text TEXT NOT NULL DEFAULT '',
+    meta TEXT,
+    session_id TEXT
+);
+
+-- Conversations (e-mail threads, chats) that belong to a task, so replies find their way back.
+CREATE TABLE IF NOT EXISTS task_threads (
+    account_id TEXT NOT NULL,
+    thread_key TEXT NOT NULL,
+    task_id INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (account_id, thread_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status, next_check_at);
+CREATE INDEX IF NOT EXISTS idx_task_events_task ON task_events(task_id, id);
+CREATE INDEX IF NOT EXISTS idx_task_threads_task ON task_threads(task_id);
+`;
+
 // Schedules: recurring AI prompts and scripts (server/modules/schedules).
 export const SCHEDULES_TABLES_SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS schedules (

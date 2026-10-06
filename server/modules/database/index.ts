@@ -32,3 +32,6 @@ export { channelAccountsDb, channelRulesDb, channelMessagesDb, channelThreadsDb,
 // schedulesDb / scheduleRunsDb: used by the Schedules module for recurring prompts and scripts and their run history.
 export { schedulesDb, scheduleRunsDb } from './repositories/schedules.db.js';
 export type { ScheduleKind, ScheduleRow, ScheduleRunRow, ScheduleRunStatus, ScheduleWrite } from './repositories/schedules.db.js';
+// tasksDb / taskEventsDb / taskThreadsDb: used by the Tasks module for long-running agent tasks, their diary and linked conversations.
+export { tasksDb, taskEventsDb, taskThreadsDb } from './repositories/tasks.db.js';
+export type { TaskEventAuthor, TaskEventRow, TaskPatch, TaskRow, TaskStatus, TaskWrite } from './repositories/tasks.db.js';

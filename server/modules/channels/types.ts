@@ -13,7 +13,8 @@ export type AccountStatus = 'disconnected' | 'connecting' | 'connected' | 'error
 /** Whether an agent may send free-form messages through an account (replies are governed by the rule instead). */
 export type AgentSendMode = 'off' | 'draft' | 'auto';
 
-export type MessageStatus = 'unmatched' | 'ignored' | 'queued' | 'dispatched' | 'failed' | 'manual';
+/** `task` = routed to a long-running task (Tasks module) instead of a rule. */
+export type MessageStatus = 'unmatched' | 'ignored' | 'queued' | 'dispatched' | 'failed' | 'manual' | 'task';
 
 export type OutboxStatus = 'draft' | 'approved' | 'sending' | 'sent' | 'failed' | 'discarded';
 
@@ -163,6 +164,8 @@ export type ChannelOutboxRow = {
   created_by: 'agent' | 'user';
   created_at: string;
   sent_at: string | null;
+  /** The long-running task this message belongs to, if any. */
+  task_id: number | null;
 };
 
 export function parseJson<T>(raw: string | null | undefined, fallback: T): T {
