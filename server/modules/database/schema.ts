@@ -418,3 +418,61 @@ ${SESSION_DRAFTS_TABLE_SCHEMA_SQL}
 
 ${SUPERSEDED_PROVIDER_SESSIONS_TABLE_SCHEMA_SQL}
 `;
+
+// Schedules: recurring AI prompts and scripts (server/modules/schedules).
+export const SCHEDULES_TABLES_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS schedules (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    project_path TEXT NOT NULL,
+    -- prompt | script
+    kind TEXT NOT NULL DEFAULT 'prompt',
+    enabled BOOLEAN DEFAULT 1,
+    -- JSON { note, projectPath, createdAt } while an agent's proposal awaits approval; NULL once approved
+    proposal TEXT,
+    -- JSON ScheduleSpec (once | interval | daily | weekly | monthly | cron)
+    schedule TEXT NOT NULL,
+    timezone TEXT NOT NULL DEFAULT 'Europe/Prague',
+    -- prompt kind: the prompt; script kind: the hand-off template ({{output}})
+    prompt TEXT NOT NULL DEFAULT '',
+    provider TEXT NOT NULL DEFAULT 'claude',
+    model TEXT,
+    effort TEXT,
+    permission_mode TEXT NOT NULL DEFAULT 'bypassPermissions',
+    -- new | continue
+    session_mode TEXT NOT NULL DEFAULT 'new',
+    session_id TEXT,
+    command TEXT NOT NULL DEFAULT '',
+    timeout_sec INTEGER NOT NULL DEFAULT 1800,
+    -- none | on_output
+    handoff TEXT NOT NULL DEFAULT 'none',
+    next_run_at TEXT,
+    last_run_at TEXT,
+    last_status TEXT,
+    owner_user_id INTEGER,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS schedule_runs (
+    id TEXT PRIMARY KEY,
+    schedule_id TEXT NOT NULL,
+    -- schedule | manual
+    trigger TEXT NOT NULL DEFAULT 'schedule',
+    scheduled_for TEXT,
+    started_at TEXT,
+    finished_at TEXT,
+    -- running | succeeded | failed | timeout | skipped | missed
+    status TEXT NOT NULL,
+    session_id TEXT,
+    exit_code INTEGER,
+    output TEXT,
+    log_path TEXT,
+    error TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_schedules_due ON schedules(enabled, next_run_at);
+CREATE INDEX IF NOT EXISTS idx_schedule_runs_schedule ON schedule_runs(schedule_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_schedule_runs_status ON schedule_runs(status);
+`;

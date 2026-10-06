@@ -29,3 +29,6 @@ export { vapidKeysDb } from '@/modules/database/repositories/vapid-keys.js';
 export { scheduledMessagesDb } from './repositories/scheduled-messages.db.js';
 export type { ScheduledMessageRow, ScheduledMessageStatus } from './repositories/scheduled-messages.db.js';
 export { channelAccountsDb, channelRulesDb, channelMessagesDb, channelThreadsDb, channelOutboxDb } from './repositories/channels.db.js';
+// schedulesDb / scheduleRunsDb: used by the Schedules module for recurring prompts and scripts and their run history.
+export { schedulesDb, scheduleRunsDb } from './repositories/schedules.db.js';
+export type { ScheduleKind, ScheduleRow, ScheduleRunRow, ScheduleRunStatus, ScheduleWrite } from './repositories/schedules.db.js';

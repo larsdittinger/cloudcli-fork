@@ -3,6 +3,7 @@ import { Database } from 'better-sqlite3';
 import {
   APP_CONFIG_TABLE_SCHEMA_SQL,
   CHANNELS_TABLES_SCHEMA_SQL,
+  SCHEDULES_TABLES_SCHEMA_SQL,
   LAST_SCANNED_AT_SQL,
   NOTIFICATION_CHANNEL_ENDPOINTS_TABLE_SCHEMA_SQL,
   PROJECTS_TABLE_SCHEMA_SQL,
@@ -554,6 +555,7 @@ export const runMigrations = (db: Database) => {
     ensureProjectsForSessionPaths(db);
     db.exec(SCHEDULED_MESSAGES_TABLE_SCHEMA_SQL);
     db.exec(CHANNELS_TABLES_SCHEMA_SQL);
+    db.exec(SCHEDULES_TABLES_SCHEMA_SQL);
     addColumnToTableIfNotExists(db, 'channel_outbox', getTableInfo(db, 'channel_outbox').map((column) => column.name), 'action', "TEXT NOT NULL DEFAULT 'reply'");
     addColumnToTableIfNotExists(db, 'channel_accounts', getTableInfo(db, 'channel_accounts').map((column) => column.name), 'proposal', 'TEXT');
     addColumnToTableIfNotExists(db, 'channel_rules', getTableInfo(db, 'channel_rules').map((column) => column.name), 'proposal', 'TEXT');
