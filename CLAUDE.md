@@ -85,10 +85,14 @@ nasazuje — je v `../CLAUDE.md`.
   jeden běh na úkol, limit `CLOUDCLI_TASKS_MAX_RUNS` (výchozí 2), běh bez plánu → kontrola za 4 h
   (`waiting_external` za 2 dny), chyba → za 30 min, 3× → systémová otázka, > 20 probuzení / 24 h →
   otázka, restart → wake `restart`. Channels napojení přes hooky (`channels/task-hooks.ts`):
-  `tasks_send_message` → `outboxService.createTaskMessage` (`channel_outbox.task_id`, značka `[#N]`
+  `tasks_send_message` → `outboxService.createTaskMessage` (`channel_outbox.task_id`, značka `[T-N]`
   v předmětu, nepotvrzený mandát = vždy koncept), po odeslání se vlákno zapíše do `task_threads`;
-  příchozí zpráva ve vlákně nebo se značkou otevřeného úkolu dostane `status = 'task'` a jde mimo
-  pravidla. MCP `cloudcli-tasks` (`tasks-mcp.ts`, bridge `/api/tasks-mcp`). Úkol od agenta má
+  příchozí zpráva ve vlákně, nebo se značkou otevřeného úkolu **od adresy/firemní domény, které úkol
+  psal** (jinak by stačilo uhodnout číslo), dostane `status = 'task'` a jde mimo pravidla; text zvenku je
+  v promptu citovaný (`> `). Automatické odpovědi (`Auto-Submitted`) jen do deníku. MCP mutace jen pro
+  úkoly projektu volajícího (cwd), `tasks_send_message` jen během běhu úkolu; `channels_send_message`
+  v projektu s běžícím úkolem → 409. Běhy jen `bypassPermissions`, bez AskUserQuestion/plan mode,
+  watchdog `CLOUDCLI_TASKS_RUN_TIMEOUT_MIN` (výchozí 180). MCP `cloudcli-tasks` (`tasks-mcp.ts`, bridge `/api/tasks-mcp`). Úkol od agenta má
   `mandate_confirmed = 0`, dokud ho admin nepotvrdí. Spec: `docs/superpowers/specs/2026-10-06-tasks-design.md` (hub).
 
 Držet **minimal-diff** proti upstreamu — čím menší rozdíl, tím snazší merge. Nové

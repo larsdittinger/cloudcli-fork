@@ -460,7 +460,7 @@ for quotes, compare them, recommend one". The card is the agent's memory: brief,
   Whatever arrives during a run waits and wakes it right after.
 - Agents use the `cloudcli-tasks` MCP server (`tasks_get_info`, `tasks_list`, `tasks_get`,
   `tasks_create`, `tasks_update`, `tasks_log`, `tasks_ask_owner`, `tasks_send_message`).
-  Messages go out through a Channels account with a `[#N]` tag in the subject; replies in
+  Messages go out through a Channels account with a `[T-N]` tag in the subject; replies in
   the thread (or with the tag) come back to the task instead of the Channels rules.
 - **You decide**: questions show their options as buttons; a task created by an agent keeps
   every outgoing message as a draft until you confirm its mandate; drafts are approved on the card.
