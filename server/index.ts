@@ -62,6 +62,12 @@ import {
     schedulesMcpRoutes,
     schedulesRoutes,
 } from './modules/schedules/index.js';
+import {
+    closeTasks,
+    initializeTasks,
+    tasksMcpRoutes,
+    tasksRoutes,
+} from './modules/tasks/index.js';
 import browserUseRoutes from './modules/browser-use/browser-use.routes.js';
 import { assetsRoutes } from './modules/assets/index.js';
 import { fileTreeRoutes } from './modules/file-tree/index.js';
@@ -229,6 +235,9 @@ app.use('/api/scheduled-messages', authenticateToken, scheduledMessagesRoutes);
 // Recurring AI prompts and scripts (admin only) + the agents' MCP bridge (local token).
 app.use('/api/schedules-mcp', schedulesMcpRoutes);
 app.use('/api/schedules', authenticateToken, requireAdmin, schedulesRoutes);
+// Tasks: MCP bridge (local token) and admin API for long-running agent tasks
+app.use('/api/tasks-mcp', tasksMcpRoutes);
+app.use('/api/tasks', authenticateToken, requireAdmin, tasksRoutes);
 
 // Agent API Routes (uses API key authentication)
 app.use('/api/agent', agentRoutes);
@@ -414,6 +423,10 @@ async function startServer() {
             await initializeSchedules(providerRuntimeService).catch(err => {
                 console.error('[Schedules] Error during startup:', getErrorMessage(err));
             });
+            // Long-running agent tasks: wake-ups and replies routed from Channels.
+            await initializeTasks(providerRuntimeService).catch(err => {
+                console.error('[Tasks] Error during startup:', getErrorMessage(err));
+            });
 
             // Start server-side plugin processes for enabled plugins
             startEnabledPluginServers().catch(err => {
@@ -425,6 +438,11 @@ async function startServer() {
         closeScheduledMessageDispatcher();
         // Clean up plugin processes on shutdown
         const shutdownRuntimeServices = async () => {
+            try {
+                await closeTasks();
+            } catch (err) {
+                console.error('[Tasks] Error stopping tasks during shutdown:', getErrorMessage(err));
+            }
             try {
                 await closeSchedules();
             } catch (err) {

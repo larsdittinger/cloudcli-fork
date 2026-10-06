@@ -285,7 +285,7 @@ export const channelMessagesDb = {
   },
 
   countByStatus(): Record<MessageStatus, number> {
-    const counts: Record<MessageStatus, number> = { unmatched: 0, ignored: 0, queued: 0, dispatched: 0, failed: 0, manual: 0 };
+    const counts: Record<MessageStatus, number> = { unmatched: 0, ignored: 0, queued: 0, dispatched: 0, failed: 0, manual: 0, task: 0 };
     const rows = getConnection().prepare('SELECT status, COUNT(*) AS count FROM channel_messages GROUP BY status').all() as Array<{ status: MessageStatus; count: number }>;
     for (const row of rows) counts[row.status] = row.count;
     return counts;

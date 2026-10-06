@@ -101,7 +101,7 @@ export async function sendTaskMessage(input: {
 }): Promise<{ outboxId: string; status: string; to: string; subject: string | null; detail: string | null }> {
   const task = tasksDb.get(input.taskId);
   if (!task) throw new AppError(`Task #${input.taskId} not found.`, { code: 'TASK_NOT_FOUND', statusCode: 404 });
-  if (!isOpen(task)) throw new AppError(`Task #${task.id} is closed.`, { code: 'TASK_CONFLICT', statusCode: 409 });
+  if (!isOpen(task)) throw new AppError(`Task #${input.taskId} is closed.`, { code: 'TASK_CONFLICT', statusCode: 409 });
 
   const original = input.replyToMessageId ? channelMessagesDb.get(input.replyToMessageId) : null;
   if (input.replyToMessageId && !original) throw new AppError('The message to reply to was not found.', { code: 'CHANNEL_MESSAGE_NOT_FOUND', statusCode: 404 });
