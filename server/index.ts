@@ -59,6 +59,7 @@ import {
 import {
     closeSchedules,
     initializeSchedules,
+    schedulesMcpRoutes,
     schedulesRoutes,
 } from './modules/schedules/index.js';
 import browserUseRoutes from './modules/browser-use/browser-use.routes.js';
@@ -225,7 +226,8 @@ app.use('/api/browser-use', authenticateToken, browserUseRoutes);
 // Unified provider MCP routes (protected)
 app.use('/api/providers', authenticateToken, providerRoutes);
 app.use('/api/scheduled-messages', authenticateToken, scheduledMessagesRoutes);
-// Recurring AI prompts and scripts (admin only).
+// Recurring AI prompts and scripts (admin only) + the agents' MCP bridge (local token).
+app.use('/api/schedules-mcp', schedulesMcpRoutes);
 app.use('/api/schedules', authenticateToken, requireAdmin, schedulesRoutes);
 
 // Agent API Routes (uses API key authentication)
