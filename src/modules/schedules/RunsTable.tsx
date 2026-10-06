@@ -78,7 +78,7 @@ export default function RunsTable({ runs, status, onStatusChange }: Props) {
                 <tr key={run.id} className="align-top">
                   <td className="whitespace-nowrap px-3 py-2 tabular-nums">{formatDateTime(run.startedAt ?? run.finishedAt ?? run.scheduledFor)}</td>
                   <td className="max-w-56 truncate px-3 py-2" title={run.projectPath ?? undefined}>{run.scheduleName ?? 'Deleted schedule'}</td>
-                  <td className="px-3 py-2"><KindLabel kind={run.kind} /></td>
+                  <td className="px-3 py-2"><KindLabel kind={run.kind} handoff={run.kind === 'script' && Boolean(run.sessionId)} /></td>
                   <td className="px-3 py-2 text-xs text-muted-foreground">{run.trigger === 'manual' ? 'Run now' : 'Schedule'}</td>
                   <td className="px-3 py-2">
                     <StatusPill status={run.status} />
@@ -110,7 +110,7 @@ export default function RunsTable({ runs, status, onStatusChange }: Props) {
 
       <Dialog open={viewing !== null} onOpenChange={(open) => { if (!open) setViewing(null); }}>
         <DialogContent className="max-h-[85vh] w-[min(100vw-1rem,56rem)] max-w-none overflow-hidden p-4">
-          <DialogTitle className="mb-1 text-base font-semibold">{viewing?.scheduleName ?? 'Run'} — output</DialogTitle>
+          <DialogTitle className="not-sr-only mb-1 text-base font-semibold">{viewing?.scheduleName ?? 'Run'} — output</DialogTitle>
           <p className="mb-2 text-xs tabular-nums text-muted-foreground">
             {formatDateTime(viewing?.startedAt)} · {viewing && formatDuration(viewing.startedAt, viewing.finishedAt)}{viewing?.exitCode !== null && viewing?.exitCode !== undefined ? ` · exit ${viewing.exitCode}` : ''}
           </p>

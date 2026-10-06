@@ -67,3 +67,17 @@ test('script kind asks for a command and offers the agent hand-off', async () =>
   assert.equal(values.command, './scripts/check_mail.py');
   assert.equal(values.handoff, 'on_output');
 });
+
+test('a time that is not 24 h HH:mm is refused before saving', async () => {
+  const onSubmit = renderForm();
+  fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Kontrola' } });
+  fireEvent.change(screen.getByLabelText('Prompt'), { target: { value: 'p' } });
+  fireEvent.change(screen.getByLabelText('Time'), { target: { value: '8 AM' } });
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Create schedule' })); });
+  assert.equal(onSubmit.mock.calls.length, 0);
+  assert.ok(screen.getByText(/HH:mm/));
+
+  fireEvent.change(screen.getByLabelText('Time'), { target: { value: '17:30' } });
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Create schedule' })); });
+  assert.deepEqual(onSubmit.mock.calls[0][0].schedule, { type: 'daily', time: '17:30' });
+});

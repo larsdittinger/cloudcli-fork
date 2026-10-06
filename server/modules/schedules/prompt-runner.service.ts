@@ -5,6 +5,19 @@ import type { ScheduleRow } from '@/modules/database/index.js';
 import { broadcastSessionUpserted, chatRunRegistry, runDetachedChatTurn } from '@/modules/websocket/index.js';
 import type { ProviderRuntimeGateway } from '@/modules/websocket/index.js';
 
+/**
+ * Runtimes report most failures (not logged in, quota, API errors) as an
+ * `error` event in the chat rather than by throwing; the run must still count
+ * as failed. Read right after the turn, before the registry evicts the run.
+ */
+function reportedError(sessionId: string): string | null {
+  const events = chatRunRegistry.getRun(sessionId)?.events ?? [];
+  const error = [...events].reverse().find((event) => event.kind === 'error');
+  if (!error) return null;
+  const content = (error as { content?: unknown }).content;
+  return typeof content === 'string' && content.trim() ? content.trim() : 'The agent reported an error.';
+}
+
 function runOptions(schedule: ScheduleRow): Record<string, unknown> {
   const options: Record<string, unknown> = {};
   if (schedule.model) options.model = schedule.model;
@@ -48,7 +61,7 @@ export async function runPromptTurn(input: {
       { runtime: input.runtime },
     );
     if (!result.started) return { sessionId, error: result.error ?? 'The chat turn did not start.' };
-    return { sessionId, error: result.error };
+    return { sessionId, error: result.error ?? reportedError(sessionId) };
   } catch (error) {
     return { sessionId, error: error instanceof Error ? error.message : String(error) };
   }

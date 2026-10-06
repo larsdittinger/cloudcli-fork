@@ -99,11 +99,11 @@ function toForm(schedule: Schedule | null): FormState {
 function toSpec(form: FormState): ScheduleSpec {
   switch (form.repeat) {
     case 'daily':
-      return { type: 'daily', time: form.time };
+      return { type: 'daily', time: form.time.trim() };
     case 'weekly':
-      return { type: 'weekly', days: [...form.days].sort((a, b) => a - b), time: form.time };
+      return { type: 'weekly', days: [...form.days].sort((a, b) => a - b), time: form.time.trim() };
     case 'monthly':
-      return { type: 'monthly', day: form.monthDay === 'last' ? 'last' : Number(form.monthDay), time: form.time };
+      return { type: 'monthly', day: form.monthDay === 'last' ? 'last' : Number(form.monthDay), time: form.time.trim() };
     case 'interval':
       return { type: 'interval', every: Number(form.every), unit: form.unit };
     case 'once':
@@ -118,6 +118,7 @@ function validate(form: FormState): string | null {
   if (!form.name.trim()) return 'Give the schedule a name.';
   if (form.kind === 'prompt' && !form.prompt.trim()) return 'Write the prompt the agent should run.';
   if (form.kind === 'script' && !form.command.trim()) return 'Enter the command to run.';
+  if (['daily', 'weekly', 'monthly'].includes(form.repeat) && !/^([01]?\d|2[0-3]):[0-5]\d$/.test(form.time.trim())) return 'Enter the time as HH:mm, e.g. 08:00 or 17:30.';
   if (form.repeat === 'weekly' && form.days.length === 0) return 'Pick at least one day of the week.';
   if (form.repeat === 'interval' && !(Number.isInteger(Number(form.every)) && Number(form.every) >= 1)) return 'The interval must be a whole number of at least 1.';
   if (form.repeat === 'once' && Number.isNaN(new Date(form.onceAt).getTime())) return 'Pick the date and time.';
@@ -248,7 +249,9 @@ export default function ScheduleForm({ open, schedule, projectPath, onOpenChange
   const targetProject = schedule?.projectPath ?? projectPath;
 
   const problem = validate(form);
-  const spec = form.repeat === 'weekly' && form.days.length === 0 ? null : (() => {
+  const timeValid = /^([01]?\d|2[0-3]):[0-5]\d$/.test(form.time.trim());
+  const needsTime = form.repeat === 'daily' || form.repeat === 'weekly' || form.repeat === 'monthly';
+  const spec = (form.repeat === 'weekly' && form.days.length === 0) || (needsTime && !timeValid) ? null : (() => {
     try {
       return toSpec(form);
     } catch {
@@ -293,7 +296,7 @@ export default function ScheduleForm({ open, schedule, projectPath, onOpenChange
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[92vh] w-[min(100vw-1rem,44rem)] max-w-none overflow-y-auto p-4 md:p-5">
-        <DialogTitle className="mb-1 text-base font-semibold">{schedule ? `Edit “${schedule.name}”` : 'New schedule'}</DialogTitle>
+        <DialogTitle className="not-sr-only mb-1 text-base font-semibold">{schedule ? `Edit “${schedule.name}”` : 'New schedule'}</DialogTitle>
         <p className="mb-4 truncate text-xs text-muted-foreground" title={targetProject}>Runs in {targetProject}</p>
 
         <div className="space-y-5">
@@ -319,7 +322,9 @@ export default function ScheduleForm({ open, schedule, projectPath, onOpenChange
                 </Field>
               )}
               {(form.repeat === 'daily' || form.repeat === 'weekly' || form.repeat === 'monthly') && (
-                <Field label="Time" className="w-32">{(id) => <Input id={id} type="time" value={form.time} onChange={(event) => set('time', event.target.value)} />}</Field>
+                <Field label="Time" className="w-32" hint="24 h, Prague">
+                  {(id) => <Input id={id} inputMode="numeric" maxLength={5} placeholder="08:00" value={form.time} onChange={(event) => set('time', event.target.value)} className="tabular-nums" />}
+                </Field>
               )}
               {form.repeat === 'interval' && (
                 <>

@@ -142,3 +142,20 @@ test('renderHandoffPrompt appends the output when the template forgot it', () =>
   assert.match(rendered, /Look at this\./);
   assert.match(rendered, /X/);
 });
+
+test('runPromptTurn: an error the provider reports in the chat fails the run (e.g. not logged in)', async () => {
+  await withIsolatedDatabase(async (dir) => {
+    const row = schedulesDb.create(scheduleInput({ project_path: dir }));
+    const runtime = {
+      hasRuntime: () => true,
+      run: async (_provider: string, _command: string, _options: Record<string, unknown>, writer: { send: (data: unknown) => void }) => {
+        writer.send({ kind: 'error', content: 'Not logged in · Please run /login', provider: 'claude' });
+        writer.send({ kind: 'complete', exitCode: 1, provider: 'claude' });
+      },
+      abort: async () => true,
+    } as never;
+    const result = await runPromptTurn({ schedule: row, content: 'x', title: 't', runtime });
+    assert.ok(result.sessionId);
+    assert.match(result.error ?? '', /Not logged in/);
+  });
+});

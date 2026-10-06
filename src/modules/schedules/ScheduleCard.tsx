@@ -98,7 +98,9 @@ export default function ScheduleCard({ schedule, showProject, onEdit, onChanged 
           <p className="font-medium text-amber-800 dark:text-amber-200">Proposed by an agent — nothing runs until you approve it.</p>
           {proposal.note && <p className="mt-1 whitespace-pre-wrap">{proposal.note}</p>}
           <p className="mt-1 text-xs text-muted-foreground">
-            {formatDateTime(proposal.createdAt)}{proposal.projectPath ? ` · from ${proposal.projectPath}` : ''} · permissions: {schedule.permissionMode}
+            Proposed {formatDateTime(proposal.createdAt)}
+            {proposal.projectPath && <span title={proposal.projectPath}> by an agent in {projectName(proposal.projectPath)}</span>}
+            {' · '}permissions: {schedule.permissionMode === 'bypassPermissions' ? 'autonomous' : schedule.permissionMode}
           </p>
           <div className="mt-2 flex flex-wrap gap-2">
             <Button size="sm" onClick={() => act('approve', () => api.schedules.approve(schedule.id))} disabled={busy !== null}>
