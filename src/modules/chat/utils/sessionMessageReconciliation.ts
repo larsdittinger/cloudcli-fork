@@ -103,7 +103,8 @@ export function removeOptimisticUserEchoes(
   const claimedServerIds = new Set<string>();
 
   return realtimeMessages.filter((message) => {
-    if (!message.id.startsWith('local_')) {
+    // Defensive: a row without a string id is never an optimistic echo (and must not crash the merge).
+    if (typeof message.id !== 'string' || !message.id.startsWith('local_')) {
       return true;
     }
 

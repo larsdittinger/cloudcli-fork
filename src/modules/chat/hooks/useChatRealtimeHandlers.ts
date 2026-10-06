@@ -54,6 +54,11 @@ type UseChatRealtimeHandlersArgs = {
  * Sidebar events (`session_upserted`, `loading_progress`) are handled by
  * `useProjectsState`, not in this hook.
  */
+/** Sidebar and feature broadcasts (`session_upserted`, `tasks_updated`, `channels_outbox_updated`, …), owned elsewhere. */
+function isAppBroadcast(kind: string): boolean {
+  return kind === 'session_upserted' || kind === 'loading_progress' || kind.endsWith('_updated');
+}
+
 export function useChatRealtimeHandlers({
   isActive,
   subscribe,
@@ -106,6 +111,13 @@ export function useChatRealtimeHandlers({
         if (msg.seq > known) {
           lastSeqRef.current.set(sid, msg.seq);
         }
+      }
+
+      // App-wide broadcasts (sidebar upserts, Tasks, Schedules, Channels) are not
+      // chat events. Even when one names a session, it must never become a
+      // transcript row: a row without an id breaks merging and the next send.
+      if (isAppBroadcast(msg.kind)) {
+        return;
       }
 
       switch (msg.kind) {
@@ -171,11 +183,6 @@ export function useChatRealtimeHandlers({
           }
           return;
         }
-
-        // Sidebar/global events — owned by useProjectsState.
-        case 'session_upserted':
-        case 'loading_progress':
-          return;
 
         default:
           break;
