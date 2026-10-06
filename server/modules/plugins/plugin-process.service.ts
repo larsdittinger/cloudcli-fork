@@ -4,7 +4,7 @@ import path from 'path';
 // cross-spawn: drop-in spawn with Windows .cmd/PATHEXT resolution.
 import spawn from 'cross-spawn';
 
-import { scanPlugins, getPluginsConfig, getPluginDir } from './plugin-registry.service.js';
+import { scanPlugins, getPluginsConfig, getPluginDir, savePluginsConfig } from './plugin-registry.service.js';
 
 // Map<pluginName, { process, port }>
 const runningPlugins = new Map();
@@ -214,4 +214,16 @@ export async function startEnabledPluginServers() {
       console.error(`[Plugins] Failed to start server for "${plugin.name}":`, err.message);
     }
   }
+}
+
+/**
+ * Switches a plugin off as if the admin had toggled it in Settings → Plugins
+ * (config `enabled: false`, server process stopped). Works whether or not the
+ * plugin is installed. Used by Schedules after importing the cron plugin's tasks.
+ */
+export async function disablePlugin(name) {
+  const config = getPluginsConfig();
+  config[name] = { ...config[name], enabled: false };
+  savePluginsConfig(config);
+  await stopPluginServer(name);
 }

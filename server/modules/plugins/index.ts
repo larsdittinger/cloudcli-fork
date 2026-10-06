@@ -7,3 +7,5 @@ export { startEnabledPluginServers } from './plugin-process.service.js';
 export { stopAllPlugins } from './plugin-process.service.js';
 // getPluginPort: used by WebSocket setup in the server entrypoint to proxy plugin connections.
 export { getPluginPort } from './plugin-process.service.js';
+// disablePlugin: used by Schedules to switch the replaced cron plugin off after importing its tasks.
+export { disablePlugin } from './plugin-process.service.js';
