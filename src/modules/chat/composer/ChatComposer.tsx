@@ -14,7 +14,7 @@ import { PaperclipIcon, MessageSquareIcon, XIcon, Loader2, ArrowUpIcon, PencilIc
 
 import { useVoiceInput } from '@/modules/chat/hooks/useVoiceInput';
 import { useVoiceAvailable } from '@/modules/chat/hooks/useVoiceAvailable';
-import type { QueuedDraft, ScheduledMessage, SlashCommand,SessionActivity,PendingPermissionRequest,PermissionMode,ProviderModelOption } from '@/shared/types';
+import type { ComposerSendError, QueuedDraft, ScheduledMessage, SlashCommand,SessionActivity,PendingPermissionRequest,PermissionMode,ProviderModelOption } from '@/shared/types';
 import {
   PromptInput,
   PromptInputHeader,
@@ -86,6 +86,8 @@ type ChatComposerProps = {
   attachedFiles: File[];
   onRemoveAttachment: (index: number) => void;
   fileErrors: Map<string, string>;
+  /** Why the last send failed; the text stays in the input for a retry. */
+  sendError: ComposerSendError | null;
   showFileDropdown: boolean;
   filteredFiles: MentionableFile[];
   selectedFileIndex: number;
@@ -159,6 +161,7 @@ export default function ChatComposer({
   attachedFiles,
   onRemoveAttachment,
   fileErrors,
+  sendError,
   showFileDropdown,
   filteredFiles,
   selectedFileIndex,
@@ -336,6 +339,14 @@ export default function ChatComposer({
           onEdit={onEditQueuedDraft}
           onDelete={onDeleteQueuedDraft}
         />
+      )}
+
+      {sendError && (
+        <div role="alert" className="mx-auto mb-2 max-w-[54.25rem] rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          {sendError.reason === 'offline'
+            ? t('composer.sendError.offline')
+            : t('composer.sendError.failed', { detail: sendError.detail })}
+        </div>
       )}
 
       {!hasQuestionPanel && <div className="relative mx-auto max-w-[54.25rem]">

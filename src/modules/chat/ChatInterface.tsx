@@ -35,7 +35,7 @@ type ChatInterfaceProps = {
   selectedProject: Project | null;
   selectedSession: ProjectSession | null;
   ws: WebSocket | null;
-  sendMessage: (message: unknown) => void;
+  sendMessage: (message: unknown) => boolean | void;
   onFileOpen?: (filePath: string, diffInfo?: any) => void;
   onNavigateToSession?: (targetSessionId: string, options?: SessionNavigationOptions) => void;
   onSessionEstablished?: (sessionId: string, context: SessionEstablishedContext) => void;
@@ -206,6 +206,7 @@ function ChatInterface({
     attachedFiles,
     setAttachedFiles,
     fileErrors,
+    sendError,
     getRootProps,
     getInputProps,
     isDragActive,
@@ -542,6 +543,7 @@ function ChatInterface({
             )
           }
           fileErrors={fileErrors}
+          sendError={sendError}
           showFileDropdown={showFileDropdown}
           filteredFiles={filteredFiles}
           selectedFileIndex={selectedFileIndex}

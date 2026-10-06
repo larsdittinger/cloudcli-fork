@@ -8,6 +8,7 @@ import { TaskMasterProvider,TasksSettingsProvider } from '@/modules/task-master'
 import { WebSocketProvider } from '@/shared/context/WebSocketContext';
 import { PluginsProvider } from '@/modules/plugins';
 import { ProjectWorkspaceRoute } from '@/modules/project-workspace';
+import { StaleBuildBanner } from '@/modules/stale-build';
 import { i18n } from '@/modules/i18n';
 
 const DEPLOYMENT_ASSET_DIRECTORIES = new Set(['assets', 'static', 'icons', 'images']);
@@ -119,6 +120,7 @@ export default function App() {
                 it they fire their requests before there is a session, and every
                 one of those 401s carries X-Auth-Error. */}
             <ProtectedRoute>
+              <StaleBuildBanner />
               <PluginsProvider>
                 <TasksSettingsProvider>
                   <TaskMasterProvider>

@@ -14,7 +14,7 @@ import { useDropzone } from 'react-dropzone';
 import { api } from '@/shared/api';
 import { PROVIDER_PERMISSION_PREFERENCE_KEYS } from '@/shared/constants';
 import { readUserPreference } from '@/shared/userSettings';
-import type { CommandModalPayload, CostCommandData, HelpCommandData, MarkSessionProcessing, ModelCommandData, QueuedDraft, SessionActivityMap, StatusCommandData,QueuedSendOptions,ChatAttachment,ChatMessage,PendingPermissionRequest,PermissionMode,SessionEstablishedContext,Project,ProjectSession,LLMProvider,SlashCommand } from '@/shared/types';
+import type { CommandModalPayload, ComposerSendError, CostCommandData, HelpCommandData, MarkSessionProcessing, ModelCommandData, QueuedDraft, SessionActivityMap, StatusCommandData,QueuedSendOptions,ChatAttachment,ChatMessage,PendingPermissionRequest,PermissionMode,SessionEstablishedContext,Project,ProjectSession,LLMProvider,SlashCommand } from '@/shared/types';
 import { grantClaudeToolPermission } from '@/modules/chat/utils/chatPermissions';
 import {
   clearQueuedMessage,
@@ -48,7 +48,8 @@ type UseChatComposerStateArgs = {
   processingSessions?: SessionActivityMap;
   canAbortSession: boolean;
   tokenBudget: Record<string, unknown> | null;
-  sendMessage: (message: unknown) => void;
+  /** Returns false when the socket is not open and the frame was dropped. */
+  sendMessage: (message: unknown) => boolean | void;
   sendByCtrlEnter?: boolean;
   onSessionProcessing?: MarkSessionProcessing;
   /**
@@ -66,6 +67,14 @@ type UseChatComposerStateArgs = {
   setIsUserScrolledUp: (isScrolledUp: boolean) => void;
   setPendingPermissionRequests: Dispatch<SetStateAction<PendingPermissionRequest[]>>;
 };
+
+/** Thrown inside a send to report a known reason to the user. */
+class ComposerSendFailure extends Error {
+  /** `scope` is the chat the failure belongs to, when it is not the open one yet. */
+  constructor(readonly reason: ComposerSendError['reason'], message: string, readonly scope?: string) {
+    super(message);
+  }
+}
 
 type MentionableFile = {
   name: string;
@@ -210,6 +219,10 @@ export function useChatComposerState({
   const input = inputState.value;
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
   const [fileErrors, setFileErrors] = useState<Map<string, string>>(new Map());
+  // Why the last send did not go through, and in which chat. Without it a
+  // failed send was silent: the user clicked Send and nothing happened. Tagged
+  // with the chat so the message never shows up in another one.
+  const [sendFailure, setSendFailure] = useState<{ scope: string | null; error: ComposerSendError } | null>(null);
   const [isTextareaExpanded, setIsTextareaExpanded] = useState(false);
   const [commandModalPayload, setCommandModalPayload] = useState<CommandModalPayload | null>(null);
 
@@ -611,7 +624,7 @@ export function useChatComposerState({
     selectedSession,
   ]);
 
-  const handleSubmit = useCallback(
+  const submitComposerMessage = useCallback(
     async (
       event: FormEvent<HTMLFormElement> | MouseEvent | TouchEvent | KeyboardEvent<HTMLTextAreaElement>,
       queuedSubmission?: QueuedDraft,
@@ -766,6 +779,7 @@ export function useChatComposerState({
       // via the session gateway. There is no client-visible session-id
       // handoff later — this id stays valid for the conversation's lifetime.
       let targetSessionId = selectedSession?.id || currentSessionId || null;
+      const isNewSession = !targetSessionId;
       if (!targetSessionId) {
         let createdSessionName = sessionSummary;
         try {
@@ -827,22 +841,12 @@ export function useChatComposerState({
         ...(editingAnchorId ? { replacesAnchorId: editingAnchorId } : {}),
       };
 
-      addMessage(userMessage);
-      // Mark this request as processing in the per-session activity map (the
-      // single source of truth the indicator derives from). The id is always
-      // concrete at this point — no pending placeholder exists anymore.
-      onSessionProcessing?.(targetSessionId, {
-        statusText: null,
-        canInterrupt: true,
-      });
-
-      setIsUserScrolledUp(false);
-      setTimeout(() => scrollToBottom(), 100);
-
       // One message shape for every provider. The backend resolves the
       // provider, project path, and provider-native resume id from the
       // session row; `options` only carries composer-level preferences.
-      sendMessage({
+      // Sent before the echo is shown, so a dropped frame leaves no message in
+      // the transcript that never reached the server.
+      const sent = sendMessage({
         // Replacing an already-sent message is its own frame: it changes the
         // shape of the conversation, so it gets validated separately and can
         // report why it was refused.
@@ -855,6 +859,15 @@ export function useChatComposerState({
           attachments: uploadedAttachments,
         },
       });
+      if (sent === false) {
+        // The text stays in the composer; the socket reconnects on its own.
+        if (isNewSession && targetSessionId) {
+          // The chat was created over HTTP and opened before the socket send
+          // failed; its own draft is what the composer shows now.
+          writeDraftText(targetSessionId, messageContent);
+        }
+        throw new ComposerSendFailure('offline', 'WebSocket not connected', targetSessionId);
+      }
       setEditingAnchorId(null);
 
       // Recorded under the (possibly just-allocated) session id, so the first
@@ -876,6 +889,19 @@ export function useChatComposerState({
       if (draftScopeRef.current) {
         writeDraftText(draftScopeRef.current, '');
       }
+
+      // Mark this request as processing in the per-session activity map (the
+      // single source of truth the indicator derives from). The id is always
+      // concrete at this point — no pending placeholder exists anymore. Before
+      // the echo, so the run shows as busy even if rendering the echo fails.
+      onSessionProcessing?.(targetSessionId, {
+        statusText: null,
+        canInterrupt: true,
+      });
+      addMessage(userMessage);
+
+      setIsUserScrolledUp(false);
+      setTimeout(() => scrollToBottom(), 100);
     },
     [
       selectedSession,
@@ -899,6 +925,30 @@ export function useChatComposerState({
       slashCommands,
     ],
   );
+
+  // Every way into a send (button, Enter, voice, queued flush) goes through
+  // here, so no failure can be an unhandled rejection the user never sees.
+  const handleSubmit = useCallback(
+    async (
+      event: FormEvent<HTMLFormElement> | MouseEvent | TouchEvent | KeyboardEvent<HTMLTextAreaElement>,
+      queuedSubmission?: QueuedDraft,
+    ) => {
+      setSendFailure(null);
+      try {
+        await submitComposerMessage(event, queuedSubmission);
+      } catch (error) {
+        console.error('Sending the message failed:', error);
+        setSendFailure({
+          scope: (error instanceof ComposerSendFailure && error.scope) || draftScopeRef.current,
+          error: error instanceof ComposerSendFailure
+            ? { reason: error.reason, detail: error.message }
+            : { reason: 'failed', detail: error instanceof Error ? error.message : String(error) },
+        });
+      }
+    },
+    [submitComposerMessage],
+  );
+  const sendError = sendFailure && sendFailure.scope === draftScope ? sendFailure.error : null;
 
   useEffect(() => {
     handleSubmitRef.current = handleSubmit;
@@ -1244,6 +1294,7 @@ export function useChatComposerState({
     attachedFiles,
     setAttachedFiles,
     fileErrors,
+    sendError,
     getRootProps,
     getInputProps,
     isDragActive,

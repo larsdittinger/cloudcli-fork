@@ -70,3 +70,28 @@ test('a row without an id cannot break merging the transcript', () => {
   ] as unknown as NormalizedMessage[];
   assert.doesNotThrow(() => removeOptimisticUserEchoes([], realtime));
 });
+
+test('an app event never becomes a row, whatever it is called', () => {
+  // The first fix only knew `*_updated`. A tab that runs older code than the
+  // server, or the next feature that names its broadcast differently, must not
+  // be able to put a row into the open chat either.
+  const { dispatch, appended } = renderHandlers();
+  for (const event of [
+    { kind: 'agent_tasks_changed', taskId: 3 },
+    { kind: 'schedule_run_finished', runId: 'r', sessionId: 'viewed-session' },
+    { kind: 'inbox_count', count: 2 },
+    { kind: 'session_created', sessionId: 'viewed-session' },
+  ]) {
+    dispatch(event as unknown as ServerEvent);
+  }
+  assert.deepEqual(appended, []);
+});
+
+test('every kind of transcript row is still stored', () => {
+  const { dispatch, appended } = renderHandlers();
+  const kinds = ['text', 'tool_use', 'tool_result', 'thinking', 'error', 'task_notification'];
+  kinds.forEach((kind, index) => {
+    dispatch({ kind, id: `m${index}`, sessionId: 'viewed-session', seq: index + 1 } as unknown as ServerEvent);
+  });
+  assert.deepEqual(appended.map(({ message }) => (message as { kind: string }).kind), kinds);
+});

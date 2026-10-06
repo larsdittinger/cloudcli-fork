@@ -54,10 +54,20 @@ type UseChatRealtimeHandlersArgs = {
  * Sidebar events (`session_upserted`, `loading_progress`) are handled by
  * `useProjectsState`, not in this hook.
  */
-/** Sidebar and feature broadcasts (`session_upserted`, `tasks_updated`, `channels_outbox_updated`, …), owned elsewhere. */
-function isAppBroadcast(kind: string): boolean {
-  return kind === 'session_upserted' || kind === 'loading_progress' || kind.endsWith('_updated');
-}
+/**
+ * The only kinds that are rows of a transcript. Everything else on the socket
+ * (sidebar upserts, Tasks/Schedules/Channels broadcasts, control frames) is
+ * handled by its own owner — an allowlist, so a broadcast this code has never
+ * heard of can never land in the open chat as a row.
+ */
+const TRANSCRIPT_KINDS = new Set<string>([
+  'text',
+  'tool_use',
+  'tool_result',
+  'thinking',
+  'error',
+  'task_notification',
+]);
 
 export function useChatRealtimeHandlers({
   isActive,
@@ -111,13 +121,6 @@ export function useChatRealtimeHandlers({
         if (msg.seq > known) {
           lastSeqRef.current.set(sid, msg.seq);
         }
-      }
-
-      // App-wide broadcasts (sidebar upserts, Tasks, Schedules, Channels) are not
-      // chat events. Even when one names a session, it must never become a
-      // transcript row: a row without an id breaks merging and the next send.
-      if (isAppBroadcast(msg.kind)) {
-        return;
       }
 
       switch (msg.kind) {
@@ -227,17 +230,10 @@ export function useChatRealtimeHandlers({
         return;
       }
 
-      // --- All other messages: route to store ---
-      const shouldPersist =
-        msg.kind !== 'complete'
-        && msg.kind !== 'status'
-        && msg.kind !== 'permission_request'
-        && msg.kind !== 'permission_resolved'
-        && msg.kind !== 'permission_cancelled'
-        // a state snapshot, tracked by useBackgroundTasks, not a transcript row
-        && msg.kind !== 'background_tasks';
-
-      if (sid && shouldPersist) {
+      // --- Transcript rows: route to store ---
+      // App-wide broadcasts are not chat events: even when one names a session
+      // it must never become a row (one without an id broke the next send).
+      if (sid && TRANSCRIPT_KINDS.has(msg.kind)) {
         sessionStore.appendRealtime(sid, msg as unknown as NormalizedMessage);
       }
 

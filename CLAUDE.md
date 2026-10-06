@@ -102,10 +102,18 @@ nasazuje — je v `../CLAUDE.md`.
   agenta má mandát potvrzený). Agenti stav vidí v `*_get_info` (`state.agentsAutoApprove` /
   `state.trustAgentMandates`) a v poznámce odpovědi nástroje. UI: sdílené `SettingSwitch` / `Switch` v `src/shared/ui`. Spec: `docs/superpowers/specs/2026-10-06-tasks-design.md` (hub).
 
-- **Globální WS události** (broadcast všem klientům) pojmenovávat `<modul>_updated`: chat handler
-  (`useChatRealtimeHandlers` → `isAppBroadcast`) je tak ignoruje. Jinak se uloží jako řádek přepisu
-  otevřeného chatu bez `id` a další odeslání v tom chatu spadne (zpráva zůstane v composeru) —
-  stalo se 2026-10-06 s `tasks_updated`.
+- **Globální WS události** (broadcast všem klientům) pojmenovávat `<modul>_updated`. Chat handler
+  (`useChatRealtimeHandlers`) ukládá do přepisu jen allowlist `TRANSCRIPT_KINDS` (text, tool_use,
+  tool_result, thinking, error, task_notification) — nový druh řádku přepisu se musí přidat tam,
+  jinak se nezobrazí. Store (`appendRealtime`) řádku bez `id` id doplní. Historie: 2026-10-06
+  se `tasks_updated` uložil jako řádek bez `id` a každé další odeslání v tom chatu spadlo.
+- **Odeslání nikdy tiše nespadne** (`useChatComposerState.handleSubmit`): zpráva jde do socketu
+  dřív než echo; zavřený socket (`sendMessage` vrací `false`) nebo výjimka → text zůstane
+  v composeru (u nového chatu v jeho konceptu) a nad ním je `sendError` (jen v chatu, kde vznikl).
+- **Zastaralý tab po deployi** (`src/modules/stale-build`): po reconnectu socketu, návratu do tabu
+  a co 10 min porovná vlastní `assets/index-*.js` s tím v aktuálním `index.html` a ukáže lištu
+  Reload. Sám se nepřenačte (neuložený editor ve Files, formuláře). Bez toho běžel otevřený tab
+  hodiny na starém kódu a oprava se k němu nedostala.
 
 Držet **minimal-diff** proti upstreamu — čím menší rozdíl, tím snazší merge. Nové
 featury zvažovat nejdřív jako plugin (viz cron plugin `workspace-scheduled-prompts`,

@@ -351,5 +351,9 @@
     "closeLoginModal": "Close login modal",
     "pluginLoadFailed": "Plugin failed to load: {{error}}"
   },
-  "cancel": "Cancel"
+  "cancel": "Cancel",
+  "staleBuild": {
+    "message": "A new version of CloudCLI is deployed. Reload to use it — the chat draft is kept; save open files first.",
+    "reload": "Reload"
+  }
 }

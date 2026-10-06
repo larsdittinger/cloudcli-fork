@@ -149,6 +149,10 @@
       "title": "Replacing an earlier message",
       "filesNotReverted": "files the agent already changed are not reverted",
       "cancel": "Cancel"
+    },
+    "sendError": {
+      "offline": "Not connected to the server, so the message was not sent. It reconnects on its own — try Send again in a few seconds.",
+      "failed": "Something went wrong while sending ({{detail}}). Reload the page — if the text is still in the input, it was not sent."
     }
   },
   "providerSelection": {

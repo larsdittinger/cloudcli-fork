@@ -527,6 +527,12 @@ type MessageKind =
 
 //----------------- CHAT COMPOSER ------------
 
+/** Why the composer's last send did not go through — no open socket, or an error on the way — shown under the input so a failed send is never silent. */
+export type ComposerSendError = {
+  reason: 'offline' | 'failed';
+  detail: string;
+};
+
 /** Result payload of the chat `/model` slash command, describing the session's current provider and model plus the model catalog it may switch to, used to populate the command modal's model picker. */
 export type ModelCommandData = {
   current?: {

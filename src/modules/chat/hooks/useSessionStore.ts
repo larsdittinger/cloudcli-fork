@@ -545,6 +545,8 @@ async function refreshLatestSlotFromServer(
 const STALE_THRESHOLD_MS = 30_000;
 
 const MAX_REALTIME_MESSAGES = 500;
+/** Suffix for ids the store has to give rows that arrived without one. */
+let generatedRowIdCounter = 0;
 
 // ─── Hook ────────────────────────────────────────────────────────────────────
 
@@ -750,10 +752,13 @@ export function useSessionStore() {
 
   const appendRealtime = useCallback((sessionId: string, msg: NormalizedMessage) => {
     const slot = getSlot(sessionId);
+    // Merging matches rows by id; one row without it made every later append
+    // throw, so the user's next message never left the composer.
+    const hasId = typeof msg.id === 'string' && msg.id.length > 0;
     const normalizedMessage =
-      msg.sessionId === sessionId
+      msg.sessionId === sessionId && hasId
         ? msg
-        : { ...msg, sessionId };
+        : { ...msg, sessionId, id: hasId ? msg.id : `rt_${Date.now()}_${++generatedRowIdCounter}` };
     let updated = [...slot.realtimeMessages, normalizedMessage];
     if (updated.length > MAX_REALTIME_MESSAGES) {
       updated = updated.slice(-MAX_REALTIME_MESSAGES);
