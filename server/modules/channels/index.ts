@@ -37,6 +37,10 @@ export { default as channelsRoutes } from './channels.routes.js';
 export { default as channelsWebhookRoutes } from './channels-webhook.routes.js';
 export { default as channelsMcpRoutes } from './channels-mcp.routes.js';
 export { channelsService } from './channels.service.js';
+// outboxService / setChannelTaskHooks: used by the Tasks module to send a task's messages and route their replies back.
+export { outboxService } from './outbox.service.js';
+export { setChannelTaskHooks } from './task-hooks.js';
+export type { ChannelTaskHooks } from './task-hooks.js';
 
 /** Inbound messages and their attachments are kept this long; the inbox is a working queue, not an archive. */
 const RETENTION_DAYS = 90;

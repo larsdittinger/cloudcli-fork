@@ -1,5 +1,7 @@
 import { broadcastOutboxUpdated } from '@/modules/channels/channels-broadcast.js';
 import { channelsService } from '@/modules/channels/channels.service.js';
+import { getChannelTaskHooks } from '@/modules/channels/task-hooks.js';
+import { whatsappThreadKey } from '@/modules/channels/thread-key.js';
 import { parseJson } from '@/modules/channels/types.js';
 import type { ChannelMessageRow, ChannelOutboxRow, ChannelRuleRow, OutboxStatus } from '@/modules/channels/types.js';
 import { channelAccountsDb, channelMessagesDb, channelOutboxDb, channelRulesDb } from '@/modules/database/index.js';
@@ -35,8 +37,33 @@ function replyTarget(message: ChannelMessageRow): { to: string; subject: string 
   return { to, subject };
 }
 
+/**
+ * Where replies to a delivered message will arrive: the thread it answered,
+ * else the e-mail's own Message-ID (the root of the reply's References) or the
+ * WhatsApp chat. Webhooks have no general rule; their tasks match by tag.
+ */
+function replyThreadKey(row: ChannelOutboxRow): string | null {
+  if (row.in_reply_to_message_id) return channelMessagesDb.get(row.in_reply_to_message_id)?.thread_key ?? null;
+  const type = channelAccountsDb.get(row.account_id)?.type;
+  if (type === 'email' && row.external_id) return row.external_id.trim().replace(/^<|>$/g, '').toLowerCase() || null;
+  if (type === 'whatsapp') {
+    const digits = row.to_address.replace(/\D/g, '');
+    return row.to_address.includes('@') ? whatsappThreadKey(row.to_address) : digits ? whatsappThreadKey(`${digits}@s.whatsapp.net`) : null;
+  }
+  return null;
+}
+
+function notifyTaskSent(row: ChannelOutboxRow, afterApproval: boolean): void {
+  if (row.task_id === null || row.status !== 'sent') return;
+  try {
+    getChannelTaskHooks()?.onSent(row, { threadKey: replyThreadKey(row), afterApproval });
+  } catch (error) {
+    console.error('[Channels] Task hook after send failed', { outboxId: row.id, error: error instanceof Error ? error.message : String(error) });
+  }
+}
+
 /** Sends through the account's adapter, serialising sends per account with the minimum gap. */
-async function deliverNow(id: string): Promise<ChannelOutboxRow> {
+async function deliverNow(id: string, options: { afterApproval?: boolean } = {}): Promise<ChannelOutboxRow> {
   const row = requireOutbox(id);
   const previous = sendQueues.get(row.account_id) ?? Promise.resolve();
   let release!: () => void;
@@ -64,7 +91,9 @@ async function deliverNow(id: string): Promise<ChannelOutboxRow> {
     } catch (error) {
       channelOutboxDb.setStatus(id, 'failed', { detail: error instanceof Error ? error.message : String(error) });
     }
-    return announce(requireOutbox(id));
+    const final = requireOutbox(id);
+    notifyTaskSent(final, options.afterApproval === true);
+    return announce(final);
   } finally {
     release();
   }
@@ -158,6 +187,49 @@ export const outboxService = {
     return announce(row);
   },
 
+  /**
+   * A message that belongs to a long-running task (Tasks module). The account's
+   * agentSend decides like for any agent send; `forceDraft` (an unconfirmed
+   * task mandate) keeps it a draft regardless. Answers `inReplyToMessageId`
+   * in its thread when given.
+   */
+  async createTaskMessage(input: {
+    taskId: number;
+    accountId: string;
+    to: string;
+    text: string;
+    subject?: string | null;
+    inReplyToMessageId?: string | null;
+    sessionId?: string | null;
+    forceDraft?: boolean;
+  }): Promise<ChannelOutboxRow> {
+    const account = channelAccountsDb.get(input.accountId);
+    if (!account) {
+      throw new AppError('Channel account not found.', { code: 'CHANNEL_ACCOUNT_NOT_FOUND', statusCode: 404 });
+    }
+    if (account.agent_send === 'off') {
+      throw new AppError(`Agents may not send messages through "${account.label}". Enable it in Settings → Channels.`, { code: 'SEND_NOT_ALLOWED', statusCode: 403 });
+    }
+    const text = input.text.trim();
+    const to = input.to.trim();
+    if (!text || !to) {
+      throw new AppError('A message needs a recipient and some text.', { code: 'OUTBOX_TEXT_REQUIRED', statusCode: 400 });
+    }
+    const auto = account.agent_send === 'auto' && !input.forceDraft;
+    const row = channelOutboxDb.create({
+      accountId: account.id,
+      sessionId: input.sessionId ?? null,
+      inReplyToMessageId: input.inReplyToMessageId ?? null,
+      to,
+      subject: input.subject ?? null,
+      text,
+      status: auto ? 'approved' : 'draft',
+      createdBy: 'agent',
+      taskId: input.taskId,
+    });
+    return auto ? deliverNow(row.id) : announce(row);
+  },
+
   async approve(id: string, patch: { text?: string } = {}): Promise<ChannelOutboxRow> {
     const row = requireOutbox(id);
     if (row.status !== 'draft' && row.status !== 'failed') {
@@ -165,7 +237,7 @@ export const outboxService = {
     }
     const text = typeof patch.text === 'string' && patch.text.trim() ? patch.text.trim() : row.text;
     channelOutboxDb.setStatus(id, 'approved', { text });
-    return deliverNow(id);
+    return deliverNow(id, { afterApproval: true });
   },
 
   discard(id: string): ChannelOutboxRow {

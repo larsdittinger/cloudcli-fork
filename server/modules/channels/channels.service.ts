@@ -8,6 +8,7 @@ import type { WebhookAdapter } from '@/modules/channels/adapters/webhook.adapter
 import { broadcastInboxUpdated } from '@/modules/channels/channels-broadcast.js';
 import { dispatchMessage } from '@/modules/channels/dispatcher.service.js';
 import { findMatchingRule } from '@/modules/channels/rules.service.js';
+import { getChannelTaskHooks } from '@/modules/channels/task-hooks.js';
 import { normalizeAddress } from '@/modules/channels/thread-key.js';
 import { parseJson } from '@/modules/channels/types.js';
 import type {
@@ -483,7 +484,7 @@ export const channelsService = {
     return running.get(accountId)?.adapter ?? null;
   },
 
-  /** Deduplicates, drops our own messages, matches a rule and hands the message to the dispatcher. */
+  /** Deduplicates, drops our own messages, hands task replies to their task, else matches a rule and dispatches. */
   async ingest(accountId: string, message: InboundMessage): Promise<ChannelMessageRow | null> {
     const account = channelAccountsDb.get(accountId);
     if (!account) return null;
@@ -492,6 +493,19 @@ export const channelsService = {
     const row = channelMessagesDb.insert(message, self ? 'ignored' : 'unmatched');
     if (!row) return null;
     if (self) return row;
+
+    // A reply in a long-running task's conversation belongs to that task, not to the rules.
+    let taskId: number | null = null;
+    try {
+      taskId = getChannelTaskHooks()?.routeInbound(row) ?? null;
+    } catch (error) {
+      console.error('[Channels] Task routing failed', { messageId: row.id, error: error instanceof Error ? error.message : String(error) });
+    }
+    if (taskId !== null) {
+      channelMessagesDb.setStatus(row.id, 'task', `Task #${taskId}`);
+      broadcastInboxUpdated({ messageId: row.id, status: 'task' });
+      return channelMessagesDb.get(row.id);
+    }
 
     const rule = findMatchingRule(channelRulesDb.listOrdered(), message, account);
     if (!rule) {
