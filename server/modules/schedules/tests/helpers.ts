@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { closeConnection, initializeDatabase } from '@/modules/database/index.js';
+import { chatRunRegistry } from '@/modules/websocket/index.js';
 import type { ScheduleWrite } from '@/modules/database/index.js';
 
 /** Runs a test against a fresh SQLite file so nothing leaks between tests. */
@@ -15,6 +16,7 @@ export async function withIsolatedDatabase(runTest: (tempDirectory: string) => v
   try {
     await runTest(tempDirectory);
   } finally {
+    chatRunRegistry.clearAll();
     closeConnection();
     if (previousDatabasePath === undefined) delete process.env.DATABASE_PATH;
     else process.env.DATABASE_PATH = previousDatabasePath;
@@ -45,4 +47,18 @@ export function scheduleInput(overrides: Partial<ScheduleWrite> = {}): ScheduleW
     owner_user_id: null,
     ...overrides,
   };
+}
+
+export type RuntimeCall = { provider: string; command: string; options: Record<string, unknown> };
+
+/** A provider runtime that records each turn instead of starting a CLI. */
+export function fakeRuntime(calls: RuntimeCall[], behaviour: 'ok' | 'throw' = 'ok') {
+  return {
+    hasRuntime: () => true,
+    run: async (provider: string, command: string, options: Record<string, unknown>) => {
+      if (behaviour === 'throw') throw new Error('provider exploded');
+      calls.push({ provider, command, options });
+    },
+    abort: async () => true,
+  } as never;
 }
