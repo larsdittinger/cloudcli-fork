@@ -19,6 +19,50 @@ type Props = {
 
 type Busy = 'run' | 'toggle' | 'duplicate' | 'delete' | 'approve' | null;
 
+const PERMISSION_LABEL: Record<string, string> = {
+  bypassPermissions: 'autonomous (nobody approves tool calls)',
+  acceptEdits: 'accept edits',
+  default: 'asks in the chat',
+  plan: 'plan only',
+};
+
+/** Everything an approval lets run, written out in full — the approval is the only gate for agent proposals. */
+function ProposalDetails({ schedule }: { schedule: Schedule }) {
+  const usesAgent = schedule.kind === 'prompt' || schedule.handoff === 'on_output';
+  const rows: Array<[string, string]> = [['Runs in', schedule.projectPath]];
+  if (schedule.kind === 'script') rows.push(['Timeout', `${Math.round(schedule.timeoutSec / 60)} min`]);
+  if (usesAgent) {
+    rows.push(['Agent', `${schedule.provider}${schedule.model ? ` / ${schedule.model}` : ''}${schedule.effort ? ` · ${schedule.effort}` : ''}`]);
+    rows.push(['Permissions', PERMISSION_LABEL[schedule.permissionMode] ?? schedule.permissionMode]);
+    rows.push(['Chat', schedule.sessionMode === 'continue' ? 'one chat across runs' : 'new chat each run']);
+  }
+  const block = 'mt-1 max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-md bg-background/70 p-2 font-mono text-xs';
+  return (
+    <section aria-label="What you approve" className="mt-2 space-y-2 text-xs">
+      {schedule.kind === 'script' && (
+        <div>
+          <p className="font-medium">Command</p>
+          <pre className={block}>{schedule.command}</pre>
+        </div>
+      )}
+      {usesAgent && (
+        <div>
+          <p className="font-medium">{schedule.kind === 'script' ? 'Hand-off prompt (when the script prints something)' : 'Prompt'}</p>
+          <pre className={block}>{schedule.prompt || '(default hand-off prompt)'}</pre>
+        </div>
+      )}
+      <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5">
+        {rows.map(([label, value]) => (
+          <div key={label} className="contents">
+            <dt className="text-muted-foreground">{label}</dt>
+            <dd className="break-all">{value}</dd>
+          </div>
+        ))}
+      </dl>
+    </section>
+  );
+}
+
 function projectName(projectPath: string): string {
   return projectPath.split('/').filter(Boolean).pop() ?? projectPath;
 }
@@ -64,9 +108,11 @@ export default function ScheduleCard({ schedule, showProject, onEdit, onChanged 
             {!proposal && !schedule.enabled && <span className="text-xs text-muted-foreground">Paused</span>}
           </div>
           <p className="text-sm">{schedule.summary}</p>
-          <p className="truncate text-xs text-muted-foreground" title={what}>
-            {schedule.kind === 'script' ? <code>{what}</code> : what}
-          </p>
+          {!proposal && (
+            <p className="truncate text-xs text-muted-foreground" title={what}>
+              {schedule.kind === 'script' ? <code>{what}</code> : what}
+            </p>
+          )}
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 pt-0.5 text-xs tabular-nums text-muted-foreground">
             <span>Next: {schedule.enabled && !proposal ? formatDateTime(schedule.nextRunAt) : '—'}</span>
             <span className="inline-flex items-center gap-1.5">Last: <StatusPill status={schedule.lastStatus} />{schedule.lastRunAt && formatDateTime(schedule.lastRunAt)}</span>
@@ -97,10 +143,11 @@ export default function ScheduleCard({ schedule, showProject, onEdit, onChanged 
         <div className="mt-3 border-t border-amber-500/30 pt-2 text-sm">
           <p className="font-medium text-amber-800 dark:text-amber-200">Proposed by an agent — nothing runs until you approve it.</p>
           {proposal.note && <p className="mt-1 whitespace-pre-wrap">{proposal.note}</p>}
+          <ProposalDetails schedule={schedule} />
           <p className="mt-1 text-xs text-muted-foreground">
             Proposed {formatDateTime(proposal.createdAt)}
             {proposal.projectPath && <span title={proposal.projectPath}> by an agent in {projectName(proposal.projectPath)}</span>}
-            {' · '}permissions: {schedule.permissionMode === 'bypassPermissions' ? 'autonomous' : schedule.permissionMode}
+
           </p>
           <div className="mt-2 flex flex-wrap gap-2">
             <Button size="sm" onClick={() => act('approve', () => api.schedules.approve(schedule.id))} disabled={busy !== null}>

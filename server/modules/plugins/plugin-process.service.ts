@@ -227,3 +227,8 @@ export async function disablePlugin(name) {
   savePluginsConfig(config);
   await stopPluginServer(name);
 }
+
+/** Whether a plugin is switched on in Settings → Plugins (plugins are on unless set off). */
+export function isPluginEnabled(name) {
+  return getPluginsConfig()[name]?.enabled !== false;
+}

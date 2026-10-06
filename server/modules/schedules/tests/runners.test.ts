@@ -159,3 +159,41 @@ test('runPromptTurn: an error the provider reports in the chat fails the run (e.
     assert.match(result.error ?? '', /Not logged in/);
   });
 });
+
+test('runScript: a background child does not hold the run open — bash exiting 0 is success', async () => {
+  await withIsolatedDatabase(async (dir) => {
+    const row = scriptSchedule(dir, 'sleep 30 & echo started');
+    const started = Date.now();
+    const result = await runScript({ schedule: row, runId: 'run-bg', scheduledFor: null, logsDir: path.join(dir, 'logs'), timeoutSec: 20 });
+    assert.equal(result.status, 'succeeded');
+    assert.equal(result.exitCode, 0);
+    assert.match(result.stdout, /started/);
+    assert.ok(Date.now() - started < 5000, 'returns when bash exits, not when the background child does');
+  });
+});
+
+test('runScript: multi-byte characters split across chunks stay intact', async () => {
+  await withIsolatedDatabase(async (dir) => {
+    const row = scriptSchedule(dir, `node -e "process.stdout.write('x' + '€'.repeat(200000))"`);
+    const result = await runScript({ schedule: row, runId: 'run-utf8', scheduledFor: null, logsDir: path.join(dir, 'logs') });
+    assert.equal(result.status, 'succeeded');
+    assert.ok(!result.output.includes('�'), 'no replacement characters in the stored output');
+    assert.ok(!fs.readFileSync(result.logPath, 'utf8').includes('�'), 'no replacement characters in the log');
+  });
+});
+
+test('runScript: a log that cannot be written does not crash the server', async () => {
+  await withIsolatedDatabase(async (dir) => {
+    const logsDir = path.join(dir, 'readonly-logs');
+    fs.mkdirSync(logsDir);
+    fs.chmodSync(logsDir, 0o500);
+    try {
+      const row = scriptSchedule(dir, 'echo still works');
+      const result = await runScript({ schedule: row, runId: 'run-nolog', scheduledFor: null, logsDir });
+      assert.equal(result.status, 'succeeded');
+      assert.match(result.output, /still works/);
+    } finally {
+      fs.chmodSync(logsDir, 0o700);
+    }
+  });
+});

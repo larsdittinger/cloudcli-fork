@@ -133,3 +133,24 @@ test('REST: preview, run now, runs listing, duplicate, approve, delete', async (
     }
   });
 });
+
+test('REST: the full-log view of a truncated log still ends with the end of the output', async () => {
+  await withIsolatedDatabase(async (dir) => {
+    initializeScheduler(async () => {}, { tickMs: 0 });
+    const api = await startApi();
+    try {
+      const created = (await api.call('POST', '/', { name: 'Big', projectPath: dir, kind: 'script', command: 'x', schedule: { type: 'daily', time: '06:00' } })).json.data;
+      const logPath = `${dir}/big.log`;
+      (await import('node:fs')).writeFileSync(logPath, '$ x\nSTART\n[log truncated at 1 MiB — the run keeps the last 64 KiB]\n');
+      const run = scheduleRunsDb.create({ scheduleId: created.id, trigger: 'manual', scheduledFor: null, status: 'running' });
+      scheduleRunsDb.finish(run.id, { status: 'failed', finishedAt: new Date().toISOString(), output: '...Error: disk full at the very end', logPath, exitCode: 1 });
+
+      const full = await api.call('GET', `/runs/${run.id}?log=1`);
+      assert.match(full.json.data.log, /START/);
+      assert.match(full.json.data.log, /disk full at the very end/);
+    } finally {
+      closeScheduler();
+      await api.close();
+    }
+  });
+});

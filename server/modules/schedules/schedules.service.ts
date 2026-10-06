@@ -316,7 +316,10 @@ export const schedulesService = {
     try {
       const buffer = Buffer.alloc(Math.min(fs.fstatSync(handle).size, LOG_READ_LIMIT));
       fs.readSync(handle, buffer, 0, buffer.length, 0);
-      return { ...run, log: buffer.toString('utf8') };
+      const log = buffer.toString('utf8');
+      // The log file stops at 1 MiB; the end of the output (where errors are) lives in the run row.
+      const truncated = log.includes('[log truncated at 1 MiB');
+      return { ...run, log: truncated && row.output ? `${log}\n[… end of the output, last 64 KiB …]\n${row.output}` : log };
     } finally {
       fs.closeSync(handle);
     }

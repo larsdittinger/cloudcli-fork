@@ -13,6 +13,8 @@ export const SCHEDULE_LOGS_DIR = path.join(os.homedir(), '.cloudcli', 'schedules
 const OUTPUT_TAIL_CHARS = 64 * 1024;
 const LOG_LIMIT_BYTES = 1024 * 1024;
 const DEFAULT_KILL_GRACE_MS = 10_000;
+/** After bash exits, how long background children may keep its pipes before we stop reading. */
+const DRAIN_AFTER_EXIT_MS = 1_500;
 
 export type ScriptResult = {
   status: 'succeeded' | 'failed' | 'timeout';
@@ -47,12 +49,30 @@ export async function runScript(input: {
   fs.mkdirSync(logsDir, { recursive: true });
   const logPath = path.join(logsDir, `${input.runId}.log`);
   const log = fs.createWriteStream(logPath);
-  const closeLog = () => new Promise<void>((resolve) => log.end(resolve));
-  log.write(`$ ${schedule.command}\n# cwd: ${schedule.project_path}\n# started: ${new Date().toISOString()}\n\n`);
+  // A log that cannot be written (full disk, permissions) must not take the server down;
+  // the run still keeps its output tail in the database.
+  let logBroken = false;
+  log.on('error', (error) => {
+    logBroken = true;
+    console.warn(`[Schedules] Cannot write run log ${logPath}: ${error.message}`);
+  });
+  const writeLog = (text: string) => {
+    if (!logBroken) log.write(text);
+  };
+  const closeLog = () => new Promise<void>((resolve) => {
+    if (logBroken || log.destroyed) {
+      resolve();
+      return;
+    }
+    log.once('close', () => resolve());
+    log.once('error', () => resolve());
+    log.end();
+  });
+  writeLog(`$ ${schedule.command}\n# cwd: ${schedule.project_path}\n# started: ${new Date().toISOString()}\n\n`);
 
   if (!fs.existsSync(schedule.project_path)) {
     const message = `The project directory ${schedule.project_path} does not exist.`;
-    log.write(`${message}\n`);
+    writeLog(`${message}\n`);
     await closeLog();
     return { status: 'failed', exitCode: null, stdout: '', output: message, logPath };
   }
@@ -76,20 +96,22 @@ export async function runScript(input: {
   let stdout = '';
   let loggedBytes = 0;
   let logTruncated = false;
-  const record = (chunk: Buffer, isStdout: boolean) => {
-    const text = chunk.toString('utf8');
+  const record = (text: string, isStdout: boolean) => {
     output = appendTail(output, text);
     if (isStdout) stdout = appendTail(stdout, text);
     if (loggedBytes < LOG_LIMIT_BYTES) {
-      log.write(chunk.subarray(0, LOG_LIMIT_BYTES - loggedBytes));
-      loggedBytes += chunk.length;
+      writeLog(text);
+      loggedBytes += Buffer.byteLength(text);
     } else if (!logTruncated) {
       logTruncated = true;
-      log.write('\n[log truncated at 1 MiB — the run keeps the last 64 KiB]\n');
+      writeLog('\n[log truncated at 1 MiB — the run keeps the last 64 KiB]\n');
     }
   };
-  child.stdout?.on('data', (chunk: Buffer) => record(chunk, true));
-  child.stderr?.on('data', (chunk: Buffer) => record(chunk, false));
+  // Decode as UTF-8 streams so a character split between two chunks stays whole.
+  child.stdout?.setEncoding('utf8');
+  child.stderr?.setEncoding('utf8');
+  child.stdout?.on('data', (text: string) => record(text, true));
+  child.stderr?.on('data', (text: string) => record(text, false));
 
   const killGroup = (signal: NodeJS.Signals) => {
     try {
@@ -107,18 +129,35 @@ export async function runScript(input: {
     killTimer = setTimeout(() => killGroup('SIGKILL'), input.killGraceMs ?? DEFAULT_KILL_GRACE_MS);
   }, timeoutMs);
 
+  // The run ends when bash exits, not when every holder of its pipes is gone:
+  // a background child (`daemon &`, setsid) would otherwise keep it open forever.
   const exitCode = await new Promise<number | null>((resolve) => {
     child.once('error', (error) => {
       output = appendTail(output, `\n${error.message}\n`);
       resolve(null);
     });
-    child.once('close', (code) => resolve(code));
+    child.once('exit', (code) => resolve(code));
+  });
+  await new Promise<void>((resolve) => {
+    if (child.stdout?.readableEnded !== false && child.stderr?.readableEnded !== false) {
+      resolve();
+      return;
+    }
+    const drainTimer = setTimeout(() => {
+      child.stdout?.destroy();
+      child.stderr?.destroy();
+      resolve();
+    }, DRAIN_AFTER_EXIT_MS);
+    child.once('close', () => {
+      clearTimeout(drainTimer);
+      resolve();
+    });
   });
   clearTimeout(timeoutTimer);
   if (killTimer) clearTimeout(killTimer);
 
   const status: ScriptResult['status'] = timedOut ? 'timeout' : exitCode === 0 ? 'succeeded' : 'failed';
-  log.write(`\n# finished: ${new Date().toISOString()} · ${status}${exitCode === null ? '' : ` · exit ${exitCode}`}\n`);
+  writeLog(`\n# finished: ${new Date().toISOString()} · ${status}${exitCode === null ? '' : ` · exit ${exitCode}`}\n`);
   await closeLog();
   return { status, exitCode, stdout, output, logPath };
 }

@@ -46,12 +46,21 @@ function toSpec(recurrence: Record<string, unknown>): unknown {
  */
 export async function importCronPluginSchedules(options: {
   ledgerDir?: string;
+  isPluginEnabled: (name: string) => boolean;
   disablePlugin: (name: string) => Promise<void>;
 }): Promise<number> {
   if (appConfigDb.get(IMPORTED_KEY)) return 0;
   const ledgerDir = options.ledgerDir ?? DEFAULT_LEDGER_DIR;
-  appConfigDb.set(IMPORTED_KEY, new Date().toISOString());
-  if (!fs.existsSync(ledgerDir)) return 0;
+  if (!fs.existsSync(ledgerDir)) {
+    appConfigDb.set(IMPORTED_KEY, new Date().toISOString());
+    return 0;
+  }
+
+  // Switch the plugin off first: if that fails nothing is imported (no task may run
+  // twice) and the next start tries again. Tasks of a plugin that was already off
+  // come over paused, so nothing starts running that was not running before.
+  const pluginWasEnabled = options.isPluginEnabled(CRON_PLUGIN_NAME);
+  await options.disablePlugin(CRON_PLUGIN_NAME);
 
   let imported = 0;
   for (const file of fs.readdirSync(ledgerDir).filter((name) => name.endsWith('.json'))) {
@@ -66,7 +75,10 @@ export async function importCronPluginSchedules(options: {
     for (const task of tasks) {
       const recurrence = task.recurrence ?? {};
       const spec = toSpec(recurrence);
-      if (!spec) continue;
+      if (!spec) {
+        console.warn(`[Schedules] Not importing "${String(task.name)}": ${String(recurrence.scheduleType)} has nothing left to run`);
+        continue;
+      }
       try {
         schedulesService.create({
           name: task.name,
@@ -76,7 +88,7 @@ export async function importCronPluginSchedules(options: {
           schedule: spec,
           timezone: recurrence.timezone,
           permissionMode: 'bypassPermissions',
-          enabled: task.enabled !== false,
+          enabled: pluginWasEnabled && task.enabled !== false,
         }, null);
         imported += 1;
       } catch (error) {
@@ -85,7 +97,7 @@ export async function importCronPluginSchedules(options: {
     }
   }
 
-  await options.disablePlugin(CRON_PLUGIN_NAME);
+  appConfigDb.set(IMPORTED_KEY, new Date().toISOString());
   console.log(`[Schedules] Imported ${imported} schedule(s) from the cron plugin and switched it off`);
   return imported;
 }

@@ -9,3 +9,5 @@ export { stopAllPlugins } from './plugin-process.service.js';
 export { getPluginPort } from './plugin-process.service.js';
 // disablePlugin: used by Schedules to switch the replaced cron plugin off after importing its tasks.
 export { disablePlugin } from './plugin-process.service.js';
+// isPluginEnabled: used by Schedules to import the cron plugin's tasks paused when the plugin was off.
+export { isPluginEnabled } from './plugin-process.service.js';
