@@ -467,3 +467,11 @@ for quotes, compare them, recommend one". The card is the agent's memory: brief,
 - Safety nets: one run per task, `CLOUDCLI_TASKS_MAX_RUNS` (default 2) at a time, a check
   in 4 h when the agent planned nothing, retries after failures and a question to you after
   three of them or after 20 wake-ups in a day.
+
+### Letting agents act without approval (fork)
+
+Three switches, all off by default: **Settings → Channels → Agents set up channels without
+approval**, **Schedules → Agents' schedules run without approval** and **Agent tasks → Trust
+mandates written by agents**. When one is on, what an agent proposes through the matching MCP
+server goes live right away instead of waiting for Approve (safety checks such as sender filters
+for auto-replies still apply). Agents see the setting in `*_get_info` and tell you what they set up.

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Loader2, Plus } from 'lucide-react';
 
 import { api, readApiJson } from '@/shared/api';
-import { Button, Pill, PillBar } from '@/shared/ui';
+import { Button, Pill, PillBar, SettingSwitch } from '@/shared/ui';
 import type { Project, Schedule, ScheduleInput } from '@/shared/types';
 import { useScheduleProposals } from '@/modules/schedules/hooks/useScheduleProposals';
 import { useSchedules } from '@/modules/schedules/hooks/useSchedules';
@@ -11,6 +11,9 @@ import ScheduleCard from '@/modules/schedules/ScheduleCard';
 import ScheduleForm from '@/modules/schedules/ScheduleForm';
 
 type Props = { selectedProject: Project };
+
+const loadAutoApprove = async () => (await readApiJson<{ data: { agentsAutoApprove: boolean } }>(await api.schedules.settings())).data.agentsAutoApprove;
+const saveAutoApprove = async (value: boolean) => (await readApiJson<{ data: { agentsAutoApprove: boolean } }>(await api.schedules.saveSettings({ agentsAutoApprove: value }))).data.agentsAutoApprove;
 
 /** Rendered by WorkspaceMain for the admin-only Schedules tab: schedules on top, run history below. */
 export default function SchedulesPanel({ selectedProject }: Props) {
@@ -54,6 +57,13 @@ export default function SchedulesPanel({ selectedProject }: Props) {
         </header>
 
         {error && <p role="alert" className="text-sm text-red-600 dark:text-red-300">{error}</p>}
+
+        <SettingSwitch
+          label="Agents' schedules run without approval"
+          description="On: what an agent schedules through cloudcli-schedules is switched on right away. Off: it waits here as a proposal for your Approve."
+          load={loadAutoApprove}
+          save={saveAutoApprove}
+        />
 
         {elsewhere > 0 && (
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-800 dark:text-amber-200">

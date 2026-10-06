@@ -599,6 +599,8 @@ export const api = {
       return get(`/api/tasks${text ? `?${text}` : ''}`);
     },
     summary: () => get('/api/tasks/summary'),
+    settings: () => get('/api/tasks/settings'),
+    saveSettings: (body: { trustAgentMandates: boolean }) => put('/api/tasks/settings', body),
     get: (id: number) => get(`/api/tasks/${id}`),
     create: (body: unknown) => post('/api/tasks', body),
     update: (id: number, body: unknown) => put(`/api/tasks/${id}`, body),
@@ -612,6 +614,8 @@ export const api = {
   schedules: {
     list: (projectPath?: string) => get(`/api/schedules${projectPath ? `?projectPath=${encodeURIComponent(projectPath)}` : ''}`),
     summary: () => get('/api/schedules/summary'),
+    settings: () => get('/api/schedules/settings'),
+    saveSettings: (body: { agentsAutoApprove: boolean }) => put('/api/schedules/settings', body),
     create: (body: unknown) => post('/api/schedules', body),
     update: (id: string, body: unknown) => put(`/api/schedules/${id}`, body),
     remove: (id: string) => del(`/api/schedules/${id}`),

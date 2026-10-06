@@ -55,17 +55,21 @@ export const proposalsService = {
       agentSend: input.agentSend,
       proposal: makeProposal(input.note, absoluteOrNull(input.cwd)),
     });
+    // The owner allows agents to set channels up without approval: it goes live now.
+    const live = channelsService.agentsAutoApprove() ? await channelsService.approveAccount(account.id) : null;
     broadcastProposalsUpdated({ proposalId: account.id });
     return {
-      account: { ...account, secretsOnce: undefined },
-      webhookUrl: webhookUrl(account),
+      account: { ...(live ?? account), secretsOnce: undefined },
+      webhookUrl: webhookUrl(live ?? account),
       webhookToken: account.secretsOnce?.token ?? null,
-      note: 'Proposal saved DISABLED. Tell the user to approve it in Settings → Channels (account card → Approve). '
+      note: (live
+        ? 'Approved and enabled right away (the owner lets agents set up channels without approval). Tell the user what you set up. '
+        : 'Proposal saved DISABLED. Tell the user to approve it in Settings → Channels (account card → Approve). ')
         + (account.type === 'webhook'
           ? 'The token is shown only now — hand it to whoever configures the calling application and never put it into chat logs or repositories.'
           : account.type === 'whatsapp'
             ? 'After approval the account needs pairing: call channels_whatsapp_pairing_code with the phone number, or let the user scan the QR in Settings.'
-            : account.hasSecrets ? '' : 'No password was given — the user fills it in when editing the account before approval.'),
+            : account.hasSecrets ? '' : 'No password was given — the user fills it in by editing the account.'),
     };
   },
 
@@ -80,10 +84,13 @@ export const proposalsService = {
     const ruleInput: RuleInput = { ...input, projectPath, enabled: false, ownerUserId: null };
     validateRuleInput(ruleInput);
     const row = channelRulesDb.create(ruleInput, makeProposal(input.note, absoluteOrNull(input.cwd)));
+    const live = channelsService.agentsAutoApprove() ? channelRulesDb.approveProposal(row.id) : null;
     broadcastProposalsUpdated({ proposalId: row.id });
     return {
-      rule: publicRule(row),
-      note: 'Proposal saved DISABLED at the end of the rule list (first matching rule wins). Tell the user to approve it in Settings → Channels (rule → Approve).',
+      rule: publicRule(live ?? row),
+      note: live
+        ? 'Approved and enabled right away at the end of the rule list (first matching rule wins); the owner lets agents set up channels without approval. Tell the user what you set up.'
+        : 'Proposal saved DISABLED at the end of the rule list (first matching rule wins). Tell the user to approve it in Settings → Channels (rule → Approve).',
     };
   },
 
@@ -169,6 +176,7 @@ export const proposalsService = {
   getState(cwd: unknown) {
     return {
       channelsEnabled: channelsService.isEnabled(),
+      agentsAutoApprove: channelsService.agentsAutoApprove(),
       mcpServer: MCP_SERVER_NAME,
       publicUrl: channelsService.getPublicUrl(),
       yourWorkingDirectory: absoluteOrNull(cwd),

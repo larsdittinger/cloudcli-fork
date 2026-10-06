@@ -20,7 +20,7 @@ export default function AgentSetupHelp() {
         </div>
 
         <div>
-          <p className="font-medium">Agent proposals need your approval</p>
+          <p className="font-medium">Agent proposals need your approval (unless the switch above is on)</p>
           <p className="mt-1 text-muted-foreground">
             Agents can propose accounts (<Code>channels_propose_account</Code>: e-mail, WhatsApp, webhook) and rules
             (<Code>channels_propose_rule</Code>, defaulting to the agent’s project). A proposal shows up below as

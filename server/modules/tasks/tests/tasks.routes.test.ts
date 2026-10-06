@@ -140,3 +140,21 @@ test('MCP: token gate, info, create from cwd, update, log, ask, list, get, send 
     }
   });
 });
+
+test('autonomy: with trusted agent mandates, agent tasks start confirmed (and send per the account)', async () => {
+  await withIsolatedDatabase(async () => {
+    const api = await startApi();
+    try {
+      assert.equal((await api.rest('GET', '/settings')).json.data.trustAgentMandates, false);
+      assert.equal((await api.rest('PUT', '/settings', { trustAgentMandates: 'yes' })).status, 400);
+      assert.equal((await api.rest('PUT', '/settings', { trustAgentMandates: true })).json.data.trustAgentMandates, true);
+      const created = await api.tool('tasks_create', { title: 'Printer', brief: 'Quotes', mandate: 'Email printers' });
+      assert.equal(created.json.data.task.mandateConfirmed, true);
+      assert.doesNotMatch(created.json.data.note, /confirm it/i);
+      const info = await api.tool('tasks_get_info', {});
+      assert.equal(info.json.data.state.trustAgentMandates, true);
+    } finally {
+      await api.close();
+    }
+  });
+});

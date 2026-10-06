@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Loader2, Plus } from 'lucide-react';
 
 import { api, readApiJson } from '@/shared/api';
-import { Button, Pill, PillBar } from '@/shared/ui';
+import { Button, Pill, PillBar, SettingSwitch } from '@/shared/ui';
 import type { AgentTask, AgentTaskInput, Project } from '@/shared/types';
 import { useAgentTasks } from '@/modules/agent-tasks/hooks/useAgentTasks';
 import { useAgentTasksAttention } from '@/modules/agent-tasks/hooks/useAgentTasksAttention';
@@ -11,6 +11,9 @@ import TaskDetail from '@/modules/agent-tasks/TaskDetail';
 import TaskForm from '@/modules/agent-tasks/TaskForm';
 
 type Props = { selectedProject: Project };
+
+const loadTrust = async () => (await readApiJson<{ data: { trustAgentMandates: boolean } }>(await api.agentTasks.settings())).data.trustAgentMandates;
+const saveTrust = async (value: boolean) => (await readApiJson<{ data: { trustAgentMandates: boolean } }>(await api.agentTasks.saveSettings({ trustAgentMandates: value }))).data.trustAgentMandates;
 
 /** Rendered by WorkspaceMain for the admin-only Agent tasks tab: the board of long-running tasks and their detail. */
 export default function AgentTasksPanel({ selectedProject }: Props) {
@@ -59,6 +62,13 @@ export default function AgentTasksPanel({ selectedProject }: Props) {
         </header>
 
         {error && <p role="alert" className="text-sm text-red-600 dark:text-red-300">{error}</p>}
+
+        <SettingSwitch
+          label="Trust mandates written by agents"
+          description="On: a task an agent creates works within its mandate right away (messages go out as the account allows). Off: you confirm the mandate first and its messages wait as drafts."
+          load={loadTrust}
+          save={saveTrust}
+        />
 
         {elsewhere > 0 && (
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-800 dark:text-amber-200">

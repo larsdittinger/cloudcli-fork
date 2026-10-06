@@ -27,6 +27,8 @@ vi.mock('@/shared/api', () => ({
     agentTasks: {
       list: (...args: unknown[]) => { calls.push({ name: 'list', args }); return ok(listData); },
       summary: () => ok(summaryData),
+      settings: () => ok({ trustAgentMandates: false }),
+      saveSettings: (body: { trustAgentMandates: boolean }) => { calls.push({ name: 'saveSettings', args: [body] }); return ok(body); },
       get: () => (detailData ? ok(detailData) : Promise.resolve(new Response(JSON.stringify({ success: false, error: { message: 'Task #12 not found.' } }), { status: 404 }))),
       create: (body: Record<string, unknown>) => { calls.push({ name: 'create', args: [body] }); return ok({ ...task(), id: 42, projectPath: body.projectPath }); },
       update: record('update'),
@@ -271,4 +273,14 @@ test('a card is an article whose title is the button that opens it', async () =>
   render(<MemoryRouter><AgentTasksPanel selectedProject={project} /></MemoryRouter>);
   const article = await screen.findByRole('article', { name: /Krabice/ });
   assert.ok(within(article).getByRole('button', { name: /Krabice/ }));
+});
+
+test('the owner can let agent mandates apply without confirmation', async () => {
+  render(<MemoryRouter><AgentTasksPanel selectedProject={project} /></MemoryRouter>);
+  const toggle = await screen.findByRole('switch', { name: 'Trust mandates written by agents' });
+  await waitFor(() => assert.equal((toggle as HTMLButtonElement).disabled, false));
+  assert.equal(toggle.getAttribute('aria-checked'), 'false');
+  await act(async () => { fireEvent.click(toggle); });
+  assert.deepEqual(calls.find((call) => call.name === 'saveSettings')?.args, [{ trustAgentMandates: true }]);
+  await waitFor(() => assert.equal(toggle.getAttribute('aria-checked'), 'true'));
 });

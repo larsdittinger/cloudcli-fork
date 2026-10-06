@@ -37,6 +37,16 @@ router.get('/summary', asyncHandler(async (_req: Request, res: Response) => {
   res.json(createApiSuccessResponse(schedulesService.proposalSummary()));
 }));
 
+router.get('/settings', asyncHandler(async (_req: Request, res: Response) => {
+  res.json(createApiSuccessResponse({ agentsAutoApprove: schedulesService.agentsAutoApprove() }));
+}));
+
+router.put('/settings', asyncHandler(async (req: Request, res: Response) => {
+  const value = (readInput(req.body) as { agentsAutoApprove?: unknown }).agentsAutoApprove;
+  if (typeof value !== 'boolean') throw new AppError('"agentsAutoApprove" must be a boolean.', { code: 'INVALID_REQUEST', statusCode: 400 });
+  res.json(createApiSuccessResponse({ agentsAutoApprove: schedulesService.setAgentsAutoApprove(value) }));
+}));
+
 router.post('/preview', asyncHandler(async (req: Request, res: Response) => {
   const body = readInput(req.body);
   res.json(createApiSuccessResponse(schedulesService.preview(body.schedule, body.timezone)));

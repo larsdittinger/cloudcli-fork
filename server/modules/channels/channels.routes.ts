@@ -104,6 +104,7 @@ router.use((req, _res, next) => {
 router.get('/settings', asyncHandler(async (_req: Request, res: Response) => {
   res.json(createApiSuccessResponse({
     enabled: channelsService.isEnabled(),
+    agentsAutoApprove: channelsService.agentsAutoApprove(),
     mcpServerName: MCP_SERVER_NAME,
     mcpError: channelsService.getMcpError(),
     accounts: channelsService.listAccounts().length,
@@ -112,11 +113,16 @@ router.get('/settings', asyncHandler(async (_req: Request, res: Response) => {
 }));
 
 router.put('/settings', asyncHandler(async (req: Request, res: Response) => {
-  const enabled = (req.body ?? {}).enabled;
-  if (typeof enabled !== 'boolean') {
-    throw new AppError('"enabled" must be a boolean.', { code: 'INVALID_REQUEST', statusCode: 400 });
+  const { enabled, agentsAutoApprove } = (req.body ?? {}) as { enabled?: unknown; agentsAutoApprove?: unknown };
+  if (enabled === undefined && agentsAutoApprove === undefined) {
+    throw new AppError('Send "enabled" and/or "agentsAutoApprove".', { code: 'INVALID_REQUEST', statusCode: 400 });
   }
-  res.json(createApiSuccessResponse(await channelsService.setEnabled(enabled)));
+  if ((enabled !== undefined && typeof enabled !== 'boolean') || (agentsAutoApprove !== undefined && typeof agentsAutoApprove !== 'boolean')) {
+    throw new AppError('"enabled" and "agentsAutoApprove" must be booleans.', { code: 'INVALID_REQUEST', statusCode: 400 });
+  }
+  if (typeof agentsAutoApprove === 'boolean') channelsService.setAgentsAutoApprove(agentsAutoApprove);
+  const state = typeof enabled === 'boolean' ? await channelsService.setEnabled(enabled) : { enabled: channelsService.isEnabled(), mcpError: channelsService.getMcpError() };
+  res.json(createApiSuccessResponse({ ...state, agentsAutoApprove: channelsService.agentsAutoApprove() }));
 }));
 
 router.get('/summary', asyncHandler(async (_req: Request, res: Response) => {

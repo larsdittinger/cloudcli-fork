@@ -7,6 +7,7 @@ import { afterEach, test, vi } from 'vitest';
 import type { Schedule, ScheduleRun } from '@/shared/types';
 
 const previewBodies: Array<Record<string, unknown>> = [];
+const savedSettings: Array<{ agentsAutoApprove: boolean }> = [];
 vi.mock('@/shared/api', () => ({
   api: {
     schedules: {
@@ -17,6 +18,11 @@ vi.mock('@/shared/api', () => ({
       list: () => Promise.resolve(new Response(JSON.stringify({ success: true, data: [] }))),
       runs: () => Promise.resolve(new Response(JSON.stringify({ success: true, data: [] }))),
       summary: () => Promise.resolve(new Response(JSON.stringify({ success: true, data: { proposals: 3, byProject: { '/a': 2, '/b': 1 } } }))),
+      settings: () => Promise.resolve(new Response(JSON.stringify({ success: true, data: { agentsAutoApprove: false } }))),
+      saveSettings: (body: { agentsAutoApprove: boolean }) => {
+        savedSettings.push(body);
+        return Promise.resolve(new Response(JSON.stringify({ success: true, data: body })));
+      },
     },
   },
   readApiJson: async (response: Response) => response.json(),
@@ -94,4 +100,13 @@ test('an enabled one-time job with its original (passed) date can still be renam
   fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Renamed' } });
   await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Save changes' })); });
   assert.equal(onSubmit.mock.calls.length, 1);
+});
+
+test('the owner can let agents\' schedules run without approval', async () => {
+  render(<MemoryRouter><SchedulesPanel selectedProject={{ name: 'a', displayName: 'a', fullPath: '/a', path: '/a' } as never} /></MemoryRouter>);
+  const toggle = await screen.findByRole('switch', { name: "Agents' schedules run without approval" });
+  await waitFor(() => assert.equal((toggle as HTMLButtonElement).disabled, false));
+  await act(async () => { fireEvent.click(toggle); });
+  assert.deepEqual(savedSettings, [{ agentsAutoApprove: true }]);
+  await waitFor(() => assert.equal(toggle.getAttribute('aria-checked'), 'true'));
 });

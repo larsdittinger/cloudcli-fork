@@ -17,7 +17,7 @@ import type { AccountFormValues } from '@/modules/settings/tabs/channels-setting
 import RuleEditor from '@/modules/settings/tabs/channels-settings/RuleEditor';
 import RuleList from '@/modules/settings/tabs/channels-settings/RuleList';
 
-type ChannelsSettings = { enabled: boolean; mcpServerName: string; mcpError: string | null; accounts: number; rules: number };
+type ChannelsSettings = { enabled: boolean; agentsAutoApprove: boolean; mcpServerName: string; mcpError: string | null; accounts: number; rules: number };
 
 /** Rendered by Settings for the "channels" tab: accounts, rules and the master switch. */
 export default function ChannelsSettingsTab() {
@@ -72,6 +72,18 @@ export default function ChannelsSettingsTab() {
     }
   };
 
+  const saveAutoApprove = async (agentsAutoApprove: boolean) => {
+    setSaving(true);
+    try {
+      await readApiJson(await api.channels.saveSettings({ agentsAutoApprove }));
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const submitAccount = async (values: AccountFormValues) => {
     if (accountDialog.account) {
       await readApiJson(await api.channels.updateAccount(accountDialog.account.id, {
@@ -117,6 +129,19 @@ export default function ChannelsSettingsTab() {
       </SettingsSection>
 
       <SettingsSection title={t('channels.agentsTitle')} description={t('channels.agentsDescription')}>
+        <SettingsCard className="mb-3">
+          <SettingsRow
+            label="Agents set up channels without approval"
+            description="On: accounts and rules an agent proposes are approved and switched on right away (safety checks such as sender filters for auto-replies still apply). Off: they wait for your Approve."
+          >
+            <SettingsToggle
+              checked={Boolean(settings?.agentsAutoApprove)}
+              onChange={(value) => void saveAutoApprove(value)}
+              ariaLabel="Agents set up channels without approval"
+              disabled={saving}
+            />
+          </SettingsRow>
+        </SettingsCard>
         <AgentSetupHelp />
       </SettingsSection>
 

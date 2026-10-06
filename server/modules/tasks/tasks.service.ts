@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { channelOutboxDb, taskEventsDb, tasksDb } from '@/modules/database/index.js';
+import { appConfigDb, channelOutboxDb, taskEventsDb, tasksDb } from '@/modules/database/index.js';
 import type { TaskEventAuthor, TaskEventRow, TaskPatch, TaskRow, TaskStatus } from '@/modules/database/index.js';
 import { broadcastTasksUpdated } from '@/modules/tasks/tasks-broadcast.js';
 import { abortTaskRun, queueWake } from '@/modules/tasks/wake-queue.js';
@@ -17,6 +17,8 @@ const AGENT_STATUSES: TaskStatus[] = ['working', 'waiting_external', 'done', 'ca
  */
 const PERMISSION_MODES = ['bypassPermissions'];
 const MAX_CHECK_DAYS = 90;
+/** app_config key of the owner's "trust mandates written by agents" switch. */
+const TRUST_AGENT_MANDATES_KEY = 'tasks_trust_agent_mandates';
 const CLOSED_VISIBLE_DAYS = 30;
 
 /** One checklist item of a task's plan. */
@@ -337,8 +339,9 @@ export const tasksService = {
       title,
       brief,
       mandate,
-      // An agent writes the mandate from what it understood; the owner confirms it before anything leaves on its own.
-      mandate_confirmed: origin.by === 'owner' ? 1 : 0,
+      // An agent writes the mandate from what it understood; the owner confirms it before anything leaves on its own
+      // — unless the owner chose to trust agents' mandates.
+      mandate_confirmed: origin.by === 'owner' || this.trustAgentMandates() ? 1 : 0,
       status: 'new',
       project_path: projectPath,
       provider: optionalName(input.provider, 'Provider') ?? 'claude',
@@ -350,7 +353,9 @@ export const tasksService = {
       next_check_at: nextCheck ?? null,
       question: null,
     });
-    logEvent(row.id, origin.by, 'created', origin.by === 'owner' ? 'Task created.' : 'Task created by an agent; the mandate waits for your confirmation.');
+    logEvent(row.id, origin.by, 'created', origin.by === 'owner'
+      ? 'Task created.'
+      : row.mandate_confirmed === 1 ? 'Task created by an agent (agents\' mandates are trusted).' : 'Task created by an agent; the mandate waits for your confirmation.');
     // A delayed start (agent-created with a check time) just waits for that time.
     if (!nextCheck) queueWake(row.id, 'created');
     return changed(row.id);
@@ -511,6 +516,16 @@ export const tasksService = {
     tasksDb.update(id, { question: JSON.stringify(question), status: 'waiting_owner', next_check_at: null });
     logEvent(id, by, 'question', cleaned.length ? `${text}\nOptions: ${cleaned.join(' / ')}` : text);
     return changed(id);
+  },
+
+  /** The owner's switch: tasks created by agents start with their mandate confirmed. */
+  trustAgentMandates(): boolean {
+    return appConfigDb.get(TRUST_AGENT_MANDATES_KEY) === 'true';
+  },
+
+  setTrustAgentMandates(value: boolean): boolean {
+    appConfigDb.set(TRUST_AGENT_MANDATES_KEY, value ? 'true' : 'false');
+    return value;
   },
 
   attention(): { total: number; byProject: Record<string, number> } {

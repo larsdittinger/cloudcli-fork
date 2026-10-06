@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { scheduleRunsDb, schedulesDb } from '@/modules/database/index.js';
+import { appConfigDb, scheduleRunsDb, schedulesDb } from '@/modules/database/index.js';
 import type { ScheduleKind, ScheduleRow, ScheduleRunRow, ScheduleRunStatus, ScheduleWrite } from '@/modules/database/index.js';
 import { describeSchedule, isValidTimezone, nextRuns, parseScheduleSpec } from '@/modules/schedules/schedule-spec.js';
 import type { ScheduleSpec } from '@/modules/schedules/schedule-spec.js';
@@ -9,6 +9,9 @@ import { recomputeNextRun, startRun } from '@/modules/schedules/scheduler.servic
 import { stopScriptRuns } from '@/modules/schedules/script-runner.service.js';
 import { broadcastSchedulesUpdated } from '@/modules/schedules/schedules-broadcast.js';
 import { AppError } from '@/shared/utils.js';
+
+/** app_config key of the owner's "agents' schedules run without approval" switch. */
+const AGENTS_AUTO_APPROVE_KEY = 'schedules_agents_auto_approve';
 
 const DEFAULT_TIMEZONE = 'Europe/Prague';
 const PERMISSION_MODES = new Set(['default', 'acceptEdits', 'plan', 'bypassPermissions']);
@@ -303,6 +306,16 @@ export const schedulesService = {
     });
     broadcastSchedulesUpdated({ scheduleId: row.id });
     return toPublicSchedule(row);
+  },
+
+  /** The owner's switch: agents' proposals are approved (and planned) the moment they are made. */
+  agentsAutoApprove(): boolean {
+    return appConfigDb.get(AGENTS_AUTO_APPROVE_KEY) === 'true';
+  },
+
+  setAgentsAutoApprove(value: boolean): boolean {
+    appConfigDb.set(AGENTS_AUTO_APPROVE_KEY, value ? 'true' : 'false');
+    return value;
   },
 
   approve(id: string): PublicSchedule {

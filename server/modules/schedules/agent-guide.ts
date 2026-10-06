@@ -19,13 +19,13 @@ Tvůj pracovní adresář (výchozí projekt návrhu): ${input.cwd ? `\`${input.
 | nástroj | k čemu |
 |---|---|
 | \`schedules_get_info\` | tento návod + úlohy a poslední běhy |
-| \`schedules_propose\` | návrh nové úlohy (uloží se VYPNUTÁ, čeká na schválení) |
+| \`schedules_propose\` | návrh nové úlohy (uloží se VYPNUTÁ a čeká na schválení — pokud uživatel nepovolil zapínání bez schválení) |
 | \`schedules_withdraw_proposal\` | stažení vlastního neschváleného návrhu |
 | \`schedules_list_runs\` | historie běhů (stav, trvání, výstup, odkaz na chat) |
 
 ## Návrh → schválení
 
-Všechno, co založíš, je **návrh**: nic nespouští, dokud ho uživatel neschválí v záložce **Schedules** (Approve). Schválené úlohy neměníš ani nemažeš; když je potřeba změna, navrhni novou a požádej uživatele o úpravu/smazání staré. Do \`note\` napiš jednou dvěma větami, co úloha dělá a proč; po návrhu uživateli v chatu řekni, co má schválit. Odpověď návrhu obsahuje lidský popis rozvrhu a příští 3 běhy — zkontroluj, že sedí.
+Všechno, co založíš, je **návrh**: nic nespouští, dokud ho uživatel neschválí v záložce **Schedules** (Approve). **Výjimka:** když má uživatel zapnuté „Agents' schedules run without approval" (\`state.agentsAutoApprove: true\`), návrh se rovnou zapne a naplánuje — pak mu jen řekni, co a kdy poběží. Schválené úlohy neměníš ani nemažeš; když je potřeba změna, navrhni novou a požádej uživatele o úpravu/smazání staré. Do \`note\` napiš jednou dvěma větami, co úloha dělá a proč; po návrhu uživateli v chatu řekni, co má schválit. Odpověď návrhu obsahuje lidský popis rozvrhu a příští 3 běhy — zkontroluj, že sedí.
 
 ## Rozvrh (\`schedule\`)
 

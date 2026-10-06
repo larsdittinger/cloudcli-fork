@@ -36,6 +36,16 @@ router.get('/summary', asyncHandler(async (_req: Request, res: Response) => {
   res.json(createApiSuccessResponse(tasksService.attention()));
 }));
 
+router.get('/settings', asyncHandler(async (_req: Request, res: Response) => {
+  res.json(createApiSuccessResponse({ trustAgentMandates: tasksService.trustAgentMandates() }));
+}));
+
+router.put('/settings', asyncHandler(async (req: Request, res: Response) => {
+  const value = readBody(req).trustAgentMandates;
+  if (typeof value !== 'boolean') throw new AppError('"trustAgentMandates" must be a boolean.', { code: 'INVALID_REQUEST', statusCode: 400 });
+  res.json(createApiSuccessResponse({ trustAgentMandates: tasksService.setTrustAgentMandates(value) }));
+}));
+
 router.get('/:id', asyncHandler(async (req: Request, res: Response) => {
   res.json(createApiSuccessResponse(tasksService.get(readId(req.params.id))));
 }));

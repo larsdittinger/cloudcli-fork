@@ -78,7 +78,7 @@ export default function AccountForm({ open, account, onOpenChange, onSubmit }: P
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent wrapperClassName="z-[10000]" className="max-w-none max-h-[90vh] w-[min(100vw-1rem,36rem)] overflow-y-auto p-4 md:p-5">
+      <DialogContent wrapperClassName="z-[10000]" className="max-h-[90vh] w-[min(100vw-1rem,36rem)] max-w-none overflow-y-auto p-4 md:p-5">
         <DialogTitle className="mb-3 text-base font-semibold">{account ? `Edit ${account.label}` : 'Add account'}</DialogTitle>
 
         <div className="space-y-4">

@@ -93,7 +93,14 @@ nasazuje — je v `../CLAUDE.md`.
   úkoly projektu volajícího (cwd), `tasks_send_message` jen během běhu úkolu; `channels_send_message`
   v projektu s běžícím úkolem → 409. Běhy jen `bypassPermissions`, bez AskUserQuestion/plan mode,
   watchdog `CLOUDCLI_TASKS_RUN_TIMEOUT_MIN` (výchozí 180). MCP `cloudcli-tasks` (`tasks-mcp.ts`, bridge `/api/tasks-mcp`). Úkol od agenta má
-  `mandate_confirmed = 0`, dokud ho admin nepotvrdí. Spec: `docs/superpowers/specs/2026-10-06-tasks-design.md` (hub).
+  `mandate_confirmed = 0`, dokud ho admin nepotvrdí.
+- **Přepínače autonomie agentů** (od 2026-10-06, výchozí vypnuto, `app_config`): Settings → Channels
+  „Agents set up channels without approval" (`channels_agents_auto_approve` → návrh účtu/pravidla se hned
+  schválí; validace pravidel platí dál), záložka Schedules „Agents' schedules run without approval"
+  (`schedules_agents_auto_approve` → `schedules_propose` rovnou `approve`, prošlé jednorázové datum zůstane
+  návrhem), záložka Agent tasks „Trust mandates written by agents" (`tasks_trust_agent_mandates` → úkol od
+  agenta má mandát potvrzený). Agenti stav vidí v `*_get_info` (`state.agentsAutoApprove` /
+  `state.trustAgentMandates`) a v poznámce odpovědi nástroje. UI: sdílené `SettingSwitch` / `Switch` v `src/shared/ui`. Spec: `docs/superpowers/specs/2026-10-06-tasks-design.md` (hub).
 
 Držet **minimal-diff** proti upstreamu — čím menší rozdíl, tím snazší merge. Nové
 featury zvažovat nejdřív jako plugin (viz cron plugin `workspace-scheduled-prompts`,

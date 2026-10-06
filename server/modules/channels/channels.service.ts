@@ -27,6 +27,7 @@ import { AppError } from '@/shared/utils.js';
 
 const ENABLED_KEY = 'channels_enabled';
 const MCP_TOKEN_KEY = 'channels_mcp_token';
+const AGENTS_AUTO_APPROVE_KEY = 'channels_agents_auto_approve';
 const PUBLIC_URL_KEY = 'channels_public_url';
 export const MCP_SERVER_NAME = 'cloudcli-channels';
 const CHANNEL_TYPES: ChannelType[] = ['email', 'whatsapp', 'webhook'];
@@ -264,6 +265,16 @@ export const channelsService = {
 
   isEnabled(): boolean {
     return appConfigDb.get(ENABLED_KEY) === 'true';
+  },
+
+  /** The owner's switch: agents' account and rule proposals are approved the moment they are made. */
+  agentsAutoApprove(): boolean {
+    return appConfigDb.get(AGENTS_AUTO_APPROVE_KEY) === 'true';
+  },
+
+  setAgentsAutoApprove(value: boolean): boolean {
+    appConfigDb.set(AGENTS_AUTO_APPROVE_KEY, value ? 'true' : 'false');
+    return value;
   },
 
   getMcpToken(): string {

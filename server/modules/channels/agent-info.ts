@@ -32,7 +32,7 @@ Stav teď: Channels jsou **${input.channelsEnabled ? 'zapnuté' : 'VYPNUTÉ — 
 
 ## Jak si sám nastavit vstup (návrh → schválení)
 
-Všechno, co založíš, je **návrh**: uloží se **vypnutý** a nic nedělá, dokud ho uživatel neschválí v **Settings → Channels** (tlačítko **Approve** na kartě účtu / pravidla). Schválenou konfiguraci neměníš ani nemažeš — když je potřeba změna, navrhni nové pravidlo a požádej uživatele, ať staré upraví nebo smaže. Do \`note\` napiš jednou dvěma větami, proč návrh vzniká a co bude dělat; uživatel ji uvidí u tlačítka Approve. Po založení mu v chatu řekni, co má schválit.
+Všechno, co založíš, je **návrh**: uloží se **vypnutý** a nic nedělá, dokud ho uživatel neschválí v **Settings → Channels** (tlačítko **Approve** na kartě účtu / pravidla). **Výjimka:** když má uživatel zapnuté „Agents set up channels without approval" (\`state.agentsAutoApprove: true\`), návrh se schválí a zapne hned — pak mu jen řekni, co jsi nastavil; bezpečnostní pravidla (filtr odesílatelů u auto-odpovědí) platí dál. Schválenou konfiguraci neměníš ani nemažeš — když je potřeba změna, navrhni nové pravidlo a požádej uživatele, ať staré upraví nebo smaže. Do \`note\` napiš jednou dvěma větami, proč návrh vzniká a co bude dělat; uživatel ji uvidí u tlačítka Approve. Po založení mu v chatu řekni, co má schválit.
 
 Typický postup: \`channels_get_info\` → (když účet ještě není) \`channels_propose_account\` → \`channels_propose_rule\` s \`account_id\` z předchozího kroku → požádat o schválení → ověřit stav znovu přes \`channels_get_info\`.
 

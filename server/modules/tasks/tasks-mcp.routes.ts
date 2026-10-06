@@ -107,6 +107,7 @@ router.post('/tools/:toolName', async (req, res) => {
           state: {
             yourWorkingDirectory: cwd,
             openTasks: tasksService.list().filter((task) => task.status !== 'done' && task.status !== 'cancelled').map(compact),
+            trustAgentMandates: tasksService.trustAgentMandates(),
             channelsEnabled: channelsService.isEnabled(),
             channelAccounts: accounts(),
           },
@@ -134,7 +135,12 @@ router.post('/tools/:toolName', async (req, res) => {
           projectPath: absoluteOrNull(input.project_path) ?? undefined,
           nextCheckInMinutes: input.start_in_minutes,
         }, { by: 'agent', cwd });
-        result = { task, note: `Task #${task.id} created and starting in ${task.projectPath}. Its mandate waits for the owner: ask them to confirm it in the Tasks tab — until then messages are drafts.` };
+        result = {
+          task,
+          note: task.mandateConfirmed
+            ? `Task #${task.id} created and starting in ${task.projectPath}; the owner trusts agents' mandates, so it works within the mandate right away. Tell them the task number.`
+            : `Task #${task.id} created and starting in ${task.projectPath}. Its mandate waits for the owner: ask them to confirm it in the Agent tasks tab — until then messages are drafts.`,
+        };
         break;
       }
       case 'tasks_update':

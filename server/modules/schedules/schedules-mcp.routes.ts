@@ -77,6 +77,7 @@ router.post('/tools/:toolName', (req, res) => {
           guide: buildSchedulesGuide({ publicUrl: channelsService.getPublicUrl(), cwd }),
           state: {
             yourWorkingDirectory: cwd,
+            agentsAutoApprove: schedulesService.agentsAutoApprove(),
             publicUrl: channelsService.getPublicUrl(),
             schedules: schedulesService.list(),
             recentRuns: schedulesService.listRuns({ limit: 20 }).map((run) => ({ ...run, output: run.output?.slice(-2000) ?? null })),
@@ -85,11 +86,24 @@ router.post('/tools/:toolName', (req, res) => {
         break;
       case 'schedules_propose': {
         const note = typeof input.note === 'string' ? input.note.trim().slice(0, 2000) : '';
-        const schedule = schedulesService.create(readProposalInput(input, cwd), null, { note, projectPath: cwd, createdAt: new Date().toISOString() });
+        const proposed = schedulesService.create(readProposalInput(input, cwd), null, { note, projectPath: cwd, createdAt: new Date().toISOString() });
+        // The owner lets agents schedule without approval: it goes live now (unless it cannot, e.g. a date already past).
+        let schedule = proposed;
+        let autoApproveError: string | null = null;
+        if (schedulesService.agentsAutoApprove()) {
+          try {
+            schedule = schedulesService.approve(proposed.id);
+          } catch (error) {
+            autoApproveError = error instanceof Error ? error.message : String(error);
+          }
+        }
+        const live = !schedule.proposal;
         result = {
           schedule,
           nextRuns: schedule.schedule ? nextRuns(parseScheduleSpec(schedule.schedule), schedule.timezone, 3).map((date) => date.toISOString()) : [],
-          note: 'Proposal saved DISABLED. Tell the user to approve it in the Schedules tab of the project (card → Approve).',
+          note: live
+            ? 'Approved and enabled right away (the owner lets agents schedule without approval). Tell the user what you scheduled and when it runs next.'
+            : `Proposal saved DISABLED.${autoApproveError ? ` It could not go live on its own: ${autoApproveError}` : ''} Tell the user to approve it in the Schedules tab of the project (card → Approve).`,
         };
         break;
       }
