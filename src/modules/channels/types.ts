@@ -1,7 +1,8 @@
 export type ChannelType = 'email' | 'whatsapp' | 'webhook';
 export type AccountStatus = 'disconnected' | 'connecting' | 'connected' | 'error' | 'needs_pairing';
 export type AgentSendMode = 'off' | 'draft' | 'auto';
-export type MessageStatus = 'unmatched' | 'ignored' | 'queued' | 'dispatched' | 'failed' | 'manual';
+/** `task` = the message went to a long-running agent task instead of a rule. */
+export type MessageStatus = 'unmatched' | 'ignored' | 'queued' | 'dispatched' | 'failed' | 'manual' | 'task';
 export type OutboxStatus = 'draft' | 'approved' | 'sending' | 'sent' | 'failed' | 'discarded';
 export type ConversationMode = 'thread' | 'sender' | 'new';
 export type ReplyMode = 'none' | 'draft' | 'auto';

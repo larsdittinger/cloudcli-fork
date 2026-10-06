@@ -38,6 +38,7 @@ export function AccountStatusBadge({ status }: { status: AccountStatus }) {
 const MESSAGE_STATUS_CLASS: Record<MessageStatus, string> = {
   dispatched: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30',
   manual: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30',
+  task: 'bg-violet-500/15 text-violet-700 dark:text-violet-300 border-violet-500/30',
   queued: 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30',
   unmatched: 'bg-sky-500/15 text-sky-700 dark:text-sky-300 border-sky-500/30',
   failed: 'bg-red-500/15 text-red-700 dark:text-red-300 border-red-500/30',
@@ -47,6 +48,7 @@ const MESSAGE_STATUS_CLASS: Record<MessageStatus, string> = {
 const MESSAGE_STATUS_LABEL: Record<MessageStatus, string> = {
   dispatched: 'Agent started',
   manual: 'Sent manually',
+  task: 'Sent to a task',
   queued: 'Queued',
   unmatched: 'No rule',
   failed: 'Failed',

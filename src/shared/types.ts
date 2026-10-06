@@ -51,7 +51,7 @@ export type ProviderModelActions = {
 //----------------- PROJECTS AND SESSIONS ------------
 
 /** Identifies the workspace pane the user is looking at; plugin panes are namespaced by plugin id. */
-export type AppTab = 'chat' | 'files' | 'shell' | 'git' | 'tasks' | 'browser' | 'schedules' | `plugin:${string}`;
+export type AppTab = 'chat' | 'files' | 'shell' | 'git' | 'tasks' | 'browser' | 'schedules' | 'agent-tasks' | `plugin:${string}`;
 
 /** A message queued to be sent to a session at a future time. */
 export type ScheduledMessage = {
@@ -1582,6 +1582,77 @@ type TaskStatus =
 
 /** A TaskMaster task's priority; high, medium and low are the known values and the string fallback tolerates anything else TaskMaster emits. */
 type TaskPriority = 'high' | 'medium' | 'low' | string;
+
+// ---------------------------
+
+//----------------- AGENT TASKS ------------
+
+/** Column of a long-running agent task; `done` and `cancelled` are closed and never wake the agent. */
+export type AgentTaskStatus = 'new' | 'working' | 'waiting_external' | 'waiting_owner' | 'done' | 'cancelled';
+
+/** A question that waits for the owner; `by: 'system'` when the engine itself needs a decision (failures, loops). */
+export type AgentTaskQuestion = { text: string; options: string[]; by: 'agent' | 'system'; askedAt: string };
+
+/** A long-running agent task as /api/tasks returns it; the card is the agent's memory between wake-ups. */
+export type AgentTask = {
+  id: number;
+  title: string;
+  brief: string;
+  mandate: string;
+  /** False while an agent-created task waits for the owner to confirm what it may do alone. */
+  mandateConfirmed: boolean;
+  summary: string;
+  checklist: Array<{ text: string; done: boolean }>;
+  status: AgentTaskStatus;
+  question: AgentTaskQuestion | null;
+  nextCheckAt: string | null;
+  /** Set while an agent run is in progress; `sessionId` is its chat. */
+  running: { sessionId: string; since: string | null } | null;
+  pendingWake: string[];
+  failureCount: number;
+  projectPath: string;
+  provider: string;
+  model: string | null;
+  effort: string | null;
+  permissionMode: string;
+  ownerUserId: number | null;
+  createdBy: 'owner' | 'agent';
+  createdAt: string;
+  updatedAt: string;
+  closedAt: string | null;
+  /** Outgoing messages of this task that wait for the owner (drafts, failed sends). */
+  draftCount: number;
+};
+
+/** One diary entry of an agent task; `sessionId` links the chat of a wake-up. */
+export type AgentTaskEvent = {
+  id: number;
+  at: string;
+  author: 'owner' | 'agent' | 'system' | 'external';
+  kind: string;
+  text: string;
+  meta: Record<string, unknown> | null;
+  sessionId: string | null;
+};
+
+/** An outgoing e-mail / WhatsApp / webhook message of a task (Channels outbox row). */
+export type AgentTaskMessage = {
+  id: string;
+  accountId: string;
+  to: string;
+  subject: string | null;
+  text: string;
+  status: string;
+  statusDetail: string | null;
+  createdAt: string;
+  sentAt: string | null;
+};
+
+/** The task detail view: card, diary (oldest first) and outgoing messages. */
+export type AgentTaskDetail = { task: AgentTask; events: AgentTaskEvent[]; eventCount: number; messages: AgentTaskMessage[] };
+
+/** What the task form submits when creating or editing a task. */
+export type AgentTaskInput = Pick<AgentTask, 'title' | 'brief' | 'mandate' | 'projectPath' | 'provider' | 'model' | 'effort' | 'permissionMode'>;
 
 // ---------------------------
 

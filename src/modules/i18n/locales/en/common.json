@@ -25,7 +25,8 @@
     "tasks": "Tasks",
     "browser": "Browser",
     "computer": "Computer",
-    "schedules": "Schedules"
+    "schedules": "Schedules",
+    "agentTasks": "Agent tasks"
   },
   "status": {
     "loading": "Loading...",

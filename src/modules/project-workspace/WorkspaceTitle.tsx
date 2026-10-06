@@ -33,6 +33,10 @@ function getTabTitle(activeTab: AppTab, shouldShowTasksTab: boolean, t: (key: st
     return t('tabs.browser');
   }
 
+  if (activeTab === 'agent-tasks') {
+    return t('tabs.agentTasks');
+  }
+
   if (activeTab === 'schedules') {
     return t('tabs.schedules');
   }

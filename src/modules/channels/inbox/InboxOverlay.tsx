@@ -24,6 +24,7 @@ const MESSAGE_FILTERS: Array<{ value: MessageStatus | ''; label: string }> = [
   { value: 'unmatched', label: 'No rule' },
   { value: 'queued', label: 'Queued' },
   { value: 'dispatched', label: 'Agent started' },
+  { value: 'task', label: 'Sent to a task' },
   { value: 'failed', label: 'Failed' },
   { value: 'ignored', label: 'Ignored' },
 ];

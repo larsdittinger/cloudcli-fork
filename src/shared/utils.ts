@@ -230,3 +230,32 @@ export const getPageTitle = (
   const displayName = selectedProject?.displayName?.trim();
   return displayName ? `${displayName} - ${DEFAULT_PAGE_TITLE}` : DEFAULT_PAGE_TITLE;
 };
+
+// ---------------------------
+
+//----------------- EUROPEAN DATE FORMATTING ------------
+
+/** Weekday, date and time in Prague, 24 h; the shared formatter behind `formatDateTime`. */
+const dateTimeFormat = new Intl.DateTimeFormat('cs-CZ', {
+  timeZone: 'Europe/Prague',
+  weekday: 'short',
+  day: '2-digit',
+  month: '2-digit',
+  year: 'numeric',
+  hour: '2-digit',
+  minute: '2-digit',
+  hour12: false,
+});
+
+/**
+ * `st 07. 10. 2026 08:00` — European order, 24 h, Prague time; `—` for nothing.
+ * Used by the schedules and agent-tasks modules for every date the user reads.
+ */
+export function formatDateTime(iso: string | null | undefined): string {
+  if (!iso) return '—';
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '—';
+  const parts = dateTimeFormat.formatToParts(date);
+  const read = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value ?? '';
+  return `${read('weekday')} ${read('day')}. ${read('month')}. ${read('year')} ${read('hour')}:${read('minute')}`;
+}

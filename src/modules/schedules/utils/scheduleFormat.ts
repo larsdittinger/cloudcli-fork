@@ -1,27 +1,7 @@
 import type { ScheduleSpec } from '@/shared/types';
+import { formatDateTime } from '@/shared/utils';
 
 const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-
-const dateTimeFormat = new Intl.DateTimeFormat('cs-CZ', {
-  timeZone: 'Europe/Prague',
-  weekday: 'short',
-  day: '2-digit',
-  month: '2-digit',
-  year: 'numeric',
-  hour: '2-digit',
-  minute: '2-digit',
-  hour12: false,
-});
-
-/** `st 07. 10. 2026 08:00` — European order, 24 h, Prague time; `—` for nothing. */
-export function formatDateTime(iso: string | null | undefined): string {
-  if (!iso) return '—';
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return '—';
-  const parts = dateTimeFormat.formatToParts(date);
-  const read = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value ?? '';
-  return `${read('weekday')} ${read('day')}. ${read('month')}. ${read('year')} ${read('hour')}:${read('minute')}`;
-}
 
 /** `45 s`, `3 min 12 s`, `1 h 05 min`; `—` while either end is missing. */
 export function formatDuration(startIso: string | null | undefined, endIso: string | null | undefined): string {

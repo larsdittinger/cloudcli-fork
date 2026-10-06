@@ -1,4 +1,4 @@
-import { MessageSquare, Terminal, Folder, GitBranch, ClipboardCheck, MonitorPlay, CalendarClock, type LucideIcon } from 'lucide-react';
+import { MessageSquare, Terminal, Folder, GitBranch, ClipboardCheck, MonitorPlay, CalendarClock, KanbanSquare, type LucideIcon } from 'lucide-react';
 import { Fragment } from 'react';
 import type { Dispatch, KeyboardEvent, SetStateAction } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -7,6 +7,7 @@ import { Tooltip, PillBar, Pill } from '@/shared/ui';
 import type { AppTab } from '@/shared/types';
 import { usePlugins,PluginIcon } from '@/modules/plugins';
 import { SchedulesTabBadge } from '@/modules/schedules';
+import { AgentTasksTabBadge } from '@/modules/agent-tasks';
 
 type WorkspaceTabsProps = {
   activeTab: AppTab;
@@ -58,6 +59,14 @@ const SCHEDULES_TAB: BuiltInTab = {
   icon: CalendarClock,
 };
 
+/** Admin only: long-running agent tasks (the board). Not TaskMaster's `tasks` tab. */
+const AGENT_TASKS_TAB: BuiltInTab = {
+  kind: 'builtin',
+  id: 'agent-tasks',
+  labelKey: 'tabs.agentTasks',
+  icon: KanbanSquare,
+};
+
 const TASKS_TAB: BuiltInTab = {
   kind: 'builtin',
   id: 'tasks',
@@ -84,6 +93,7 @@ export default function WorkspaceTabs({
       ]
     : [
         ...BASE_TABS,
+        AGENT_TASKS_TAB,
         SCHEDULES_TAB,
         ...(shouldShowBrowserTab ? [BROWSER_TAB] : []),
         ...(shouldShowTasksTab ? [TASKS_TAB] : []),
@@ -160,6 +170,7 @@ export default function WorkspaceTabs({
                   {displayLabel}
                 </span>
                 {tab.id === 'schedules' && <SchedulesTabBadge />}
+                {tab.id === 'agent-tasks' && <AgentTasksTabBadge />}
               </Pill>
             </Tooltip>
           </Fragment>

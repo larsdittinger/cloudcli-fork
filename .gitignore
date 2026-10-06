@@ -135,7 +135,6 @@ tasks.json
 tasks/ 
 # ...but not the Tasks feature modules (fork).
 !server/modules/tasks/
-!src/modules/tasks/
 
 # Translations
 !src/i18n/locales/*/tasks.json

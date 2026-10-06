@@ -3,11 +3,10 @@ import { Check, Copy, Loader2, Pause, Pencil, Play, Trash2, X } from 'lucide-rea
 
 import { api, readApiJson } from '@/shared/api';
 import { Button } from '@/shared/ui';
-import { cn } from '@/shared/utils';
 import type { Schedule } from '@/shared/types';
 import KindLabel from '@/modules/schedules/KindLabel';
 import StatusPill from '@/modules/schedules/StatusPill';
-import { formatDateTime } from '@/modules/schedules/utils/scheduleFormat';
+import { cn, formatDateTime } from '@/shared/utils';
 
 type Props = {
   schedule: Schedule;

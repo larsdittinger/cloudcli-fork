@@ -4,9 +4,9 @@ import { Loader2 } from 'lucide-react';
 
 import { api, readApiJson } from '@/shared/api';
 import { Button, Dialog, DialogContent, DialogTitle, Input } from '@/shared/ui';
-import { cn } from '@/shared/utils';
 import type { Schedule, ScheduleInput, ScheduleSpec } from '@/shared/types';
-import { describeSchedule, formatDateTime } from '@/modules/schedules/utils/scheduleFormat';
+import { cn, formatDateTime } from '@/shared/utils';
+import { describeSchedule } from '@/modules/schedules/utils/scheduleFormat';
 
 type Props = {
   open: boolean;

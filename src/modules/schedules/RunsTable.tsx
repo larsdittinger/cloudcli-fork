@@ -7,7 +7,8 @@ import { Button, Dialog, DialogContent, DialogTitle } from '@/shared/ui';
 import type { ScheduleRun } from '@/shared/types';
 import KindLabel from '@/modules/schedules/KindLabel';
 import StatusPill from '@/modules/schedules/StatusPill';
-import { formatDateTime, formatDuration } from '@/modules/schedules/utils/scheduleFormat';
+import { formatDateTime } from '@/shared/utils';
+import { formatDuration } from '@/modules/schedules/utils/scheduleFormat';
 
 type Props = {
   runs: ScheduleRun[];

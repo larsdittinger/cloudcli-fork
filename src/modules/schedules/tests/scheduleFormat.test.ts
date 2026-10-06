@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 
 import { test } from 'vitest';
 
-import { describeSchedule, formatDateTime, formatDuration } from '@/modules/schedules/utils/scheduleFormat';
+import { formatDateTime } from '@/shared/utils';
+import { describeSchedule, formatDuration } from '@/modules/schedules/utils/scheduleFormat';
 
 test('formatDateTime: European day, date and 24 h time in Prague', () => {
   assert.equal(formatDateTime('2026-10-07T06:00:00.000Z'), 'st 07. 10. 2026 08:00');

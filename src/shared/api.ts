@@ -590,6 +590,25 @@ export const api = {
     retryOutbox: (id: string) => post(`/api/channels/outbox/${id}/retry`),
   },
 
+  agentTasks: {
+    list: (projectPath?: string, includeOld = false) => {
+      const query = new URLSearchParams();
+      if (projectPath) query.set('projectPath', projectPath);
+      if (includeOld) query.set('includeOld', '1');
+      const text = query.toString();
+      return get(`/api/tasks${text ? `?${text}` : ''}`);
+    },
+    summary: () => get('/api/tasks/summary'),
+    get: (id: number) => get(`/api/tasks/${id}`),
+    create: (body: unknown) => post('/api/tasks', body),
+    update: (id: number, body: unknown) => put(`/api/tasks/${id}`, body),
+    remove: (id: number) => del(`/api/tasks/${id}`),
+    setStatus: (id: number, status: string) => post(`/api/tasks/${id}/status`, { status }),
+    comment: (id: number, text: string) => post(`/api/tasks/${id}/comment`, { text }),
+    answer: (id: number, body: { option?: string; text?: string }) => post(`/api/tasks/${id}/answer`, body),
+    confirmMandate: (id: number) => post(`/api/tasks/${id}/confirm-mandate`),
+    wake: (id: number) => post(`/api/tasks/${id}/wake`),
+  },
   schedules: {
     list: (projectPath?: string) => get(`/api/schedules${projectPath ? `?projectPath=${encodeURIComponent(projectPath)}` : ''}`),
     summary: () => get('/api/schedules/summary'),
