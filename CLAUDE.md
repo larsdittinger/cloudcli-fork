@@ -72,7 +72,10 @@ nasazuje — je v `../CLAUDE.md`.
   chat event `error`, ne výjimka — `prompt-runner` je čte z `chatRunRegistry`. MCP
   `cloudcli-schedules` (registruje se při startu) → návrhy `proposal` jako u Channels.
   Při prvním startu import úloh z `~/.cloudcli-workspace-scheduled-prompts` a plugin se
-  vypne (`disablePlugin`). Spec: `docs/superpowers/specs/2026-10-06-schedules-design.md` (hub).
+  vypne (`disablePlugin`). Opakované shodné `skipped` běhy se slučují do jednoho řádku
+  (`repeat_count`, v UI ×N); úprava bez změny rozvrhu drží `next_run_at`; jednorázová úloha
+  přeskočená souběhem se zkusí za minutu; smazání úlohy zastaví běžící skript (i potomky).
+  Spec: `docs/superpowers/specs/2026-10-06-schedules-design.md` (hub).
 
 Držet **minimal-diff** proti upstreamu — čím menší rozdíl, tím snazší merge. Nové
 featury zvažovat nejdřív jako plugin (viz cron plugin `workspace-scheduled-prompts`,
