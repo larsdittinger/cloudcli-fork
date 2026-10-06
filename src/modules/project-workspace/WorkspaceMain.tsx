@@ -6,6 +6,7 @@ import { StandaloneShell } from '@/modules/standalone-shell';
 import { GitPanel } from '@/modules/git-panel';
 import { PluginTabContent } from '@/modules/plugins';
 import { BrowserUsePanel, useBrowserUseEnabled } from '@/modules/browser-use';
+import { SchedulesPanel } from '@/modules/schedules';
 import { usePaletteOpsRegister } from '@/modules/command-palette';
 import { TaskMasterPanel, useTaskMasterProjectSync, useTasksSettings } from '@/modules/task-master';
 import type { AppTab, Project, ProjectSession, SessionEstablishedContext, SessionNavigationOptions, SettingsMainTab } from '@/shared/types';
@@ -39,7 +40,7 @@ type WorkspaceMainProps = {
   onProjectsRefresh: () => void;
 };
 
-/** Rendered by ProjectMainRegion to show the selected project's active tab: chat, files, shell, git, tasks, browser or a plugin. */
+/** Rendered by ProjectMainRegion to show the selected project's active tab: chat, files, shell, git, schedules, tasks, browser or a plugin. */
 function WorkspaceMain({
   selectedProject,
   selectedSession,
@@ -206,6 +207,12 @@ function WorkspaceMain({
           )}
 
           {shouldShowTasksTab && <TaskMasterPanel isVisible={activeTab === 'tasks'} />}
+
+          {isAdmin && activeTab === 'schedules' && (
+            <div className="h-full overflow-hidden">
+              <SchedulesPanel selectedProject={selectedProject} />
+            </div>
+          )}
 
           {shouldShowBrowserTab && activeTab === 'browser' && (
             <div className="h-full overflow-hidden">

@@ -24,7 +24,8 @@
     "git": "Source Control",
     "tasks": "Tasks",
     "browser": "Browser",
-    "computer": "Computer"
+    "computer": "Computer",
+    "schedules": "Schedules"
   },
   "status": {
     "loading": "Loading...",

@@ -1,4 +1,4 @@
-import { MessageSquare, Terminal, Folder, GitBranch, ClipboardCheck, MonitorPlay, type LucideIcon } from 'lucide-react';
+import { MessageSquare, Terminal, Folder, GitBranch, ClipboardCheck, MonitorPlay, CalendarClock, type LucideIcon } from 'lucide-react';
 import { Fragment } from 'react';
 import type { Dispatch, KeyboardEvent, SetStateAction } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -49,6 +49,14 @@ const BROWSER_TAB: BuiltInTab = {
   icon: MonitorPlay,
 };
 
+/** Admin only: scheduled AI prompts and scripts. */
+const SCHEDULES_TAB: BuiltInTab = {
+  kind: 'builtin',
+  id: 'schedules',
+  labelKey: 'tabs.schedules',
+  icon: CalendarClock,
+};
+
 const TASKS_TAB: BuiltInTab = {
   kind: 'builtin',
   id: 'tasks',
@@ -75,6 +83,7 @@ export default function WorkspaceTabs({
       ]
     : [
         ...BASE_TABS,
+        SCHEDULES_TAB,
         ...(shouldShowBrowserTab ? [BROWSER_TAB] : []),
         ...(shouldShowTasksTab ? [TASKS_TAB] : []),
       ];

@@ -41,7 +41,6 @@ export function useSchedules(projectPath: string | null, runStatus: string) {
   }, [projectPath, runStatus]);
 
   useEffect(() => {
-    setLoading(true);
     void load();
   }, [load]);
 
