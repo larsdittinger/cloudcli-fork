@@ -244,6 +244,12 @@ export const taskEventsDb = {
       .get(taskId, kind, since) as { count: number }).count;
   },
 
+  /** When `author` last wrote to the task, or null. */
+  lastAt(taskId: number, author: TaskEventAuthor): string | null {
+    const row = getConnection().prepare('SELECT MAX(at) AS at FROM task_events WHERE task_id = ? AND author = ?').get(taskId, author) as { at: string | null };
+    return row.at;
+  },
+
   latestId(taskId: number): number {
     return (getConnection().prepare('SELECT COALESCE(MAX(id), 0) AS id FROM task_events WHERE task_id = ?').get(taskId) as { id: number }).id;
   },
