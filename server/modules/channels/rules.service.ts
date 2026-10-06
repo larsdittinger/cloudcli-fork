@@ -2,6 +2,7 @@ import { normalizeAddress } from '@/modules/channels/thread-key.js';
 import { parseJson } from '@/modules/channels/types.js';
 import type {
   ChannelAccountRow,
+  ChannelProposal,
   ChannelRuleRow,
   InboundMessage,
   RuleConditions,
@@ -120,4 +121,30 @@ export function validateRuleInput(input: RuleInput): void {
       'RULE_OPEN_AUTONOMY',
     );
   }
+}
+
+/** The API shape of a rule, shared by the settings routes and the agents' MCP info. */
+export function publicRule(row: ChannelRuleRow) {
+  return {
+    id: row.id,
+    name: row.name,
+    enabled: row.enabled === 1,
+    position: row.position,
+    accountId: row.account_id,
+    channel: row.channel,
+    conditions: parseConditions(row.conditions),
+    projectPath: row.project_path,
+    provider: row.provider,
+    model: row.model,
+    effort: row.effort,
+    permissionMode: row.permission_mode,
+    promptTemplate: row.prompt_template,
+    conversation: row.conversation,
+    replyMode: row.reply_mode,
+    replyScope: row.reply_scope,
+    ownerUserId: row.owner_user_id,
+    proposal: parseJson<ChannelProposal | null>(row.proposal, null),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
 }

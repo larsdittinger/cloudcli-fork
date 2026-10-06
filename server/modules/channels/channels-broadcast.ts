@@ -19,3 +19,8 @@ export function broadcastInboxUpdated(payload: { messageId: string; status: Mess
 export function broadcastOutboxUpdated(payload: { outboxId: string; sessionId: string | null; status: OutboxStatus }): void {
   sendToAll({ kind: 'channels_outbox_updated', ...payload });
 }
+
+/** Tells every open tab an agent proposed or withdrew Channels configuration, so Settings and the inbox badge refetch. */
+export function broadcastProposalsUpdated(payload: { proposalId: string }): void {
+  sendToAll({ kind: 'channels_inbox_updated', ...payload });
+}

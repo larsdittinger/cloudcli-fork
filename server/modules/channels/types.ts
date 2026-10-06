@@ -86,6 +86,8 @@ export type ChannelAccountRow = {
   status: AccountStatus;
   status_detail: string | null;
   last_seen_at: string | null;
+  /** JSON {@link ChannelProposal} while an agent's proposal awaits approval; null once approved. */
+  proposal: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -108,8 +110,18 @@ export type ChannelRuleRow = {
   reply_mode: ReplyMode;
   reply_scope: ReplyScope;
   owner_user_id: number | null;
+  /** JSON {@link ChannelProposal} while an agent's proposal awaits approval; null once approved. */
+  proposal: string | null;
   created_at: string;
   updated_at: string;
+};
+
+/** What an agent attached to an account or rule it proposed through MCP. */
+export type ChannelProposal = {
+  note: string;
+  /** The project the proposing agent ran in. */
+  projectPath: string | null;
+  createdAt: string;
 };
 
 export type ChannelMessageRow = {

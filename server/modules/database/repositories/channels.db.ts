@@ -16,9 +16,9 @@ import type {
 } from '@/modules/channels/index.js';
 
 const ACCOUNT_COLUMNS =
-  'id, type, label, enabled, config, secrets, agent_send, status, status_detail, last_seen_at, created_at, updated_at';
+  'id, type, label, enabled, config, secrets, agent_send, status, status_detail, last_seen_at, proposal, created_at, updated_at';
 const RULE_COLUMNS =
-  'id, name, enabled, position, account_id, channel, conditions, project_path, provider, model, effort, permission_mode, prompt_template, conversation, reply_mode, reply_scope, owner_user_id, created_at, updated_at';
+  'id, name, enabled, position, account_id, channel, conditions, project_path, provider, model, effort, permission_mode, prompt_template, conversation, reply_mode, reply_scope, owner_user_id, proposal, created_at, updated_at';
 const MESSAGE_COLUMNS =
   'id, account_id, channel, external_id, thread_key, from_address, from_name, to_json, subject, text, html, is_group, attachments_json, raw_json, received_at, rule_id, session_id, status, status_detail, created_at';
 const OUTBOX_COLUMNS =
@@ -31,14 +31,27 @@ export const channelAccountsDb = {
     config: Record<string, unknown>;
     secrets: Record<string, unknown>;
     agentSend?: AgentSendMode;
+    /** An agent's proposal is stored disabled until an admin approves it. */
+    proposal?: Record<string, unknown> | null;
   }): ChannelAccountRow {
     const db = getConnection();
     const id = randomUUID();
     db.prepare(
-      `INSERT INTO channel_accounts (id, type, label, enabled, config, secrets, agent_send, status)
-       VALUES (?, ?, ?, 1, ?, ?, ?, 'disconnected')`,
-    ).run(id, input.type, input.label, JSON.stringify(input.config ?? {}), JSON.stringify(input.secrets ?? {}), input.agentSend ?? 'off');
+      `INSERT INTO channel_accounts (id, type, label, enabled, config, secrets, agent_send, status, proposal)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'disconnected', ?)`,
+    ).run(
+      id, input.type, input.label, input.proposal ? 0 : 1, JSON.stringify(input.config ?? {}), JSON.stringify(input.secrets ?? {}),
+      input.agentSend ?? 'off', input.proposal ? JSON.stringify(input.proposal) : null,
+    );
     return this.get(id) as ChannelAccountRow;
+  },
+
+  /** Approval clears the proposal and enables the account in one step. */
+  approveProposal(id: string): ChannelAccountRow | null {
+    getConnection()
+      .prepare('UPDATE channel_accounts SET proposal = NULL, enabled = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+      .run(id);
+    return this.get(id);
   },
 
   update(
@@ -115,21 +128,31 @@ function ruleValues(input: RuleInput) {
 }
 
 export const channelRulesDb = {
-  create(input: RuleInput): ChannelRuleRow {
+  /** With `proposal` the rule is an agent's proposal: stored disabled until an admin approves it. */
+  create(input: RuleInput, proposal: Record<string, unknown> | null = null): ChannelRuleRow {
     const db = getConnection();
     const id = randomUUID();
-    const values = ruleValues(input);
+    const values = ruleValues(proposal ? { ...input, enabled: false } : input);
     const maxPosition = (db.prepare('SELECT COALESCE(MAX(position), 0) AS max FROM channel_rules').get() as { max: number }).max;
     db.prepare(
       `INSERT INTO channel_rules (id, name, enabled, position, account_id, channel, conditions, project_path, provider, model, effort,
-         permission_mode, prompt_template, conversation, reply_mode, reply_scope, owner_user_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         permission_mode, prompt_template, conversation, reply_mode, reply_scope, owner_user_id, proposal)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       id, values.name, values.enabled, maxPosition + 1, values.account_id, values.channel, values.conditions,
       values.project_path, values.provider, values.model, values.effort, values.permission_mode,
       values.prompt_template, values.conversation, values.reply_mode, values.reply_scope, values.owner_user_id,
+      proposal ? JSON.stringify(proposal) : null,
     );
     return this.get(id) as ChannelRuleRow;
+  },
+
+  /** Approval clears the proposal and enables the rule in one step. */
+  approveProposal(id: string): ChannelRuleRow | null {
+    getConnection()
+      .prepare('UPDATE channel_rules SET proposal = NULL, enabled = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+      .run(id);
+    return this.get(id);
   },
 
   update(id: string, patch: Partial<RuleInput>): ChannelRuleRow | null {

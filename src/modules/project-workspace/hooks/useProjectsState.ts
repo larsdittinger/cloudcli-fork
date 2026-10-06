@@ -9,6 +9,7 @@ import type { ServerEvent,
   Project,
   ProjectSession,IsSessionProcessing } from '@/shared/types';
 import { mergeProjectSelectionMetadata } from '@/modules/project-workspace/utils/projectSelectionMetadata';
+import { usePromptLink } from '@/modules/project-workspace/hooks/usePromptLink';
 import { readSelectedProvider } from '@/shared/selectedProvider';
 
 type UseProjectsStateArgs = {
@@ -1058,6 +1059,9 @@ export function useProjectsState({
     },
     [isMobile, navigate],
   );
+
+  // E-mail links from agents (channels_build_link) prefill a chat's composer.
+  usePromptLink({ sessionId, projects, isLoadingProjects, navigate, startNewSession: handleNewSession });
 
   const handleSessionDelete = useCallback(
     (sessionIdToDelete: string) => {

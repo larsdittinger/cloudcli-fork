@@ -1,9 +1,11 @@
 import express from 'express';
 
+import { buildAgentGuide } from '@/modules/channels/agent-info.js';
 import { channelsService } from '@/modules/channels/channels.service.js';
 import { outboxService } from '@/modules/channels/outbox.service.js';
+import { proposalsService } from '@/modules/channels/proposals.service.js';
 import { parseJson } from '@/modules/channels/types.js';
-import type { ChannelMessageRow, InboundAttachment } from '@/modules/channels/types.js';
+import type { ChannelMessageRow, ChannelType, InboundAttachment, RuleInput } from '@/modules/channels/types.js';
 import { channelAccountsDb, channelMessagesDb } from '@/modules/database/index.js';
 import { AppError } from '@/shared/utils.js';
 
@@ -20,6 +22,14 @@ function readString(value: unknown, name: string): string {
     throw new AppError(`${name} is required.`, { code: 'INVALID_REQUEST', statusCode: 400 });
   }
   return value.trim();
+}
+
+function readOptional(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function readObject<T>(value: unknown): T | undefined {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as T : undefined;
 }
 
 function messageForAgent(row: ChannelMessageRow, full: boolean) {
@@ -124,7 +134,65 @@ router.post('/tools/:toolName', async (req, res) => {
           label: account.label,
           status: account.status,
           agentSend: account.agent_send,
+          pendingApproval: account.proposal !== null,
         }));
+        break;
+      }
+      case 'channels_get_info': {
+        const state = proposalsService.getState(input.cwd);
+        result = {
+          guide: buildAgentGuide({ channelsEnabled: state.channelsEnabled, publicUrl: state.publicUrl, cwd: state.yourWorkingDirectory }),
+          state,
+        };
+        break;
+      }
+      case 'channels_propose_account': {
+        result = await proposalsService.proposeAccount({
+          type: input.type,
+          label: input.label,
+          config: input.config,
+          secrets: input.secrets,
+          agentSend: input.agent_send,
+          note: input.note,
+          cwd: input.cwd,
+        });
+        break;
+      }
+      case 'channels_propose_rule': {
+        const rule: Omit<RuleInput, 'enabled' | 'ownerUserId'> = {
+          name: readString(input.name, 'name'),
+          accountId: readOptional(input.account_id) ?? null,
+          channel: (readOptional(input.channel) as ChannelType | undefined) ?? null,
+          conditions: readObject<RuleInput['conditions']>(input.conditions) ?? {},
+          projectPath: readOptional(input.project_path) ?? '',
+          provider: readOptional(input.provider) ?? 'claude',
+          model: readOptional(input.model) ?? null,
+          effort: readOptional(input.effort) ?? null,
+          permissionMode: (readOptional(input.permission_mode) as RuleInput['permissionMode']) ?? 'default',
+          promptTemplate: typeof input.prompt_template === 'string' ? input.prompt_template : '',
+          conversation: (readOptional(input.conversation) as RuleInput['conversation']) ?? 'thread',
+          replyMode: (readOptional(input.reply_mode) as RuleInput['replyMode']) ?? 'none',
+          replyScope: (readOptional(input.reply_scope) as RuleInput['replyScope']) ?? 'sender',
+        };
+        result = proposalsService.proposeRule({ ...rule, note: input.note, cwd: input.cwd });
+        break;
+      }
+      case 'channels_withdraw_proposal': {
+        result = await proposalsService.withdrawProposal(input.kind, readString(input.id, 'id'));
+        break;
+      }
+      case 'channels_whatsapp_pairing_code': {
+        result = await proposalsService.whatsappPairingCode(readString(input.account_id, 'account_id'), input.phone);
+        break;
+      }
+      case 'channels_build_link': {
+        result = proposalsService.buildPromptLink({
+          prompt: readString(input.prompt, 'prompt'),
+          messageId: readOptional(input.message_id),
+          sessionId: readOptional(input.session_id),
+          projectPath: readOptional(input.project_path),
+          cwd: input.cwd,
+        });
         break;
       }
       default:

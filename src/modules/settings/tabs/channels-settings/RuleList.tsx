@@ -5,6 +5,7 @@ import { api, readApiJson } from '@/shared/api';
 import { Badge, Button, Dialog, DialogContent, DialogTitle } from '@/shared/ui';
 import { ChannelIcon, formatWhen } from '@/modules/channels';
 import type { ChannelAccount, ChannelRule } from '@/modules/channels';
+import ProposalNotice from '@/modules/settings/tabs/channels-settings/ProposalNotice';
 
 type Props = {
   rules: ChannelRule[];
@@ -89,8 +90,10 @@ export default function RuleList({ rules, accounts, onEdit, onChanged }: Props) 
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-xs text-muted-foreground">#{index + 1}</span>
                   <span className="font-medium">{rule.name}</span>
-                  {!rule.enabled && <Badge variant="outline" className="font-normal">disabled</Badge>}
+                  {!rule.enabled && !rule.proposal && <Badge variant="outline" className="font-normal">disabled</Badge>}
+                  {rule.proposal && <Badge variant="outline" className="border-amber-500/40 font-normal text-amber-700 dark:text-amber-300">proposed</Badge>}
                   {rule.permissionMode === 'bypassPermissions' && <Badge variant="outline" className="border-amber-500/40 font-normal text-amber-700 dark:text-amber-300">autonomous</Badge>}
+                  {rule.permissionMode !== 'default' && rule.permissionMode !== 'bypassPermissions' && <Badge variant="outline" className="font-normal">{rule.permissionMode}</Badge>}
                   <Badge variant="outline" className="font-normal">{REPLY_LABEL[rule.replyMode]}</Badge>
                 </div>
                 <div className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
@@ -101,14 +104,27 @@ export default function RuleList({ rules, accounts, onEdit, onChanged }: Props) 
                 <div className="text-xs text-muted-foreground">
                   → {rule.projectPath} · {rule.provider}{rule.model ? ` / ${rule.model}` : ''} · {rule.conversation === 'new' ? 'new chat each time' : `continue per ${rule.conversation}`}
                 </div>
+                {rule.proposal && (
+                  <ProposalNotice
+                    proposal={rule.proposal}
+                    onApprove={async () => { await readApiJson(await api.channels.approveRule(rule.id)); onChanged(); }}
+                    onReject={async () => {
+                      if (!window.confirm(`Reject and delete the proposed rule “${rule.name}”?`)) return;
+                      await readApiJson(await api.channels.deleteRule(rule.id));
+                      onChanged();
+                    }}
+                  />
+                )}
               </div>
               <div className="flex flex-wrap gap-1">
                 <Button size="sm" variant="ghost" aria-label="Test rule" disabled={busyId !== null} onClick={() => test(rule)}>
                   {busyId === rule.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : <FlaskConical className="h-3.5 w-3.5" aria-hidden />}
                 </Button>
-                <Button size="sm" variant="ghost" disabled={busyId !== null} onClick={() => act(rule.id, () => api.channels.updateRule(rule.id, { ...rule, enabled: !rule.enabled }))}>
-                  {rule.enabled ? 'Disable' : 'Enable'}
-                </Button>
+                {!rule.proposal && (
+                  <Button size="sm" variant="ghost" disabled={busyId !== null} onClick={() => act(rule.id, () => api.channels.updateRule(rule.id, { ...rule, enabled: !rule.enabled }))}>
+                    {rule.enabled ? 'Disable' : 'Enable'}
+                  </Button>
+                )}
                 <Button size="sm" variant="ghost" aria-label="Edit rule" disabled={busyId !== null} onClick={() => onEdit(rule)}><Pencil className="h-3.5 w-3.5" aria-hidden /></Button>
                 <Button
                   size="sm"

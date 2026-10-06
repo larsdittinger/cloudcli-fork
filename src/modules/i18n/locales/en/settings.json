@@ -819,6 +819,8 @@
     "agentGuideDescription": "Give this guide to the agent building your integration. Includes this webhook URL, current rules, payloads and reply/handoff handling. Configure the token in the application's environment.",
     "agentGuideCopyFailed": "Copy failed. Select and copy the Markdown from the preview below.",
     "rulesTitle": "Rules",
-    "rulesDescription": "The first matching rule decides which project the agent runs in, with what prompt and permissions, and whether it may reply."
+    "rulesDescription": "The first matching rule decides which project the agent runs in, with what prompt and permissions, and whether it may reply.",
+    "agentsTitle": "Agents: self-setup and prompt links",
+    "agentsDescription": "What agents can do with Channels through the cloudcli-channels MCP server."
   }
 }

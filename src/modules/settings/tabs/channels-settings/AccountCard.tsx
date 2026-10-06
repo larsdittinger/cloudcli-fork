@@ -8,6 +8,7 @@ import { copyTextToClipboard } from '@/shared/utils';
 import { AccountStatusBadge, ChannelIcon, channelName } from '@/modules/channels';
 import type { ChannelAccount, ChannelRule } from '@/modules/channels';
 import { buildWebhookAgentGuide } from '@/modules/settings/utils/webhookAgentGuide';
+import ProposalNotice from '@/modules/settings/tabs/channels-settings/ProposalNotice';
 import WhatsAppPairing from '@/modules/settings/tabs/channels-settings/WhatsAppPairing';
 
 type Props = {
@@ -115,7 +116,7 @@ export default function AccountCard({ account, rules, channelsEnabled, tokenOnce
             <span className="font-medium">{account.label}</span>
             <span className="text-xs text-muted-foreground">{channelName(account.type)}</span>
             <AccountStatusBadge status={account.enabled ? account.status : 'disconnected'} />
-            {!account.enabled && <span className="text-xs text-muted-foreground">(paused)</span>}
+            {!account.enabled && <span className="text-xs text-muted-foreground">{account.proposal ? '(proposed)' : '(paused)'}</span>}
           </div>
           <div className="mt-0.5 text-xs text-muted-foreground">
             {account.type === 'email' && <span>{String(account.config.user ?? '')} · {String(account.config.host ?? '')}</span>}
@@ -133,16 +134,30 @@ export default function AccountCard({ account, rules, channelsEnabled, tokenOnce
               {busy === 'test' ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : <Plug className="h-3.5 w-3.5" aria-hidden />}
             </Button>
           )}
-          <Button size="sm" variant="ghost" onClick={reconnect} disabled={busy !== null || !account.enabled} aria-label="Reconnect">
-            {busy === 'reconnect' ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : <RefreshCw className="h-3.5 w-3.5" aria-hidden />}
-          </Button>
+          {!account.proposal && (
+            <Button size="sm" variant="ghost" onClick={reconnect} disabled={busy !== null || !account.enabled} aria-label="Reconnect">
+              {busy === 'reconnect' ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : <RefreshCw className="h-3.5 w-3.5" aria-hidden />}
+            </Button>
+          )}
           <Button size="sm" variant="ghost" onClick={onEdit} disabled={busy !== null} aria-label="Edit"><Pencil className="h-3.5 w-3.5" aria-hidden /></Button>
-          <Button size="sm" variant="ghost" onClick={toggle} disabled={busy !== null}>{account.enabled ? 'Pause' : 'Resume'}</Button>
+          {!account.proposal && <Button size="sm" variant="ghost" onClick={toggle} disabled={busy !== null}>{account.enabled ? 'Pause' : 'Resume'}</Button>}
           <Button size="sm" variant="ghost" onClick={remove} disabled={busy !== null} aria-label="Delete">
             {busy === 'delete' ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : <Trash2 className="h-3.5 w-3.5" aria-hidden />}
           </Button>
         </div>
       </div>
+
+      {account.proposal && (
+        <ProposalNotice
+          proposal={account.proposal}
+          warning={account.type === 'email' && !account.hasSecrets ? 'No password yet — open Edit and add the (app) password before approving.' : null}
+          onApprove={async () => { await readApiJson(await api.channels.approveAccount(account.id)); onChanged(); }}
+          onReject={async () => {
+            if (!window.confirm(`Reject and delete the proposed account “${account.label}”?`)) return;
+            await onDelete();
+          }}
+        />
+      )}
 
       {testResult && (
         <p className={`mt-2 text-xs ${testResult.ok ? 'text-emerald-700 dark:text-emerald-300' : 'text-red-600 dark:text-red-300'}`}>{testResult.detail}</p>

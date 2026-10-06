@@ -404,3 +404,25 @@ gives it to the agent as **data**, and echoes it in polling (`data.metadata`) an
 callbacks (`inReplyTo.metadata`). It never uses metadata to choose a project,
 permissions, callback URL or email recipient. Each company has its own account
 token and rule/project; avoid sharing customer conversations between companies.
+
+### Agents set up Channels themselves; prompt links (fork)
+
+Agents get the `cloudcli-channels` MCP server. `channels_get_info` returns a full
+guide plus the live state (accounts, rules, pending proposals, public URL).
+`channels_propose_account` and `channels_propose_rule` create **proposals**: they
+are stored disabled and do nothing until an admin presses **Approve** in
+Settings → Channels. Agents never edit or delete approved configuration;
+`channels_withdraw_proposal` removes only their own pending proposals.
+`channels_whatsapp_pairing_code` hands out a pairing code for an approved
+WhatsApp account.
+
+`channels_build_link` returns a link that opens CloudCLI with a prompt prefilled in
+the composer — never sent automatically:
+
+- `<instance>/session/<sessionId>?prompt=<urlencoded>` continues that chat (for an
+  inbound message: the chat it started, with its history);
+- `<instance>/?project=<urlencoded project path>&prompt=<urlencoded>` opens a new
+  chat in the project.
+
+The public URL comes from `CLOUDCLI_PUBLIC_URL`, otherwise from the origin the
+admin last opened Settings → Channels from.

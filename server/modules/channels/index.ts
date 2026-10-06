@@ -18,6 +18,7 @@ export type {
   ChannelAccountRow,
   ChannelMessageRow,
   ChannelOutboxRow,
+  ChannelProposal,
   ChannelRuleRow,
   ChannelType,
   ConversationMode,

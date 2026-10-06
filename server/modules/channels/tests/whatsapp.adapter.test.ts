@@ -14,7 +14,7 @@ function deps(dir: string) {
 
 const account: ChannelAccountRow = {
   id: 'acc-wa', type: 'whatsapp', label: 'WA', enabled: 1, config: '{}', secrets: '{}', agent_send: 'off',
-  status: 'disconnected', status_detail: null, last_seen_at: null, created_at: '', updated_at: '',
+  status: 'disconnected', status_detail: null, last_seen_at: null, proposal: null, created_at: '', updated_at: '',
 };
 
 test('normalizeWaMessage: DM, group with mention, fromMe, reaction, media caption', () => {

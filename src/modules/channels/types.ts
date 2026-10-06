@@ -24,6 +24,16 @@ export type ChannelAccount = {
   webhookUrlPath?: string;
   /** Present only in the response that created a webhook account. */
   secretsOnce?: Record<string, string>;
+  /** Set while an agent's proposal awaits approval; the account stays disabled until then. */
+  proposal: ChannelProposal | null;
+};
+
+/** What an agent attached to an account or rule it proposed through the cloudcli-channels MCP server. */
+export type ChannelProposal = {
+  note: string;
+  /** The project the proposing agent ran in. */
+  projectPath: string | null;
+  createdAt: string;
 };
 
 export type RuleConditions = {
@@ -54,11 +64,13 @@ export type ChannelRule = {
   replyMode: ReplyMode;
   replyScope: ReplyScope;
   ownerUserId: number | null;
+  /** Set while an agent's proposal awaits approval; the rule stays disabled until then. */
+  proposal: ChannelProposal | null;
   createdAt: string;
   updatedAt: string;
 };
 
-export type ChannelRuleInput = Omit<ChannelRule, 'id' | 'position' | 'ownerUserId' | 'createdAt' | 'updatedAt'>;
+export type ChannelRuleInput = Omit<ChannelRule, 'id' | 'position' | 'ownerUserId' | 'proposal' | 'createdAt' | 'updatedAt'>;
 
 export type ChannelMessage = {
   id: string;
@@ -104,5 +116,7 @@ export type ChannelsSummary = {
   queued: number;
   failed: number;
   drafts: number;
+  /** Accounts and rules agents proposed that wait for an admin's approval. */
+  proposals: number;
   enabled: boolean;
 };

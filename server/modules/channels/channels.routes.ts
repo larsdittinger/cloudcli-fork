@@ -7,7 +7,8 @@ import type { Request, Response } from 'express';
 import { channelsService, CHANNELS_ROOT, MCP_SERVER_NAME } from '@/modules/channels/channels.service.js';
 import { dispatchMessage, rowToInboundMessage } from '@/modules/channels/dispatcher.service.js';
 import { outboxService } from '@/modules/channels/outbox.service.js';
-import { parseConditions, ruleMatches, validateRuleInput } from '@/modules/channels/rules.service.js';
+import { proposalsService } from '@/modules/channels/proposals.service.js';
+import { publicRule, ruleMatches, validateRuleInput } from '@/modules/channels/rules.service.js';
 import { parseJson } from '@/modules/channels/types.js';
 import type { ChannelMessageRow, ChannelRuleRow, InboundAttachment, MessageStatus, OutboxStatus, RuleInput } from '@/modules/channels/types.js';
 import { channelAccountsDb, channelMessagesDb, channelRulesDb } from '@/modules/database/index.js';
@@ -25,30 +26,6 @@ function readParam(value: unknown, field: string): string {
 function readUserId(request: Request): number | null {
   const userId = Number((request as AuthenticatedRequest).user?.id);
   return Number.isInteger(userId) ? userId : null;
-}
-
-function publicRule(row: ChannelRuleRow) {
-  return {
-    id: row.id,
-    name: row.name,
-    enabled: row.enabled === 1,
-    position: row.position,
-    accountId: row.account_id,
-    channel: row.channel,
-    conditions: parseConditions(row.conditions),
-    projectPath: row.project_path,
-    provider: row.provider,
-    model: row.model,
-    effort: row.effort,
-    permissionMode: row.permission_mode,
-    promptTemplate: row.prompt_template,
-    conversation: row.conversation,
-    replyMode: row.reply_mode,
-    replyScope: row.reply_scope,
-    ownerUserId: row.owner_user_id,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  };
 }
 
 function publicMessage(row: ChannelMessageRow, ruleNames: Map<string, string>, accountLabels: Map<string, string>) {
@@ -112,6 +89,16 @@ const OUTBOX_STATUSES: OutboxStatus[] = ['draft', 'approved', 'sending', 'sent',
 
 const router = express.Router();
 
+// Agents get webhook URLs and prompt links from the MCP server, which has no
+// browser origin of its own; remember the one the admin uses.
+router.use((req, _res, next) => {
+  const forwardedProto = String(req.headers['x-forwarded-proto'] ?? '').split(',')[0].trim();
+  const forwardedHost = String(req.headers['x-forwarded-host'] ?? '').split(',')[0].trim();
+  const host = forwardedHost || req.get('host') || '';
+  if (host) channelsService.rememberPublicUrl(`${forwardedProto || req.protocol}://${host}`);
+  next();
+});
+
 // --- settings ---------------------------------------------------------------
 
 router.get('/settings', asyncHandler(async (_req: Request, res: Response) => {
@@ -139,6 +126,8 @@ router.get('/summary', asyncHandler(async (_req: Request, res: Response) => {
     queued: counts.queued,
     failed: counts.failed,
     drafts: outboxService.countDrafts(),
+    proposals: channelAccountsDb.list().filter((row) => row.proposal).length
+      + channelRulesDb.listOrdered().filter((row) => row.proposal).length,
     enabled: channelsService.isEnabled(),
   }));
 }));
@@ -166,6 +155,10 @@ router.put('/accounts/:id', asyncHandler(async (req: Request, res: Response) => 
 router.delete('/accounts/:id', asyncHandler(async (req: Request, res: Response) => {
   await channelsService.deleteAccount(readParam(req.params.id, 'id'));
   res.json(createApiSuccessResponse({ deleted: true }));
+}));
+
+router.post('/accounts/:id/approve', asyncHandler(async (req: Request, res: Response) => {
+  res.json(createApiSuccessResponse(await channelsService.approveAccount(readParam(req.params.id, 'id'))));
 }));
 
 router.post('/accounts/:id/test', asyncHandler(async (req: Request, res: Response) => {
@@ -214,7 +207,13 @@ router.put('/rules/:id', asyncHandler(async (req: Request, res: Response) => {
   }
   const input = readRuleInput((req.body ?? {}) as Record<string, unknown>, current.owner_user_id);
   validateRuleInput(input);
-  res.json(createApiSuccessResponse(publicRule(channelRulesDb.update(id, input) as ChannelRuleRow)));
+  const updated = channelRulesDb.update(id, input) as ChannelRuleRow;
+  // An admin enabling a proposed rule has approved it.
+  res.json(createApiSuccessResponse(publicRule(updated.enabled === 1 && updated.proposal ? channelRulesDb.approveProposal(id) as ChannelRuleRow : updated)));
+}));
+
+router.post('/rules/:id/approve', asyncHandler(async (req: Request, res: Response) => {
+  res.json(createApiSuccessResponse(publicRule(proposalsService.approveRule(readParam(req.params.id, 'id')))));
 }));
 
 router.delete('/rules/:id', asyncHandler(async (req: Request, res: Response) => {

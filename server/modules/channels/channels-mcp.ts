@@ -5,8 +5,11 @@ import '../../load-env.js';
 
 /**
  * `cloudcli-channels` — the MCP server agents use to answer inbound e-mail /
- * WhatsApp / webhook messages. Every tool is a thin call into the local
- * CloudCLI API; permissions (reply mode, who may be written to) live there.
+ * WhatsApp / webhook messages, propose their own channel setup and build
+ * prompt links. Every tool is a thin call into the local CloudCLI API;
+ * permissions (reply mode, who may be written to, proposal approval) live there.
+ * The process runs in the agent's project, so its cwd is sent along as the
+ * default project for proposals and links.
  */
 
 type JsonRpcRequest = {
@@ -43,7 +46,7 @@ async function callChannelsApi(toolName: string, input: Record<string, unknown>)
   const response = await fetch(`${apiUrl}/tools/${encodeURIComponent(toolName)}`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${apiToken}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(input),
+    body: JSON.stringify({ ...input, cwd: process.cwd() }),
     signal: AbortSignal.timeout(API_TIMEOUT_MS),
   });
   const data = await response.json() as { success?: boolean; data?: unknown; error?: string };
@@ -107,6 +110,92 @@ const tools: ToolDefinition[] = [
     description: 'List the configured channel accounts (e-mail, WhatsApp, webhook), their connection status and whether agents may send through them.',
     inputSchema: { type: 'object', properties: {} },
   },
+  {
+    name: 'channels_get_info',
+    description: 'Start here. Full guide to CloudCLI Channels (how inbound e-mail / WhatsApp / webhook messages start agents, rule options, reply modes, prompt templates, webhook payloads, prompt links, how to set yourself up through proposals) plus the live state: accounts, rules, pending proposals, public URL and your working directory.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'channels_propose_account',
+    description: 'Propose a new channel account (e-mail mailbox, WhatsApp number or webhook). It is saved DISABLED and does nothing until the user approves it in Settings → Channels. For a webhook the response contains its URL and the token (shown only once). Read channels_get_info first for the config fields.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        type: { type: 'string', enum: ['email', 'whatsapp', 'webhook'] },
+        label: { type: 'string', description: 'Short name the user recognises, e.g. "Podpora info@firma.cz".' },
+        config: { type: 'object', description: 'email: host, user, port?, secure?, mailbox?, fromAddress?, smtpHost?, smtpPort?; whatsapp: phoneNumber; webhook: replyUrl?, allowEscalation?' },
+        secrets: { type: 'object', description: 'email: { password } (app password) — only if the user gave it to you; webhook: { replyToken }? Omit otherwise.' },
+        agent_send: { type: 'string', enum: ['off', 'draft', 'auto'], description: 'May agents send new (non-reply) messages through it. Default off.' },
+        note: { type: 'string', description: 'One or two sentences for the user: why this account and what it will be used for.' },
+      },
+      required: ['type', 'label', 'note'],
+    },
+  },
+  {
+    name: 'channels_propose_rule',
+    description: 'Propose a rule that routes matching inbound messages into a project chat. Saved DISABLED at the end of the rule list until the user approves it. A rule without a sender filter may not bypass permissions or auto-reply. Read channels_get_info first.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string' },
+        note: { type: 'string', description: 'Why this rule exists and what the agent will do with the messages.' },
+        account_id: { type: 'string', description: 'Limit to one account (id from channels_get_info or a fresh proposal).' },
+        channel: { type: 'string', enum: ['email', 'whatsapp', 'webhook'], description: 'Or limit to every account of one type.' },
+        conditions: {
+          type: 'object',
+          description: 'senders: ["jan@firma.cz", "@firma.cz", "+420*"], excludeSenders, subject: { contains, regex }, text: { contains, regex }, isGroup, hasAttachments, mentionsMe',
+        },
+        project_path: { type: 'string', description: 'Absolute project path; defaults to your working directory.' },
+        provider: { type: 'string', description: 'Default "claude".' },
+        model: { type: 'string' },
+        effort: { type: 'string' },
+        permission_mode: { type: 'string', enum: ['default', 'acceptEdits', 'plan', 'bypassPermissions'] },
+        prompt_template: { type: 'string', description: 'Empty = default template. Keep {{text}} and {{replyInstructions}}.' },
+        conversation: { type: 'string', enum: ['thread', 'sender', 'new'] },
+        reply_mode: { type: 'string', enum: ['none', 'draft', 'auto'], description: 'Default none; draft = replies wait for approval.' },
+        reply_scope: { type: 'string', enum: ['sender', 'anyone'] },
+      },
+      required: ['name', 'note'],
+    },
+  },
+  {
+    name: 'channels_withdraw_proposal',
+    description: 'Delete one of your pending (not yet approved) proposals. Approved accounts and rules cannot be changed or deleted by agents.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        kind: { type: 'string', enum: ['account', 'rule'] },
+        id: { type: 'string' },
+      },
+      required: ['kind', 'id'],
+    },
+  },
+  {
+    name: 'channels_whatsapp_pairing_code',
+    description: 'Get a pairing code for an approved WhatsApp account waiting for pairing (status needs_pairing). The user types it on the phone: WhatsApp → Linked devices → Link a device → Link with phone number.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        account_id: { type: 'string' },
+        phone: { type: 'string', description: 'The account phone number in international format (+420…).' },
+      },
+      required: ['account_id', 'phone'],
+    },
+  },
+  {
+    name: 'channels_build_link',
+    description: 'Build a URL that opens CloudCLI with a prepared prompt prefilled in the composer (never sent automatically) — put it into an e-mail or message for the user. With message_id it opens the chat that message started (continues its history); with session_id a specific chat; otherwise a new chat in project_path (default: your working directory).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        prompt: { type: 'string', description: 'The prompt to prefill, max 4000 characters.' },
+        message_id: { type: 'string', description: 'Inbound message id — opens its chat with history.' },
+        session_id: { type: 'string' },
+        project_path: { type: 'string' },
+      },
+      required: ['prompt'],
+    },
+  },
 ];
 
 function jsonResponse(value: unknown) {
@@ -137,7 +226,15 @@ async function callTool(name: string, args: Record<string, unknown>) {
         limit: typeof args.limit === 'number' ? args.limit : undefined,
       }));
     case 'channels_list_accounts':
+    case 'channels_get_info':
       return jsonResponse(await callChannelsApi(name, {}));
+    case 'channels_propose_account':
+    case 'channels_propose_rule':
+    case 'channels_withdraw_proposal':
+    case 'channels_whatsapp_pairing_code':
+    case 'channels_build_link':
+      // Validation lives server-side; the arguments go through as given.
+      return jsonResponse(await callChannelsApi(name, args));
     default:
       throw new Error(`Unknown tool: ${name}`);
   }

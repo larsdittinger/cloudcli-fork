@@ -68,7 +68,7 @@ function rule(overrides: Partial<ChannelRuleRow>): ChannelRuleRow {
     id: overrides.id ?? Math.random().toString(16).slice(2),
     name: 'r', enabled: 1, position: 1, account_id: null, channel: null, conditions: '{}',
     project_path: '/p', provider: 'claude', model: null, effort: null, permission_mode: 'default',
-    prompt_template: '', conversation: 'thread', reply_mode: 'none', reply_scope: 'sender', owner_user_id: null,
+    prompt_template: '', conversation: 'thread', reply_mode: 'none', reply_scope: 'sender', owner_user_id: null, proposal: null,
     created_at: '', updated_at: '',
     ...overrides,
   };
@@ -76,7 +76,7 @@ function rule(overrides: Partial<ChannelRuleRow>): ChannelRuleRow {
 
 const account: ChannelAccountRow = {
   id: 'acc-1', type: 'email', label: 'Gmail', enabled: 1, config: '{}', secrets: '{}', agent_send: 'off',
-  status: 'connected', status_detail: null, last_seen_at: null, created_at: '', updated_at: '',
+  status: 'connected', status_detail: null, last_seen_at: null, proposal: null, created_at: '', updated_at: '',
 };
 
 test('findMatchingRule honours conditions, filters and order', () => {

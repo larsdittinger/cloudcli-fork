@@ -23,7 +23,7 @@ function deps(dir: string, saved: Record<string, unknown>[] = []) {
 function account(config: Record<string, unknown>): ChannelAccountRow {
   return {
     id: 'acc-mail', type: 'email', label: 'Mail', enabled: 1, config: JSON.stringify(config), secrets: JSON.stringify({ password: 'pw' }),
-    agent_send: 'off', status: 'disconnected', status_detail: null, last_seen_at: null, created_at: '', updated_at: '',
+    agent_send: 'off', status: 'disconnected', status_detail: null, last_seen_at: null, proposal: null, created_at: '', updated_at: '',
   };
 }
 

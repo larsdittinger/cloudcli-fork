@@ -11,6 +11,7 @@ import SettingsRow from '@/modules/settings/SettingsRow';
 import SettingsSection from '@/modules/settings/SettingsSection';
 import SettingsToggle from '@/modules/settings/SettingsToggle';
 import AccountCard from '@/modules/settings/tabs/channels-settings/AccountCard';
+import AgentSetupHelp from '@/modules/settings/tabs/channels-settings/AgentSetupHelp';
 import AccountForm from '@/modules/settings/tabs/channels-settings/AccountForm';
 import type { AccountFormValues } from '@/modules/settings/tabs/channels-settings/AccountForm';
 import RuleEditor from '@/modules/settings/tabs/channels-settings/RuleEditor';
@@ -113,6 +114,10 @@ export default function ChannelsSettingsTab() {
           <p className="mt-2 text-sm text-amber-700 dark:text-amber-300">Agents cannot reply yet — registering the {settings.mcpServerName} MCP server failed: {settings.mcpError}</p>
         )}
         {error && <p className="mt-2 text-sm text-red-600 dark:text-red-300">{error}</p>}
+      </SettingsSection>
+
+      <SettingsSection title={t('channels.agentsTitle')} description={t('channels.agentsDescription')}>
+        <AgentSetupHelp />
       </SettingsSection>
 
       <SettingsSection title={t('channels.accountsTitle')} description={t('channels.accountsDescription')}>

@@ -15,7 +15,7 @@ import MessageDetail from '@/modules/channels/inbox/MessageDetail';
 import { useChannelsEvents } from '@/modules/channels/hooks/useChannelsEvents';
 import type { ChannelAccount, ChannelMessage, MessageStatus, OutboxItem } from '@/modules/channels/types';
 
-type Props = { open: boolean; onOpenChange: (open: boolean) => void };
+type Props = { open: boolean; onOpenChange: (open: boolean) => void; /** Agent proposals waiting in Settings → Channels. */ proposals?: number };
 
 type Tab = 'messages' | 'outbox';
 
@@ -188,7 +188,7 @@ function OutboxTab() {
 }
 
 /** The admin's inbox: every message the channels received, and everything agents want to send. */
-export default function InboxOverlay({ open, onOpenChange }: Props) {
+export default function InboxOverlay({ open, onOpenChange, proposals = 0 }: Props) {
   const [tab, setTab] = useState<Tab>('messages');
   const [accounts, setAccounts] = useState<ChannelAccount[]>([]);
 
@@ -215,6 +215,11 @@ export default function InboxOverlay({ open, onOpenChange }: Props) {
             </Button>
           </div>
         </div>
+        {proposals > 0 && (
+          <p className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-800 dark:text-amber-200">
+            {proposals === 1 ? 'An agent proposed' : `Agents proposed ${proposals} items of`} channel setup — review and approve in Settings → Channels.
+          </p>
+        )}
         {tab === 'messages' ? <MessagesTab accounts={accounts} /> : <OutboxTab />}
       </DialogContent>
     </Dialog>

@@ -15,6 +15,7 @@ import type {
   AgentSendMode,
   ChannelAccountRow,
   ChannelMessageRow,
+  ChannelProposal,
   ChannelType,
   InboundMessage,
 } from '@/modules/channels/types.js';
@@ -25,6 +26,7 @@ import { AppError } from '@/shared/utils.js';
 
 const ENABLED_KEY = 'channels_enabled';
 const MCP_TOKEN_KEY = 'channels_mcp_token';
+const PUBLIC_URL_KEY = 'channels_public_url';
 export const MCP_SERVER_NAME = 'cloudcli-channels';
 const CHANNEL_TYPES: ChannelType[] = ['email', 'whatsapp', 'webhook'];
 const AGENT_SEND_MODES: AgentSendMode[] = ['off', 'draft', 'auto'];
@@ -47,6 +49,8 @@ export type PublicAccount = {
   createdAt: string;
   updatedAt: string;
   webhookUrlPath?: string;
+  /** Set while this is an agent's proposal awaiting approval. */
+  proposal: ChannelProposal | null;
 };
 
 type RunningAdapter = {
@@ -95,6 +99,7 @@ export function toPublicAccount(row: ChannelAccountRow): PublicAccount {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     ...(row.type === 'webhook' ? { webhookUrlPath: `/api/channels/webhook/${row.id}` } : {}),
+    proposal: parseJson<ChannelProposal | null>(row.proposal, null),
   };
 }
 
@@ -333,6 +338,8 @@ export const channelsService = {
     config?: unknown;
     secrets?: unknown;
     agentSend?: unknown;
+    /** An agent's proposal is stored disabled and never started until approved. */
+    proposal?: ChannelProposal | null;
   }): Promise<PublicAccount & { secretsOnce?: Record<string, string> }> {
     validateAccountInput(input.type, input.label, input.config, input.secrets, input.agentSend);
     const type = input.type as ChannelType;
@@ -349,8 +356,9 @@ export const channelsService = {
       config: (input.config ?? {}) as Record<string, unknown>,
       secrets,
       agentSend: input.agentSend as AgentSendMode | undefined,
+      proposal: input.proposal ?? null,
     });
-    if (this.isEnabled()) {
+    if (this.isEnabled() && !input.proposal) {
       await startAccountInternal(row.id);
     }
     return { ...toPublicAccount(channelAccountsDb.get(row.id) ?? row), ...(type === 'webhook' ? { secretsOnce } : {}) };
@@ -377,6 +385,8 @@ export const channelsService = {
       secrets,
       agentSend: patch.agentSend as AgentSendMode | undefined,
     });
+    // An admin resuming a proposed account has approved it.
+    if (patch.enabled === true && row.proposal) channelAccountsDb.approveProposal(id);
 
     const needsRestart = patch.config !== undefined || patch.secrets !== undefined || typeof patch.enabled === 'boolean';
     if (needsRestart) {
@@ -389,6 +399,36 @@ export const channelsService = {
       }
     }
     return toPublicAccount(requireAccount(id));
+  },
+
+  /** Admin approval of an agent's proposed account: enable it and start the adapter. */
+  async approveAccount(id: string): Promise<PublicAccount> {
+    const row = requireAccount(id);
+    if (!row.proposal) {
+      throw new AppError('This account is not a pending proposal.', { code: 'CHANNEL_NOT_PROPOSAL', statusCode: 409 });
+    }
+    channelAccountsDb.approveProposal(id);
+    if (this.isEnabled()) {
+      await stopRunning(id);
+      await startAccountInternal(id);
+    }
+    return toPublicAccount(requireAccount(id));
+  },
+
+  /**
+   * The browser-facing base URL of this instance, for webhook URLs and prompt
+   * links handed out to agents. `CLOUDCLI_PUBLIC_URL` wins; otherwise the
+   * origin the admin last opened Settings → Channels from.
+   */
+  getPublicUrl(): string | null {
+    const fromEnv = process.env.CLOUDCLI_PUBLIC_URL?.trim();
+    const value = fromEnv || appConfigDb.get(PUBLIC_URL_KEY) || '';
+    return value ? value.replace(/\/+$/, '') : null;
+  },
+
+  rememberPublicUrl(origin: string): void {
+    if (!/^https?:\/\/[^/\s]+$/.test(origin) || appConfigDb.get(PUBLIC_URL_KEY) === origin) return;
+    appConfigDb.set(PUBLIC_URL_KEY, origin);
   },
 
   async deleteAccount(id: string): Promise<void> {

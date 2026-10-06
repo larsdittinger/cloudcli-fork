@@ -555,6 +555,8 @@ export const runMigrations = (db: Database) => {
     db.exec(SCHEDULED_MESSAGES_TABLE_SCHEMA_SQL);
     db.exec(CHANNELS_TABLES_SCHEMA_SQL);
     addColumnToTableIfNotExists(db, 'channel_outbox', getTableInfo(db, 'channel_outbox').map((column) => column.name), 'action', "TEXT NOT NULL DEFAULT 'reply'");
+    addColumnToTableIfNotExists(db, 'channel_accounts', getTableInfo(db, 'channel_accounts').map((column) => column.name), 'proposal', 'TEXT');
+    addColumnToTableIfNotExists(db, 'channel_rules', getTableInfo(db, 'channel_rules').map((column) => column.name), 'proposal', 'TEXT');
 
     db.exec('CREATE INDEX IF NOT EXISTS idx_session_ids_lookup ON sessions(session_id)');
     db.exec('CREATE INDEX IF NOT EXISTS idx_sessions_provider_session_id ON sessions(provider_session_id)');

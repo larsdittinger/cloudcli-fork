@@ -277,6 +277,8 @@ CREATE TABLE IF NOT EXISTS channel_accounts (
     status TEXT NOT NULL DEFAULT 'disconnected',
     status_detail TEXT,
     last_seen_at DATETIME,
+    -- JSON { note, projectPath, createdAt } while an agent's proposal awaits approval; NULL once approved
+    proposal TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
@@ -302,6 +304,8 @@ CREATE TABLE IF NOT EXISTS channel_rules (
     -- sender | anyone
     reply_scope TEXT NOT NULL DEFAULT 'sender',
     owner_user_id INTEGER,
+    -- JSON { note, projectPath, createdAt } while an agent's proposal awaits approval; NULL once approved
+    proposal TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );

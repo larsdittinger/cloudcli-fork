@@ -50,6 +50,17 @@ nasazuje — je v `../CLAUDE.md`.
   `src/modules/settings/utils/webhookAgentGuide.ts`.
   Dialogy otevírané ze Settings potřebují `wrapperClassName="z-[10000]"` (Settings modal je
   `z-[9999]`). Spec v hubu: `docs/superpowers/specs/2026-09-14-channels-design.md`.
+  **Agent si nastaví Channels sám (2026-10-06):** MCP `channels_get_info` (návod v
+  `agent-info.ts` + živý stav), `channels_propose_account` / `channels_propose_rule` →
+  řádek se sloupcem `proposal` (JSON), vždy `enabled = 0`, schválí admin
+  (`POST /api/channels/{accounts,rules}/:id/approve`, karta s „Proposed by an agent").
+  Agent nikdy nemění schválenou konfiguraci, `channels_withdraw_proposal` maže jen návrhy.
+  Logika v `proposals.service.ts`; MCP proces posílá svůj `cwd` = výchozí projekt.
+  **Odkazy s promptem:** `channels_build_link` → `/session/<id>?prompt=…` nebo
+  `/?project=<cesta>&prompt=…`; klient (`project-workspace/hooks/usePromptLink.ts`) text
+  jen zapíše do draftu composeru, nic neodešle. Veřejná URL: `CLOUDCLI_PUBLIC_URL`, jinak
+  `app_config.channels_public_url` z posledního admin requestu na `/api/channels`.
+  Spec: `docs/superpowers/specs/2026-10-06-channels-agent-setup-design.md`.
 
 Držet **minimal-diff** proti upstreamu — čím menší rozdíl, tím snazší merge. Nové
 featury zvažovat nejdřív jako plugin (viz cron plugin `workspace-scheduled-prompts`,
