@@ -56,6 +56,11 @@ import {
     initializeChannels,
     closeChannels,
 } from './modules/channels/index.js';
+import {
+    closeSchedules,
+    initializeSchedules,
+    schedulesRoutes,
+} from './modules/schedules/index.js';
 import browserUseRoutes from './modules/browser-use/browser-use.routes.js';
 import { assetsRoutes } from './modules/assets/index.js';
 import { fileTreeRoutes } from './modules/file-tree/index.js';
@@ -220,6 +225,8 @@ app.use('/api/browser-use', authenticateToken, browserUseRoutes);
 // Unified provider MCP routes (protected)
 app.use('/api/providers', authenticateToken, providerRoutes);
 app.use('/api/scheduled-messages', authenticateToken, scheduledMessagesRoutes);
+// Recurring AI prompts and scripts (admin only).
+app.use('/api/schedules', authenticateToken, requireAdmin, schedulesRoutes);
 
 // Agent API Routes (uses API key authentication)
 app.use('/api/agent', agentRoutes);
@@ -400,6 +407,12 @@ async function startServer() {
                 console.error('[Channels] Error during startup:', getErrorMessage(err));
             });
 
+            // Recurring prompts and scripts. Runs before plugin servers start so the
+            // one-time import can switch the old cron plugin off first.
+            await initializeSchedules(providerRuntimeService).catch(err => {
+                console.error('[Schedules] Error during startup:', getErrorMessage(err));
+            });
+
             // Start server-side plugin processes for enabled plugins
             startEnabledPluginServers().catch(err => {
                 console.error('[Plugins] Error during startup:', err.message);
@@ -410,6 +423,11 @@ async function startServer() {
         closeScheduledMessageDispatcher();
         // Clean up plugin processes on shutdown
         const shutdownRuntimeServices = async () => {
+            try {
+                await closeSchedules();
+            } catch (err) {
+                console.error('[Schedules] Error stopping schedules during shutdown:', getErrorMessage(err));
+            }
             try {
                 await closeChannels();
             } catch (err) {
