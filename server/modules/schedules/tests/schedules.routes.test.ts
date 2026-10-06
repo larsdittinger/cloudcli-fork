@@ -117,7 +117,9 @@ test('REST: preview, run now, runs listing, duplicate, approve, delete', async (
       const proposal = schedulesService.create({ name: 'Agent', projectPath: dir, kind: 'prompt', prompt: 'p', schedule: { type: 'daily', time: '06:00' } }, null, { note: 'n', projectPath: dir, createdAt: 'x' });
       assert.equal(proposal.enabled, false);
       assert.equal(proposal.nextRunAt, null);
-      assert.equal((await api.call('GET', '/summary')).json.data.proposals, 1);
+      const summary = (await api.call('GET', '/summary')).json.data;
+      assert.equal(summary.proposals, 1);
+      assert.deepEqual(summary.byProject, { [dir]: 1 });
       assert.equal((await api.call('POST', `/${proposal.id}/run`)).status, 409, 'a proposal cannot run before approval');
       const approved = await api.call('POST', `/${proposal.id}/approve`);
       assert.equal(approved.json.data.enabled, true);

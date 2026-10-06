@@ -1646,6 +1646,8 @@ export type ScheduleRun = {
   output: string | null;
   hasLog: boolean;
   error: string | null;
+  /** How many consecutive identical skips this row stands for (1 for every other run). */
+  repeatCount: number;
   /** Only when fetched with the full log. */
   log?: string;
 };

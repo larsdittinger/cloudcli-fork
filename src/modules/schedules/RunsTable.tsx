@@ -81,7 +81,12 @@ export default function RunsTable({ runs, status, onStatusChange }: Props) {
                   <td className="px-3 py-2"><KindLabel kind={run.kind} handoff={run.kind === 'script' && Boolean(run.sessionId)} /></td>
                   <td className="px-3 py-2 text-xs text-muted-foreground">{run.trigger === 'manual' ? 'Run now' : 'Schedule'}</td>
                   <td className="px-3 py-2">
-                    <StatusPill status={run.status} />
+                    <span className="inline-flex items-center gap-1.5">
+                      <StatusPill status={run.status} />
+                      {run.repeatCount > 1 && (
+                        <span className="text-xs tabular-nums text-muted-foreground" title={`${run.repeatCount} times in a row, last ${formatDateTime(run.finishedAt)}`}>×{run.repeatCount}</span>
+                      )}
+                    </span>
                     {run.error && <p className="mt-1 max-w-64 text-xs text-muted-foreground">{run.error}</p>}
                   </td>
                   <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-muted-foreground">

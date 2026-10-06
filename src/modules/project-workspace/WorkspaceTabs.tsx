@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { Tooltip, PillBar, Pill } from '@/shared/ui';
 import type { AppTab } from '@/shared/types';
 import { usePlugins,PluginIcon } from '@/modules/plugins';
+import { SchedulesTabBadge } from '@/modules/schedules';
 
 type WorkspaceTabsProps = {
   activeTab: AppTab;
@@ -158,6 +159,7 @@ export default function WorkspaceTabs({
                 <span className={`${isActive ? 'inline max-w-28' : 'hidden'} truncate sm:max-w-36 lg:inline`}>
                   {displayLabel}
                 </span>
+                {tab.id === 'schedules' && <SchedulesTabBadge />}
               </Pill>
             </Tooltip>
           </Fragment>

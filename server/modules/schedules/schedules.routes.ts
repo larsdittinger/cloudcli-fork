@@ -34,7 +34,7 @@ router.get('/', asyncHandler(async (req: Request, res: Response) => {
 }));
 
 router.get('/summary', asyncHandler(async (_req: Request, res: Response) => {
-  res.json(createApiSuccessResponse({ proposals: schedulesService.countProposals() }));
+  res.json(createApiSuccessResponse(schedulesService.proposalSummary()));
 }));
 
 router.post('/preview', asyncHandler(async (req: Request, res: Response) => {

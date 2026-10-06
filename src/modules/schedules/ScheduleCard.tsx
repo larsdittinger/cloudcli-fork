@@ -126,7 +126,7 @@ export default function ScheduleCard({ schedule, showProject, onEdit, onChanged 
             </Button>
             <Button size="sm" variant="ghost" onClick={() => act('toggle', () => api.schedules.update(schedule.id, { enabled: !schedule.enabled }))} disabled={busy !== null} aria-label={schedule.enabled ? 'Pause' : 'Resume'}>
               {spinner('toggle') || (schedule.enabled ? <Pause className="h-3.5 w-3.5" aria-hidden /> : <Play className="h-3.5 w-3.5" aria-hidden />)}
-              <span className="ml-1">{schedule.enabled ? 'Pause' : 'Resume'}</span>
+              <span className="ml-1 hidden sm:inline">{schedule.enabled ? 'Pause' : 'Resume'}</span>
             </Button>
             <Button size="sm" variant="ghost" onClick={onEdit} disabled={busy !== null} aria-label="Edit"><Pencil className="h-3.5 w-3.5" aria-hidden /></Button>
             <Button size="sm" variant="ghost" onClick={() => act('duplicate', () => api.schedules.duplicate(schedule.id))} disabled={busy !== null} aria-label="Duplicate">

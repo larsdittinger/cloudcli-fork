@@ -4,6 +4,7 @@ import { Loader2, Plus } from 'lucide-react';
 import { api, readApiJson } from '@/shared/api';
 import { Button, Pill, PillBar } from '@/shared/ui';
 import type { Project, Schedule, ScheduleInput } from '@/shared/types';
+import { useScheduleProposals } from '@/modules/schedules/hooks/useScheduleProposals';
 import { useSchedules } from '@/modules/schedules/hooks/useSchedules';
 import RunsTable from '@/modules/schedules/RunsTable';
 import ScheduleCard from '@/modules/schedules/ScheduleCard';
@@ -18,6 +19,8 @@ export default function SchedulesPanel({ selectedProject }: Props) {
   const [runStatus, setRunStatus] = useState('');
   const [editing, setEditing] = useState<{ open: boolean; schedule: Schedule | null }>({ open: false, schedule: null });
   const { schedules, runs, loading, error, reload } = useSchedules(scope === 'project' ? projectPath : null, runStatus);
+  const proposalSummary = useScheduleProposals();
+  const elsewhere = scope === 'project' ? proposalSummary.proposals - (proposalSummary.byProject[projectPath] ?? 0) : 0;
 
   const proposals = schedules.filter((schedule) => schedule.proposal);
   const ordered = [...proposals, ...schedules.filter((schedule) => !schedule.proposal)];
@@ -41,8 +44,8 @@ export default function SchedulesPanel({ selectedProject }: Props) {
           </div>
           <div className="flex items-center gap-2">
             <PillBar aria-label="Which schedules">
-              <Pill isActive={scope === 'project'} onClick={() => setScope('project')}>This project</Pill>
-              <Pill isActive={scope === 'all'} onClick={() => setScope('all')}>All projects</Pill>
+              <Pill isActive={scope === 'project'} aria-pressed={scope === 'project'} onClick={() => setScope('project')}>This project</Pill>
+              <Pill isActive={scope === 'all'} aria-pressed={scope === 'all'} onClick={() => setScope('all')}>All projects</Pill>
             </PillBar>
             <Button size="sm" onClick={() => setEditing({ open: true, schedule: null })}>
               <Plus className="mr-1 h-4 w-4" aria-hidden />New schedule
@@ -51,6 +54,13 @@ export default function SchedulesPanel({ selectedProject }: Props) {
         </header>
 
         {error && <p role="alert" className="text-sm text-red-600 dark:text-red-300">{error}</p>}
+
+        {elsewhere > 0 && (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-800 dark:text-amber-200">
+            <span>{elsewhere === 1 ? '1 proposal waits in another project.' : `${elsewhere} proposals wait in other projects.`}</span>
+            <Button size="sm" variant="outline" onClick={() => setScope('all')}>Show all projects</Button>
+          </div>
+        )}
 
         {loading ? (
           <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" aria-hidden /> Loading schedules…</p>

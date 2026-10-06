@@ -351,4 +351,13 @@ export const schedulesService = {
   countProposals(): number {
     return schedulesDb.countProposals();
   },
+
+  /** Pending agent proposals in total and per project, for the tab badge and the "other projects" hint. */
+  proposalSummary(): { proposals: number; byProject: Record<string, number> } {
+    const byProject: Record<string, number> = {};
+    for (const row of schedulesDb.list()) {
+      if (row.proposal) byProject[row.project_path] = (byProject[row.project_path] ?? 0) + 1;
+    }
+    return { proposals: Object.values(byProject).reduce((sum, count) => sum + count, 0), byProject };
+  },
 };

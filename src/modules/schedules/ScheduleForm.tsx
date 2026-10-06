@@ -122,6 +122,7 @@ function validate(form: FormState): string | null {
   if (form.repeat === 'weekly' && form.days.length === 0) return 'Pick at least one day of the week.';
   if (form.repeat === 'interval' && !(Number.isInteger(Number(form.every)) && Number(form.every) >= 1)) return 'The interval must be a whole number of at least 1.';
   if (form.repeat === 'once' && Number.isNaN(new Date(form.onceAt).getTime())) return 'Pick the date and time.';
+  if (form.repeat === 'once' && form.enabled && new Date(form.onceAt).getTime() <= Date.now()) return 'That date is in the past. Pick a future date and time.';
   if (form.kind === 'script' && !(Number(form.timeoutMinutes) >= 1)) return 'The timeout must be at least 1 minute.';
   return null;
 }
@@ -192,7 +193,7 @@ function WeekdayPicker({ days, onChange }: { days: number[]; onChange: (days: nu
 }
 
 /** Live "what this means" under the schedule: the summary at once, the next runs from the server. */
-function SchedulePreview({ spec }: { spec: ScheduleSpec | null }) {
+function SchedulePreview({ spec, timezone }: { spec: ScheduleSpec | null; timezone: string }) {
   const [nextRuns, setNextRuns] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const key = spec ? JSON.stringify(spec) : '';
@@ -202,7 +203,7 @@ function SchedulePreview({ spec }: { spec: ScheduleSpec | null }) {
     let cancelled = false;
     const timer = setTimeout(async () => {
       try {
-        const response = await api.schedules.preview({ schedule: spec });
+        const response = await api.schedules.preview({ schedule: spec, timezone });
         const data = await readApiJson<{ data: { nextRuns: string[] } }>(response);
         if (!cancelled) {
           setNextRuns(data.data.nextRuns);
@@ -221,7 +222,7 @@ function SchedulePreview({ spec }: { spec: ScheduleSpec | null }) {
     };
     // `key` stands for `spec`, which is a fresh object on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
+  }, [key, timezone]);
 
   if (!spec) return null;
   return (
@@ -247,6 +248,7 @@ export default function ScheduleForm({ open, schedule, projectPath, onOpenChange
   const [error, setError] = useState<string | null>(null);
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) => setForm((current) => ({ ...current, [key]: value }));
   const targetProject = schedule?.projectPath ?? projectPath;
+  const timezone = schedule?.timezone ?? 'Europe/Prague';
 
   const problem = validate(form);
   const timeValid = /^([01]?\d|2[0-3]):[0-5]\d$/.test(form.time.trim());
@@ -273,7 +275,7 @@ export default function ScheduleForm({ open, schedule, projectPath, onOpenChange
         projectPath: targetProject,
         kind: form.kind,
         schedule: toSpec(form),
-        timezone: schedule?.timezone ?? 'Europe/Prague',
+        timezone,
         prompt: form.prompt,
         provider: form.provider,
         model: form.model.trim() || null,
@@ -322,7 +324,7 @@ export default function ScheduleForm({ open, schedule, projectPath, onOpenChange
                 </Field>
               )}
               {(form.repeat === 'daily' || form.repeat === 'weekly' || form.repeat === 'monthly') && (
-                <Field label="Time" className="w-32" hint="24 h, Prague">
+                <Field label="Time" className="w-40" hint={`24 h, ${timezone}`}>
                   {(id) => <Input id={id} inputMode="numeric" maxLength={5} placeholder="08:00" value={form.time} onChange={(event) => set('time', event.target.value)} className="tabular-nums" />}
                 </Field>
               )}
@@ -349,7 +351,7 @@ export default function ScheduleForm({ open, schedule, projectPath, onOpenChange
               )}
             </div>
 
-            <SchedulePreview spec={spec} />
+            <SchedulePreview spec={spec} timezone={timezone} />
           </section>
 
           {form.kind === 'prompt' ? (
