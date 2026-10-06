@@ -342,7 +342,7 @@ export default function ChatComposer({
       )}
 
       {sendError && (
-        <div role="alert" className="mx-auto mb-2 max-w-[54.25rem] rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+        <div role="alert" className="mx-auto mb-2 max-w-[54.25rem] rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-800/60 dark:bg-red-950/40 dark:text-red-300">
           {sendError.reason === 'offline'
             ? t('composer.sendError.offline')
             : t('composer.sendError.failed', { detail: sendError.detail })}
