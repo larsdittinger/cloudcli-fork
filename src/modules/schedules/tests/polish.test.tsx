@@ -81,3 +81,17 @@ test('the panel points to proposals waiting in other projects', async () => {
   fireEvent.click(screen.getByRole('button', { name: 'Show all projects' }));
   assert.equal(screen.getByRole('button', { name: 'All projects' }).getAttribute('aria-pressed'), 'true');
 });
+
+test('an enabled one-time job with its original (passed) date can still be renamed in the form', async () => {
+  const onSubmit = vi.fn(async () => {});
+  const schedule = {
+    id: 's2', name: 'Retry', projectPath: '/a', kind: 'prompt', enabled: true, proposal: null,
+    schedule: { type: 'once', at: '2026-10-06T06:00:00.000Z' }, timezone: 'Europe/Prague', summary: '', prompt: 'p', provider: 'claude',
+    model: null, effort: null, permissionMode: 'bypassPermissions', sessionMode: 'new', sessionId: null, command: '',
+    timeoutSec: 1800, handoff: 'none', nextRunAt: '2026-10-06T06:01:10.000Z', lastRunAt: null, lastStatus: 'skipped', createdAt: '', updatedAt: '',
+  } as Schedule;
+  render(<ScheduleForm open schedule={schedule} projectPath="/a" onOpenChange={() => {}} onSubmit={onSubmit} />);
+  fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Renamed' } });
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Save changes' })); });
+  assert.equal(onSubmit.mock.calls.length, 1);
+});

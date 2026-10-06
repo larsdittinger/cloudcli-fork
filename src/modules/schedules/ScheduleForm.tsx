@@ -114,7 +114,7 @@ function toSpec(form: FormState): ScheduleSpec {
 }
 
 /** The first thing the form would refuse, in the words the person needs to fix it. */
-function validate(form: FormState): string | null {
+function validate(form: FormState, original: FormState | null): string | null {
   if (!form.name.trim()) return 'Give the schedule a name.';
   if (form.kind === 'prompt' && !form.prompt.trim()) return 'Write the prompt the agent should run.';
   if (form.kind === 'script' && !form.command.trim()) return 'Enter the command to run.';
@@ -122,7 +122,12 @@ function validate(form: FormState): string | null {
   if (form.repeat === 'weekly' && form.days.length === 0) return 'Pick at least one day of the week.';
   if (form.repeat === 'interval' && !(Number.isInteger(Number(form.every)) && Number(form.every) >= 1)) return 'The interval must be a whole number of at least 1.';
   if (form.repeat === 'once' && Number.isNaN(new Date(form.onceAt).getTime())) return 'Pick the date and time.';
-  if (form.repeat === 'once' && form.enabled && new Date(form.onceAt).getTime() <= Date.now()) return 'That date is in the past. Pick a future date and time.';
+  // Only a new date (or switching the job on) is checked, as on the server: a job waiting for
+  // its retry keeps its original date and must stay editable.
+  const onceDateTouched = !original || original.repeat !== 'once' || form.onceAt !== original.onceAt || (form.enabled && !original.enabled);
+  if (form.repeat === 'once' && form.enabled && onceDateTouched && new Date(form.onceAt).getTime() <= Date.now()) {
+    return 'That date is in the past. Pick a future date and time.';
+  }
   if (form.kind === 'script' && !(Number(form.timeoutMinutes) >= 1)) return 'The timeout must be at least 1 minute.';
   return null;
 }
@@ -244,13 +249,14 @@ function SchedulePreview({ spec, timezone }: { spec: ScheduleSpec | null; timezo
 /** Used by SchedulesPanel to create and edit a schedule; the fields follow the kind and the repeat type. */
 export default function ScheduleForm({ open, schedule, projectPath, onOpenChange, onSubmit }: Props) {
   const [form, setForm] = useState<FormState>(() => toForm(schedule));
+  const [original] = useState<FormState | null>(() => (schedule ? toForm(schedule) : null));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) => setForm((current) => ({ ...current, [key]: value }));
   const targetProject = schedule?.projectPath ?? projectPath;
   const timezone = schedule?.timezone ?? 'Europe/Prague';
 
-  const problem = validate(form);
+  const problem = validate(form, original);
   const timeValid = /^([01]?\d|2[0-3]):[0-5]\d$/.test(form.time.trim());
   const needsTime = form.repeat === 'daily' || form.repeat === 'weekly' || form.repeat === 'monthly';
   const spec = (form.repeat === 'weekly' && form.days.length === 0) || (needsTime && !timeValid) ? null : (() => {

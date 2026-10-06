@@ -127,3 +127,110 @@ test('deleting a schedule stops its running script and removes the log', async (
     closeScheduler();
   });
 });
+
+test('a one-time job waiting for its retry can still be renamed and duplicated', async () => {
+  await withIsolatedDatabase(async (dir) => {
+    initializeScheduler(finishOk, { tickMs: 0 });
+    const row = schedulesDb.create(scheduleInput({
+      project_path: dir,
+      schedule: JSON.stringify({ type: 'once', at: '2026-10-06T06:00:00.000Z' }),
+      next_run_at: '2026-10-06T06:01:10.000Z',
+    }));
+    const renamed = schedulesService.update(row.id, { name: 'Renamed' });
+    assert.equal(renamed.name, 'Renamed');
+    assert.equal(schedulesService.duplicate(row.id).enabled, false);
+    assert.throws(() => schedulesService.update(row.id, { schedule: { type: 'once', at: '2020-01-01T00:00:00Z' } }), /past/i, 'a new past date is still refused');
+    closeScheduler();
+  });
+});
+
+test('a proposal whose one-time date has passed cannot be approved', async () => {
+  await withIsolatedDatabase(async (dir) => {
+    initializeScheduler(finishOk, { tickMs: 0 });
+    const row = schedulesDb.create(scheduleInput({
+      project_path: dir, proposal: { note: 'n' }, schedule: JSON.stringify({ type: 'once', at: '2020-01-01T08:00:00.000Z' }), next_run_at: null,
+    }));
+    assert.throws(() => schedulesService.approve(row.id), /passed|past/i);
+    assert.ok(schedulesDb.get(row.id)!.proposal, 'still a proposal');
+    closeScheduler();
+  });
+});
+
+test('a skipped "Run now" is not folded into scheduled skips', async () => {
+  await withIsolatedDatabase(async () => {
+    let release!: () => void;
+    const hold = new Promise<void>((resolve) => { release = resolve; });
+    initializeScheduler(async (schedule, run) => { await hold; await finishOk(schedule, run); }, { tickMs: 0 });
+    const row = schedulesDb.create(scheduleInput());
+    startRun(row, 'manual', null);
+    startRun(row, 'schedule', null);
+    const manualSkip = startRun(row, 'manual', null);
+    assert.equal(manualSkip.trigger, 'manual');
+    assert.equal(manualSkip.repeat_count, 1);
+    release();
+    await settleRunningSchedules();
+    closeScheduler();
+  });
+});
+
+test('the hand-off does not start a chat for a schedule deleted while its script ran', async () => {
+  await withIsolatedDatabase(async (dir) => {
+    const path = await import('node:path');
+    const { createScheduleExecutor } = await import('@/modules/schedules/executor.service.js');
+    const { fakeRuntime } = await import('@/modules/schedules/tests/helpers.js');
+    const calls: unknown[] = [];
+    const row = schedulesDb.create(scheduleInput({ project_path: dir, kind: 'script', command: 'echo found', handoff: 'on_output', prompt: '{{output}}' }));
+    const run = scheduleRunsDb.create({ scheduleId: row.id, trigger: 'manual', scheduledFor: null, status: 'running' });
+    schedulesDb.delete(row.id);
+    await createScheduleExecutor(fakeRuntime(calls as never), { logsDir: path.join(dir, 'logs') })(row, run);
+    assert.equal(calls.length, 0);
+  });
+});
+
+test('deleting a schedule also kills children that ignore SIGTERM', async () => {
+  await withIsolatedDatabase(async (dir) => {
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    const { createScheduleExecutor } = await import('@/modules/schedules/executor.service.js');
+    const { fakeRuntime } = await import('@/modules/schedules/tests/helpers.js');
+    const logsDir = path.join(dir, 'logs');
+    initializeScheduler(createScheduleExecutor(fakeRuntime([]), { logsDir }), { tickMs: 0 });
+    const marker = path.join(dir, 'survivor');
+    const created = schedulesService.create({
+      name: 'Stubborn', projectPath: dir, kind: 'script',
+      command: `(trap '' TERM; sleep 2; touch ${marker}) & wait`, schedule: { type: 'daily', time: '03:00' },
+    }, null);
+    const run = schedulesService.runNow(created.id);
+    for (let attempt = 0; attempt < 50 && !fs.existsSync(path.join(logsDir, `${run.id}.log`)); attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    schedulesService.remove(created.id);
+    await settleRunningSchedules();
+    await new Promise((resolve) => setTimeout(resolve, 2600));
+    assert.equal(fs.existsSync(marker), false, 'the TERM-ignoring child was killed too');
+    closeScheduler();
+  });
+});
+
+test('a one-time AI job whose continued chat is busy is retried, not used up', async () => {
+  await withIsolatedDatabase(async (dir) => {
+    const { chatRunRegistry } = await import('@/modules/websocket/index.js');
+    const { createScheduleExecutor } = await import('@/modules/schedules/executor.service.js');
+    const { fakeRuntime } = await import('@/modules/schedules/tests/helpers.js');
+    const { sessionsDb } = await import('@/modules/database/index.js');
+    sessionsDb.createAppSession('busy-chat', 'claude', dir, 't', null);
+    chatRunRegistry.startRun({ appSessionId: 'busy-chat', provider: 'claude', providerSessionId: null, connection: null, userId: null } as never);
+    const row = schedulesDb.create(scheduleInput({
+      project_path: dir, session_mode: 'continue', schedule: JSON.stringify({ type: 'once', at: '2026-10-06T06:00:00.000Z' }), next_run_at: null,
+    }));
+    schedulesDb.setSessionId(row.id, 'busy-chat');
+    schedulesDb.setNextRun(row.id, null, { disable: true });
+    const run = scheduleRunsDb.create({ scheduleId: row.id, trigger: 'schedule', scheduledFor: '2026-10-06T06:00:00.000Z', status: 'running' });
+    await createScheduleExecutor(fakeRuntime([]))(schedulesDb.get(row.id)!, run);
+    const after = schedulesDb.get(row.id)!;
+    assert.equal(scheduleRunsDb.get(run.id)!.status, 'skipped');
+    assert.equal(after.enabled, 1, 'switched back on');
+    assert.ok(after.next_run_at && new Date(after.next_run_at).getTime() > Date.now(), 'retried shortly');
+  });
+});

@@ -1,9 +1,20 @@
-import { scheduleRunsDb } from '@/modules/database/index.js';
+import { scheduleRunsDb, schedulesDb } from '@/modules/database/index.js';
 import type { ScheduleRow, ScheduleRunRow } from '@/modules/database/index.js';
 import { runPromptTurn } from '@/modules/schedules/prompt-runner.service.js';
 import type { ScheduleExecutor } from '@/modules/schedules/scheduler.service.js';
 import { runScript } from '@/modules/schedules/script-runner.service.js';
 import type { ProviderRuntimeGateway } from '@/modules/websocket/index.js';
+
+/** How soon a one-time job blocked by a busy chat tries again. */
+const ONCE_RETRY_MS = 60_000;
+
+function isOnce(schedule: ScheduleRow): boolean {
+  try {
+    return (JSON.parse(schedule.schedule) as { type?: string }).type === 'once';
+  } catch {
+    return false;
+  }
+}
 
 /** Hand-off prompt when the schedule has none of its own. */
 export const DEFAULT_HANDOFF_TEMPLATE = `Naplánovaná úloha „{{name}}" ({{scheduledFor}}) spustila skript v projektu {{projectPath}} a ten vrátil výstup níže. Zpracuj ho.
@@ -45,6 +56,11 @@ export function createScheduleExecutor(runtime: ProviderRuntimeGateway, options:
         error: result.error,
         sessionId: result.sessionId,
       });
+      // The ticker already switched a one-time job off; a busy chat must not use it up.
+      if (result.busy && isOnce(schedule) && schedulesDb.get(schedule.id)) {
+        schedulesDb.update(schedule.id, { enabled: true });
+        schedulesDb.setNextRun(schedule.id, new Date(Date.now() + ONCE_RETRY_MS).toISOString());
+      }
       return;
     }
 
@@ -59,6 +75,8 @@ export function createScheduleExecutor(runtime: ProviderRuntimeGateway, options:
     });
 
     if (schedule.handoff !== 'on_output' || script.status !== 'succeeded' || !script.stdout.trim()) return;
+    // Deleted while the script ran: nobody wants a chat for it any more.
+    if (!schedulesDb.get(schedule.id)) return;
     const content = renderHandoffPrompt(schedule.prompt, {
       output: script.stdout,
       name: schedule.name,

@@ -256,11 +256,11 @@ export const scheduleRunsDb = {
    * per tick and push its real history out. When the newest run is already the
    * same skip, count it there instead; returns null when a new row is needed.
    */
-  foldSkip(scheduleId: string, error: string, atIso: string): ScheduleRunRow | null {
+  foldSkip(scheduleId: string, trigger: 'schedule' | 'manual', error: string, atIso: string): ScheduleRunRow | null {
     const latest = getConnection()
       .prepare(`SELECT ${RUN_COLUMNS} FROM schedule_runs WHERE schedule_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1`)
       .get(scheduleId) as ScheduleRunRow | undefined;
-    if (!latest || latest.status !== 'skipped' || latest.error !== error) return null;
+    if (!latest || latest.status !== 'skipped' || latest.trigger !== trigger || latest.error !== error) return null;
     getConnection()
       .prepare('UPDATE schedule_runs SET repeat_count = repeat_count + 1, finished_at = ? WHERE id = ?')
       .run(atIso, latest.id);
@@ -277,10 +277,11 @@ export const scheduleRunsDb = {
     // The schedule card shows the last result; it must not keep saying "running"/the older result.
     getConnection()
       .prepare(
-        `UPDATE schedules SET last_status = 'failed', last_run_at = ?
+        `UPDATE schedules SET last_status = 'failed',
+           last_run_at = (SELECT MAX(COALESCE(r.started_at, r.created_at)) FROM schedule_runs r WHERE r.schedule_id = schedules.id AND r.status = 'running')
          WHERE id IN (SELECT schedule_id FROM schedule_runs WHERE status = 'running')`,
       )
-      .run(now);
+      .run();
     return getConnection()
       .prepare(
         `UPDATE schedule_runs SET status = 'failed', finished_at = ?, error = COALESCE(error, 'The server restarted while this run was in progress.')

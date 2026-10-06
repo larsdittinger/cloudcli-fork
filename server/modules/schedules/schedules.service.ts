@@ -193,7 +193,11 @@ function buildWrite(input: ScheduleInput, current: ScheduleRow | null, ownerUser
   if (!isValidTimezone(timezone)) invalid(`Unknown time zone "${timezone}".`);
 
   const enabled = input.enabled === undefined ? (current ? current.enabled === 1 : true) : input.enabled === true;
-  if (spec.type === 'once' && enabled && new Date(spec.at).getTime() <= Date.now()) {
+  // Only a new date or switching the job on is checked: a job waiting for its retry keeps
+  // its original (passed) date and must stay editable.
+  const dateChanged = !current || current.schedule !== JSON.stringify(spec);
+  const switchingOn = enabled && (!current || current.enabled !== 1);
+  if (spec.type === 'once' && enabled && (dateChanged || switchingOn) && new Date(spec.at).getTime() <= Date.now()) {
     invalid('The one-time date is in the past. Pick a future date and time.');
   }
 
@@ -304,6 +308,10 @@ export const schedulesService = {
   approve(id: string): PublicSchedule {
     const row = requireSchedule(id);
     if (!row.proposal) throw new AppError('This schedule is not a pending proposal.', { code: 'SCHEDULE_NOT_PROPOSAL', statusCode: 409 });
+    const spec = readSpec(row);
+    if (spec?.type === 'once' && new Date(spec.at).getTime() <= Date.now()) {
+      throw new AppError('The proposed one-time date has passed. Edit the date first, then approve.', { code: 'SCHEDULE_DATE_PASSED', statusCode: 409 });
+    }
     schedulesDb.approve(id);
     const planned = planNextRun(id);
     broadcastSchedulesUpdated({ scheduleId: id });

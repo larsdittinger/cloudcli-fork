@@ -42,7 +42,7 @@ export function recomputeNextRun(row: ScheduleRow, from: Date = currentTime()): 
 
 function finishedRun(row: ScheduleRow, trigger: 'schedule' | 'manual', scheduledFor: string | null, status: 'missed' | 'skipped' | 'failed', error: string): ScheduleRunRow {
   const now = currentTime().toISOString();
-  const run = (status === 'skipped' ? scheduleRunsDb.foldSkip(row.id, error, now) : null)
+  const run = (status === 'skipped' ? scheduleRunsDb.foldSkip(row.id, trigger, error, now) : null)
     ?? scheduleRunsDb.create({ scheduleId: row.id, trigger, scheduledFor, status, startedAt: null, finishedAt: now, error });
   schedulesDb.recordResult(row.id, status, now);
   broadcastSchedulesUpdated({ scheduleId: row.id, runId: run.id });

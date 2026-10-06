@@ -139,19 +139,24 @@ export async function runScript(input: {
     }
   };
   let timedOut = false;
+  let stopped = false;
   let killTimer: ReturnType<typeof setTimeout> | null = null;
+  const terminate = () => {
+    killGroup('SIGTERM');
+    if (killTimer) clearTimeout(killTimer);
+    killTimer = setTimeout(() => killGroup('SIGKILL'), input.killGraceMs ?? DEFAULT_KILL_GRACE_MS);
+  };
   runningScripts.set(input.runId, {
     logPath,
     stop: () => {
-      killGroup('SIGTERM');
-      killTimer = setTimeout(() => killGroup('SIGKILL'), input.killGraceMs ?? DEFAULT_KILL_GRACE_MS);
+      stopped = true;
+      terminate();
     },
   });
   const timeoutMs = Math.max(1, input.timeoutSec ?? schedule.timeout_sec) * 1000;
   const timeoutTimer = setTimeout(() => {
     timedOut = true;
-    killGroup('SIGTERM');
-    killTimer = setTimeout(() => killGroup('SIGKILL'), input.killGraceMs ?? DEFAULT_KILL_GRACE_MS);
+    terminate();
   }, timeoutMs);
 
   // The run ends when bash exits, not when every holder of its pipes is gone:
@@ -181,6 +186,8 @@ export async function runScript(input: {
   clearTimeout(timeoutTimer);
   if (killTimer) clearTimeout(killTimer);
   runningScripts.delete(input.runId);
+  // Stopped or timed out: children that ignored SIGTERM may outlive bash — finish them.
+  if (stopped || timedOut) killGroup('SIGKILL');
 
   const status: ScriptResult['status'] = timedOut ? 'timeout' : exitCode === 0 ? 'succeeded' : 'failed';
   writeLog(`\n# finished: ${new Date().toISOString()} · ${status}${exitCode === null ? '' : ` · exit ${exitCode}`}\n`);
