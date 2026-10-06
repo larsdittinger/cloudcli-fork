@@ -37,18 +37,22 @@ export default function TaskCard({ task, showProject, onOpen }: Props) {
   const preview = summaryPreview(task.summary);
 
   return (
-    <button
-      type="button"
-      onClick={onOpen}
+    <article
+      aria-labelledby={`task-card-${task.id}`}
       className={cn(
-        'group w-full rounded-lg border bg-card p-3 text-left shadow-sm transition-colors hover:border-foreground/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+        'group relative w-full rounded-lg border bg-card p-3 text-left shadow-sm transition-colors focus-within:ring-2 focus-within:ring-ring hover:border-foreground/30',
         reasons.length ? 'border-amber-500/60' : 'border-border/70',
         closed && 'opacity-75',
       )}
     >
       <div className="flex items-start gap-2">
         <span className="mt-px shrink-0 text-xs tabular-nums text-muted-foreground">#{task.id}</span>
-        <h3 className="min-w-0 flex-1 hyphens-auto break-words text-sm font-medium leading-snug" lang="cs">{task.title}</h3>
+        <h3 id={`task-card-${task.id}`} className="min-w-0 flex-1 hyphens-auto break-words text-sm font-medium leading-snug" lang="cs">
+          {/* The whole card is clickable through this button's stretched hit area. */}
+          <button type="button" onClick={onOpen} className="text-left after:absolute after:inset-0 after:rounded-lg focus-visible:outline-none">
+            {task.title}
+          </button>
+        </h3>
       </div>
       {task.running && (
         <p className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-violet-500/15 px-1.5 py-0.5 text-[11px] font-medium text-violet-700 dark:text-violet-300">
@@ -85,6 +89,6 @@ export default function TaskCard({ task, showProject, onOpen }: Props) {
         {task.status === 'cancelled' && <span>Cancelled</span>}
         {showProject && <span title={task.projectPath}>{projectName(task.projectPath)}</span>}
       </div>
-    </button>
+    </article>
   );
 }

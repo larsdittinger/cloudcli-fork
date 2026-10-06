@@ -218,7 +218,13 @@ export default function TaskDetail({ taskId, onClose, onEdit }: Props) {
                   className="rounded-md border border-input bg-transparent px-2 py-1 text-sm"
                   value={task.status}
                   disabled={busy !== null}
-                  onChange={(event) => void act('status', () => api.agentTasks.setStatus(task.id, event.target.value as AgentTaskStatus))}
+                  onChange={(event) => {
+                    const next = event.target.value as AgentTaskStatus;
+                    if ((next === 'done' || next === 'cancelled') && !window.confirm(
+                      `Mark #${task.id} as ${STATUS_LABELS[next].toLowerCase()}? The agent stops${task.running ? ' (its current run too)' : ''} and unsent drafts are discarded.`,
+                    )) return;
+                    void act('status', () => api.agentTasks.setStatus(task.id, next));
+                  }}
                 >
                   {(Object.keys(STATUS_LABELS) as AgentTaskStatus[]).map((status) => (
                     <option key={status} value={status}>{STATUS_LABELS[status]}</option>
@@ -255,6 +261,9 @@ export default function TaskDetail({ taskId, onClose, onEdit }: Props) {
                 </div>
               </div>
               {actionError && <p role="alert" className="mt-2 text-sm text-red-600 dark:text-red-300">{actionError}</p>}
+              {error && !actionError && (
+                <p role="alert" className="mt-2 text-sm text-red-600 dark:text-red-300">This task no longer exists or could not be loaded ({error}).</p>
+              )}
             </header>
 
             <div className="space-y-3 p-4 md:p-5">

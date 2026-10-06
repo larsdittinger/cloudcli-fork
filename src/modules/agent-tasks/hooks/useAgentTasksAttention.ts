@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { api, readApiJson } from '@/shared/api';
 import { useWebSocket } from '@/shared/context/WebSocketContext';
@@ -14,9 +14,14 @@ export function useAgentTasksAttention(enabled = true): Attention {
   // Latest counts from /api/tasks/summary; kept as the same object while unchanged.
   const [attention, setAttention] = useState<Attention>(EMPTY);
 
+  const requestRef = useRef(0);
+
   const load = useCallback(async () => {
+    const request = ++requestRef.current;
     try {
       const data = await readApiJson<{ data: Attention }>(await api.agentTasks.summary());
+      // An older answer arriving late must not overwrite a newer count.
+      if (request !== requestRef.current) return;
       const next = data.data ?? EMPTY;
       setAttention((current) => (JSON.stringify(current) === JSON.stringify(next) ? current : next));
     } catch {
@@ -27,9 +32,16 @@ export function useAgentTasksAttention(enabled = true): Attention {
   useEffect(() => {
     if (!enabled) return undefined;
     void load();
-    return subscribe((event: ServerEvent) => {
-      if (event.kind === 'tasks_updated' || event.kind === 'channels_outbox_updated') void load();
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const unsubscribe = subscribe((event: ServerEvent) => {
+      if (event.kind !== 'tasks_updated' && event.kind !== 'channels_outbox_updated') return;
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => { void load(); }, 300);
     });
+    return () => {
+      unsubscribe();
+      if (timer) clearTimeout(timer);
+    };
   }, [enabled, load, subscribe]);
 
   return enabled ? attention : EMPTY;

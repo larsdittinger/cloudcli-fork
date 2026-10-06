@@ -183,6 +183,13 @@ export const tasksDb = {
       .all(now) as TaskRow[];
   },
 
+  /** Open tasks with a run in progress in this project directory (used to scope agent sends). */
+  listRunningIn(projectPath: string): TaskRow[] {
+    return getConnection()
+      .prepare(`SELECT ${TASK_COLUMNS} FROM tasks WHERE project_path = ? AND running_session_id IS NOT NULL`)
+      .all(projectPath) as TaskRow[];
+  },
+
   countRunning(): number {
     return (getConnection().prepare('SELECT COUNT(*) AS count FROM tasks WHERE running_session_id IS NOT NULL').get() as { count: number }).count;
   },
@@ -257,9 +264,17 @@ export const taskEventsDb = {
 
 // taskThreadsDb: used by the Tasks module to route replies in a task's conversations back to the task.
 export const taskThreadsDb = {
+  /**
+   * A conversation belongs to the open task that started it; a closed task's
+   * conversation can be taken over (a WhatsApp chat with a supplier spans tasks).
+   */
   link(accountId: string, threadKey: string, taskId: number): void {
     getConnection()
-      .prepare('INSERT INTO task_threads (account_id, thread_key, task_id, created_at) VALUES (?, ?, ?, ?) ON CONFLICT(account_id, thread_key) DO UPDATE SET task_id = excluded.task_id')
+      .prepare(
+        `INSERT INTO task_threads (account_id, thread_key, task_id, created_at) VALUES (?, ?, ?, ?)
+         ON CONFLICT(account_id, thread_key) DO UPDATE SET task_id = excluded.task_id
+         WHERE NOT EXISTS (SELECT 1 FROM tasks t WHERE t.id = task_threads.task_id AND t.status NOT IN ('done', 'cancelled'))`,
+      )
       .run(accountId, threadKey, taskId, nowIso());
   },
 

@@ -9,6 +9,8 @@ export type ChannelTaskHooks = {
   routeInbound: (message: ChannelMessageRow) => number | null;
   /** Called after a task's message was delivered; `threadKey` is where replies will arrive. */
   onSent: (row: ChannelOutboxRow, info: { threadKey: string | null; afterApproval: boolean }) => void;
+  /** True when a task runs in this project directory: its agent must send through the task, not around it. */
+  blocksAgentSend: (cwd: string) => boolean;
 };
 
 let hooks: ChannelTaskHooks | null = null;

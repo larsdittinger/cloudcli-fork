@@ -1,6 +1,6 @@
 import { outboxService, setChannelTaskHooks } from '@/modules/channels/index.js';
 import type { ChannelMessageRow, ChannelOutboxRow } from '@/modules/channels/index.js';
-import { channelAccountsDb, channelMessagesDb, taskEventsDb, tasksDb, taskThreadsDb } from '@/modules/database/index.js';
+import { channelAccountsDb, channelMessagesDb, channelOutboxDb, taskEventsDb, tasksDb, taskThreadsDb } from '@/modules/database/index.js';
 import type { TaskRow } from '@/modules/database/index.js';
 import { broadcastTasksUpdated } from '@/modules/tasks/tasks-broadcast.js';
 import { queueWake } from '@/modules/tasks/wake-queue.js';
@@ -8,7 +8,14 @@ import { AppError } from '@/shared/utils.js';
 
 /** Inbound text kept in the diary; the full message (and attachments) stays in Channels. */
 const DIARY_TEXT_LIMIT = 4000;
-const TAG_PATTERN = /\[#(\d{1,9})\]/;
+/** `[T-12]` in a subject: rarer than `[#12]`, which helpdesks use too. */
+const TAG_PATTERN = /\[T-(\d{1,9})\]/i;
+/** Shared mail providers: a colleague at the same domain means nothing there. */
+const FREE_MAIL_DOMAINS = new Set([
+  'gmail.com', 'googlemail.com', 'seznam.cz', 'email.cz', 'post.cz', 'centrum.cz', 'atlas.cz', 'volny.cz', 'tiscali.cz',
+  'outlook.com', 'hotmail.com', 'live.com', 'msn.com', 'yahoo.com', 'icloud.com', 'me.com', 'proton.me', 'protonmail.com', 'gmx.com', 'gmx.net',
+]);
+const AUTO_REPLY_SUBJECT = /^(automatic reply|auto(matick[áa])? odpov[ěe]ď|out of office|nep[řr][ií]tomnost|abwesenheit|auto:)/i;
 
 function isOpen(task: TaskRow | null): task is TaskRow {
   return task !== null && task.status !== 'done' && task.status !== 'cancelled';
@@ -20,7 +27,33 @@ function clip(text: string, limit: number): string {
 }
 
 function tagFor(taskId: number): string {
-  return `[#${taskId}]`;
+  return `[T-${taskId}]`;
+}
+
+function domainOf(address: string): string {
+  return address.toLowerCase().split('@')[1]?.trim() ?? '';
+}
+
+/**
+ * A tag alone proves nothing (task numbers are small and guessable): it only
+ * counts from someone the task already wrote to, or a colleague at the same
+ * company domain.
+ */
+function knownCorrespondent(taskId: number, from: string): boolean {
+  const sender = from.trim().toLowerCase();
+  const recipients = channelOutboxDb.recipientsOfTask(taskId);
+  if (recipients.includes(sender)) return true;
+  const domain = domainOf(sender);
+  return Boolean(domain) && !FREE_MAIL_DOMAINS.has(domain) && recipients.some((recipient) => domainOf(recipient) === domain);
+}
+
+function isAutoReply(message: ChannelMessageRow): boolean {
+  try {
+    if ((JSON.parse(message.raw_json || '{}') as { autoReply?: unknown }).autoReply === true) return true;
+  } catch {
+    // Not JSON: fall through to the subject.
+  }
+  return AUTO_REPLY_SUBJECT.test(message.subject ?? '');
 }
 
 /** Keeps the task tag in an e-mail subject so a reply outside the thread still finds the task. */
@@ -28,13 +61,19 @@ function taggedSubject(subject: string, taskId: number): string {
   return subject.includes(tagFor(taskId)) ? subject : `${subject} ${tagFor(taskId)}`.trim();
 }
 
-/** A reply in a task's thread, or a message tagged `[#N]` for an open task, belongs to that task. */
+/**
+ * A reply in a task's thread belongs to the task; so does a `[T-N]`-tagged
+ * message from someone the task wrote to. Everything else stays with the rules.
+ */
 function routeInbound(message: ChannelMessageRow): number | null {
-  const threadTask = taskThreadsDb.find(message.account_id, message.thread_key);
+  const threadTask = tasksDb.get(taskThreadsDb.find(message.account_id, message.thread_key) ?? 0);
   const tagged = TAG_PATTERN.exec(message.subject ?? '');
-  const candidates = [threadTask, tagged ? Number(tagged[1]) : null].filter((id): id is number => id !== null);
-  const task = candidates.map((id) => tasksDb.get(id)).find(isOpen);
+  const taggedTask = tagged ? tasksDb.get(Number(tagged[1])) : null;
+  const task = isOpen(threadTask)
+    ? threadTask
+    : isOpen(taggedTask) && knownCorrespondent(taggedTask.id, message.from_address) ? taggedTask : null;
   if (!task) return null;
+  const automatic = isAutoReply(message);
 
   taskThreadsDb.link(message.account_id, message.thread_key, task.id);
   const from = message.from_name ? `${message.from_name} <${message.from_address}>` : message.from_address;
@@ -45,7 +84,10 @@ function routeInbound(message: ChannelMessageRow): number | null {
       return 0;
     }
   })();
-  const header = [`Od: ${from}`, message.subject ? `Předmět: ${message.subject}` : null, attachments ? `Přílohy: ${attachments} (channels_get_message)` : null]
+  const header = [
+    automatic ? 'Automatic reply (out of office or similar) — did not wake the agent.' : null,
+    `Od: ${from}`, message.subject ? `Předmět: ${message.subject}` : null, attachments ? `Přílohy: ${attachments} (channels_get_message)` : null,
+  ]
     .filter(Boolean)
     .join('\n');
   taskEventsDb.add({
@@ -53,9 +95,11 @@ function routeInbound(message: ChannelMessageRow): number | null {
     author: 'external',
     kind: 'message_in',
     text: `${header}\n\n${clip(message.text, DIARY_TEXT_LIMIT)}`,
-    meta: { messageId: message.id, accountId: message.account_id, from: message.from_address, subject: message.subject, channel: message.channel },
+    meta: { messageId: message.id, accountId: message.account_id, from: message.from_address, subject: message.subject, channel: message.channel, automatic },
   });
-  queueWake(task.id, 'message');
+  // An out-of-office answer is worth a line in the diary, not a run (and not a reply).
+  if (automatic) broadcastTasksUpdated({ taskId: task.id });
+  else queueWake(task.id, 'message');
   return task.id;
 }
 
@@ -76,7 +120,7 @@ function onSent(row: ChannelOutboxRow, info: { threadKey: string | null; afterAp
 
 /** Used by the tasks module at start: Channels hands task replies here and reports task sends. */
 export function initializeChannelLink(): void {
-  setChannelTaskHooks({ routeInbound, onSent });
+  setChannelTaskHooks({ routeInbound, onSent, blocksAgentSend: (cwd) => tasksDb.listRunningIn(cwd).length > 0 });
 }
 
 /** Used by the tasks module on shutdown. */

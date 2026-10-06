@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { test } from 'node:test';
+import { tmpdir } from 'node:os';
 
 import { channelsService } from '@/modules/channels/index.js';
 import type { InboundMessage } from '@/modules/channels/index.js';
@@ -8,6 +9,9 @@ import { channelAccountsDb, channelOutboxDb, taskEventsDb, tasksDb, taskThreadsD
 import { initializeChannelLink, sendTaskMessage } from '@/modules/tasks/channel-link.service.js';
 import { tasksService } from '@/modules/tasks/tasks.service.js';
 import { withIsolatedDatabase } from '@/modules/tasks/tests/helpers.js';
+
+/** An existing directory: agents may only create tasks in real project folders. */
+const AGENT_DIR = tmpdir();
 
 const taskInput = { title: 'Find a label printer', brief: 'Three quotes.', mandate: 'Email printers.', projectPath: '/workspace/ceo_tasks' };
 
@@ -57,7 +61,7 @@ test('a task e-mail is tagged, sent, logged and its thread routes replies back t
     tasksDb.takePendingWake(task.id);
     const result = await sendTaskMessage({ taskId: task.id, accountId, to: 'sales@print.cz', subject: 'Poptávka etiket', text: 'Dobrý den, ...' });
     assert.equal(result.status, 'sent');
-    assert.equal(sent[0].subject, `Poptávka etiket [#${task.id}]`);
+    assert.equal(sent[0].subject, `Poptávka etiket [T-${task.id}]`);
     assert.equal(taskThreadsDb.find(accountId, 'out-1@ethia.cz'), task.id, 'the cleaned Message-ID is the reply thread');
     assert.ok(taskEventsDb.list(task.id).some((event) => event.kind === 'message_out' && /sales@print\.cz/.test(event.text)));
 
@@ -76,15 +80,17 @@ test('a task e-mail is tagged, sent, logged and its thread routes replies back t
 test('a new e-mail with the tag reaches an open task; a closed task or unknown tag goes to the rules', async () => {
   await withMailAccount('auto', async (accountId) => {
     const task = tasksService.create(taskInput, { by: 'owner' });
-    const tagged = await channelsService.ingest(accountId, inbound(accountId, { subject: `Cena etiket [#${task.id}]` }));
+    // The tag only counts from someone the task wrote to.
+    await sendTaskMessage({ taskId: task.id, accountId, to: 'sales@print.cz', subject: 'Poptávka', text: 'Dobrý den' });
+    const tagged = await channelsService.ingest(accountId, inbound(accountId, { subject: `Cena etiket [T-${task.id}]` }));
     assert.equal(tagged?.status, 'task');
     assert.equal(taskThreadsDb.find(accountId, tagged?.thread_key ?? ''), task.id, 'its thread now belongs to the task');
 
-    const unknown = await channelsService.ingest(accountId, inbound(accountId, { subject: 'Cena [#999]' }));
+    const unknown = await channelsService.ingest(accountId, inbound(accountId, { subject: 'Cena [T-999]' }));
     assert.equal(unknown?.status, 'unmatched');
 
     tasksService.setStatus(task.id, 'done');
-    const late = await channelsService.ingest(accountId, inbound(accountId, { subject: `Ještě jedna [#${task.id}]` }));
+    const late = await channelsService.ingest(accountId, inbound(accountId, { subject: `Ještě jedna [T-${task.id}]` }));
     assert.equal(late?.status, 'unmatched');
   });
 });
@@ -92,14 +98,14 @@ test('a new e-mail with the tag reaches an open task; a closed task or unknown t
 test('our own copies are ignored, not fed to the task', async () => {
   await withMailAccount('auto', async (accountId) => {
     const task = tasksService.create(taskInput, { by: 'owner' });
-    const own = await channelsService.ingest(accountId, inbound(accountId, { from: { address: 'nakup@ethia.cz' }, subject: `Kopie [#${task.id}]` }));
+    const own = await channelsService.ingest(accountId, inbound(accountId, { from: { address: 'nakup@ethia.cz' }, subject: `Kopie [T-${task.id}]` }));
     assert.equal(own?.status, 'ignored');
   });
 });
 
 test('an unconfirmed mandate turns sends into drafts; sending after approval logs and links the thread', async () => {
   await withMailAccount('auto', async (accountId, sent) => {
-    const task = tasksService.create({ ...taskInput, projectPath: undefined }, { by: 'agent', cwd: '/workspace/ceo' });
+    const task = tasksService.create({ ...taskInput, projectPath: undefined }, { by: 'agent', cwd: AGENT_DIR });
     const draft = await sendTaskMessage({ taskId: task.id, accountId, to: 'sales@print.cz', subject: 'Poptávka', text: 'Dobrý den' });
     assert.equal(draft.status, 'draft');
     assert.equal(sent.length, 0);
@@ -129,12 +135,14 @@ test('the account decides: draft mode keeps a draft, off refuses', async () => {
 test('replying to a task message stays in its thread with Re: and the tag', async () => {
   await withMailAccount('auto', async (accountId, sent) => {
     const task = tasksService.create(taskInput, { by: 'owner' });
-    const incoming = await channelsService.ingest(accountId, inbound(accountId, { subject: `Nabídka [#${task.id}]`, threadKey: 'supplier-thread' }));
+    await sendTaskMessage({ taskId: task.id, accountId, to: 'sales@print.cz', subject: 'Poptávka', text: 'Dobrý den' });
+    sent.length = 0;
+    const incoming = await channelsService.ingest(accountId, inbound(accountId, { subject: `Nabídka [T-${task.id}]`, threadKey: 'supplier-thread' }));
     assert.ok(incoming);
     const result = await sendTaskMessage({ taskId: task.id, replyToMessageId: incoming.id, text: 'Děkujeme, a doprava?' });
     assert.equal(result.status, 'sent');
     assert.equal(sent[0].to, 'sales@print.cz');
-    assert.equal(sent[0].subject, `Re: Nabídka [#${task.id}]`);
+    assert.equal(sent[0].subject, `Re: Nabídka [T-${task.id}]`);
     assert.equal(channelOutboxDb.get(result.outboxId)?.in_reply_to_message_id, incoming.id);
   });
 });

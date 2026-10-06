@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import path from 'node:path';
 
 import { channelOutboxDb, taskEventsDb, tasksDb } from '@/modules/database/index.js';
@@ -10,7 +11,11 @@ const STATUSES: TaskStatus[] = ['new', 'working', 'waiting_external', 'waiting_o
 const CLOSED: TaskStatus[] = ['done', 'cancelled'];
 /** Statuses an agent may set itself; it reaches the owner only through a question. */
 const AGENT_STATUSES: TaskStatus[] = ['working', 'waiting_external', 'done', 'cancelled'];
-const PERMISSION_MODES = ['default', 'acceptEdits', 'bypassPermissions', 'plan'];
+/**
+ * Task runs have nobody at the chat to approve a tool call, so anything but
+ * autonomous would hang the run until the watchdog stops it.
+ */
+const PERMISSION_MODES = ['bypassPermissions'];
 const MAX_CHECK_DAYS = 90;
 const CLOSED_VISIBLE_DAYS = 30;
 
@@ -152,7 +157,7 @@ function readProjectPath(value: unknown): string {
 
 function readPermissionMode(value: unknown): string {
   if (value === undefined || value === null || value === '') return 'bypassPermissions';
-  if (typeof value !== 'string' || !PERMISSION_MODES.includes(value)) throw badRequest(`Permission mode must be one of ${PERMISSION_MODES.join(', ')}.`);
+  if (typeof value !== 'string' || !PERMISSION_MODES.includes(value)) throw badRequest('Task runs are autonomous (bypassPermissions): nobody is at the chat to approve tool calls.');
   return value;
 }
 
@@ -175,10 +180,35 @@ function readNextCheck(at: unknown, inMinutes: unknown, now: Date): string | nul
   }
   if (at === undefined) return undefined;
   if (at === null || at === '') return null;
-  const time = typeof at === 'string' ? Date.parse(at) : Number.NaN;
+  const time = typeof at === 'string' ? parsePragueDateTime(at) : Number.NaN;
   if (!Number.isFinite(time)) throw badRequest('nextCheckAt must be an ISO date and time.');
   if (time > now.getTime() + MAX_CHECK_DAYS * 24 * 60 * 60_000) throw badRequest(`The next check can be at most ${MAX_CHECK_DAYS} days away.`);
   return new Date(Math.max(time, now.getTime())).toISOString();
+}
+
+const PRAGUE_PARTS = new Intl.DateTimeFormat('en-US', {
+  timeZone: 'Europe/Prague', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+});
+
+/** How far Prague is ahead of UTC at `utcMs`, in ms (1 h in winter, 2 h in summer). */
+function pragueOffsetMs(utcMs: number): number {
+  const parts = Object.fromEntries(PRAGUE_PARTS.formatToParts(new Date(utcMs)).map((part) => [part.type, part.value]));
+  const asUtc = Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day), Number(parts.hour) % 24, Number(parts.minute), Number(parts.second));
+  return asUtc - Math.floor(utcMs / 1000) * 1000;
+}
+
+/**
+ * ISO with a zone is taken as is; a bare `2026-10-08T09:00` is Prague time,
+ * the time the agent sees everywhere else.
+ */
+function parsePragueDateTime(value: string): number {
+  const bare = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?$/.exec(value.trim());
+  if (!bare) return Date.parse(value);
+  const [, year, month, day, hour, minute, second] = bare;
+  const naive = Date.UTC(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute), Number(second ?? 0));
+  // Two passes settle the offset around a daylight-saving switch.
+  const first = naive - pragueOffsetMs(naive);
+  return naive - pragueOffsetMs(first);
 }
 
 function draftCount(taskId: number): number {
@@ -242,6 +272,21 @@ function closingPatch(status: TaskStatus): TaskPatch {
   return { status, closed_at: new Date().toISOString(), next_check_at: null, question: null };
 }
 
+/** A closed task sends nothing more: its unsent drafts leave the Inbox too. */
+function discardDrafts(taskId: number): void {
+  for (const message of channelOutboxDb.listByTask(taskId)) {
+    if (message.status === 'draft' || message.status === 'failed') channelOutboxDb.setStatus(message.id, 'discarded');
+  }
+}
+
+/** Closes a task from any path (owner, agent, system answer): no more wakes, drafts and the running turn stop. */
+function closeTask(row: TaskRow, status: TaskStatus, extra: TaskPatch = {}): void {
+  tasksDb.update(row.id, { ...closingPatch(status), ...extra });
+  tasksDb.takePendingWake(row.id);
+  discardDrafts(row.id);
+  if (row.running_session_id) abortTaskRun(row.id, row.running_session_id);
+}
+
 const STATUS_LABELS: Record<TaskStatus, string> = {
   new: 'New',
   working: 'Working',
@@ -283,6 +328,10 @@ export const tasksService = {
     const brief = requiredText(input.brief, 'Brief', 20_000);
     const mandate = optionalText(input.mandate, 'Mandate', 5_000);
     const projectPath = readProjectPath(input.projectPath ?? (origin.by === 'agent' ? origin.cwd : undefined));
+    // An agent's task runs autonomously wherever it says; only in a real project folder.
+    if (origin.by === 'agent' && !fs.statSync(projectPath, { throwIfNoEntry: false })?.isDirectory()) {
+      throw badRequest(`${projectPath} is not an existing project folder.`);
+    }
     const nextCheck = readNextCheck(undefined, input.nextCheckInMinutes, new Date());
     const row = tasksDb.create({
       title,
@@ -313,8 +362,12 @@ export const tasksService = {
     if (input.title !== undefined) patch.title = requiredText(input.title, 'Title', 200);
     if (input.brief !== undefined) patch.brief = requiredText(input.brief, 'Brief', 20_000);
     if (input.mandate !== undefined) {
-      patch.mandate = optionalText(input.mandate, 'Mandate', 5_000);
-      patch.mandate_confirmed = 1;
+      const mandate = optionalText(input.mandate, 'Mandate', 5_000);
+      // Writing a new mandate is the owner deciding it; saving the same text (e.g. a rename) confirms nothing.
+      if (mandate !== row.mandate) {
+        patch.mandate = mandate;
+        patch.mandate_confirmed = 1;
+      }
     }
     if (input.projectPath !== undefined) patch.project_path = readProjectPath(input.projectPath);
     if (input.provider !== undefined) patch.provider = optionalName(input.provider, 'Provider') ?? 'claude';
@@ -324,7 +377,7 @@ export const tasksService = {
     tasksDb.update(id, patch);
 
     const briefChanged = patch.brief !== undefined && patch.brief !== row.brief;
-    const mandateChanged = patch.mandate !== undefined && (patch.mandate !== row.mandate || row.mandate_confirmed === 0);
+    const mandateChanged = patch.mandate !== undefined;
     if (mandateChanged) logEvent(id, 'owner', 'mandate', `Mandate set: ${patch.mandate || '(none)'}`);
     if (briefChanged) logEvent(id, 'owner', 'edit', `Brief changed:\n${patch.brief}`);
     else if (patch.title !== undefined && patch.title !== row.title) logEvent(id, 'owner', 'edit', `Renamed to “${patch.title}”.`);
@@ -358,8 +411,7 @@ export const tasksService = {
 
     // System questions are the engine asking whether to go on; "cancel" closes the task.
     if (question.by === 'system' && /^cancel/i.test(option)) {
-      tasksDb.update(id, { ...closingPatch('cancelled'), failure_count: 0 });
-      tasksDb.takePendingWake(id);
+      closeTask(row, 'cancelled', { failure_count: 0 });
       logEvent(id, 'owner', 'answer', `${question.text}\n→ ${option}`);
       return changed(id);
     }
@@ -376,29 +428,32 @@ export const tasksService = {
     const next = status as TaskStatus;
     if (next === row.status) return toPublicTask(row);
     if (isClosed(next)) {
-      tasksDb.update(id, closingPatch(next));
-      tasksDb.takePendingWake(id);
-      if (row.running_session_id) abortTaskRun(id, row.running_session_id);
+      closeTask(row, next);
     } else {
-      tasksDb.update(id, { status: next, closed_at: null, ...(next !== 'waiting_owner' ? { question: null } : {}) });
+      // Waiting for a reply without a date would sleep forever: follow up in two days.
+      const followUp = next === 'waiting_external' && !row.next_check_at
+        ? { next_check_at: new Date(Date.now() + 48 * 60 * 60_000).toISOString() }
+        : {};
+      tasksDb.update(id, { status: next, closed_at: null, ...(next !== 'waiting_owner' ? { question: null } : {}), ...followUp });
     }
     logEvent(id, 'owner', 'status', `Moved to ${STATUS_LABELS[next]}.`);
     if (isClosed(row.status) && !isClosed(next)) queueWake(id, 'reopened');
+    else if (next === 'new' || next === 'working') queueWake(id, 'owner_status');
     return changed(id);
   },
 
   wakeNow(id: number): PublicTask {
     const row = requireTask(id);
     if (isClosed(row.status)) throw conflict('Reopen the task before waking it.');
+    // Logged as the owner speaking, which also resets the loop guard.
+    logEvent(id, 'owner', 'wake_request', 'Woken by you.');
     queueWake(id, 'owner_wake');
     return changed(id);
   },
 
   remove(id: number): void {
     const row = requireTask(id);
-    for (const message of channelOutboxDb.listByTask(id)) {
-      if (message.status === 'draft' || message.status === 'failed') channelOutboxDb.setStatus(message.id, 'discarded');
-    }
+    discardDrafts(id);
     tasksDb.delete(id);
     if (row.running_session_id) abortTaskRun(id, row.running_session_id);
     broadcastTasksUpdated({ taskId: id });
@@ -415,7 +470,11 @@ export const tasksService = {
     const nextCheck = readNextCheck(input.nextCheckAt, input.nextCheckInMinutes, new Date());
     if (nextCheck !== undefined) patch.next_check_at = nextCheck;
 
+    const openQuestion = parseJsonValue<TaskQuestion | null>(row.question, null);
     let status: TaskStatus | null = null;
+    if (input.status !== undefined && openQuestion?.by === 'system') {
+      throw conflict('CloudCLI itself asked the owner to decide about this task; wait for their answer.');
+    }
     if (input.status !== undefined) {
       if (typeof input.status !== 'string' || !AGENT_STATUSES.includes(input.status as TaskStatus)) {
         throw badRequest(`status must be one of ${AGENT_STATUSES.join(', ')}; ask the owner with tasks_ask_owner instead of setting waiting_owner.`);
@@ -425,6 +484,7 @@ export const tasksService = {
     if (status && isClosed(status)) {
       Object.assign(patch, closingPatch(status));
       tasksDb.takePendingWake(id);
+      discardDrafts(id);
     } else if (status && status !== row.status) {
       // Going on without the owner withdraws an open question.
       Object.assign(patch, { status, question: null });

@@ -106,7 +106,7 @@ const tools: ToolDefinition[] = [
         checklist: { type: 'array', items: { type: 'object', properties: { text: { type: 'string' }, done: { type: 'boolean' } }, required: ['text'] } },
         status: { type: 'string', enum: ['working', 'waiting_external', 'done', 'cancelled'] },
         next_check_in_minutes: { type: 'number', description: 'Wake me up in N minutes (max 90 days).' },
-        next_check_at: { type: 'string', description: 'Or an ISO date-time; null clears it.' },
+        next_check_at: { type: 'string', description: 'Or a date-time, e.g. 2026-10-08T09:00 (Prague time when no zone is given); null clears it.' },
       },
       required: ['id'],
     },
@@ -131,7 +131,7 @@ const tools: ToolDefinition[] = [
   },
   {
     name: 'tasks_send_message',
-    description: 'Send an e-mail / WhatsApp / webhook message for a task through a Channels account. Adds the [#N] tag to e-mail subjects and routes replies back to the task (they wake you). Unconfirmed mandate or an account in draft mode → it waits as a draft for the owner.',
+    description: 'Send an e-mail / WhatsApp / webhook message for a task through a Channels account (only during the task\'s own run). Adds the [T-N] tag to e-mail subjects and routes replies back to the task (they wake you). Unconfirmed mandate or an account in draft mode → it waits as a draft for the owner.',
     inputSchema: {
       type: 'object',
       properties: {

@@ -4,7 +4,7 @@ import path from 'node:path';
 import express from 'express';
 
 import { channelsService } from '@/modules/channels/index.js';
-import { channelAccountsDb } from '@/modules/database/index.js';
+import { channelAccountsDb, tasksDb } from '@/modules/database/index.js';
 import { buildTasksGuide } from '@/modules/tasks/agent-guide.js';
 import { sendTaskMessage } from '@/modules/tasks/channel-link.service.js';
 import { getTasksMcpToken } from '@/modules/tasks/mcp-registration.service.js';
@@ -33,6 +33,24 @@ function readTaskId(value: unknown): number {
 
 function optionalString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value : undefined;
+}
+
+/**
+ * Agents change only tasks run in their own project (the MCP process's cwd),
+ * so a chat elsewhere — or one task's agent — cannot steer another task.
+ * Reading stays open.
+ */
+function requireOwnTask(value: unknown, cwd: string | null, options: { running?: boolean } = {}): number {
+  const id = readTaskId(value);
+  const task = tasksDb.get(id);
+  if (!task) throw new AppError(`Task #${id} not found.`, { code: 'TASK_NOT_FOUND', statusCode: 404 });
+  if (!cwd || path.resolve(task.project_path) !== cwd) {
+    throw new AppError(`Task #${id} is run by the agent in ${task.project_path}; only that agent may change it.`, { code: 'TASK_NOT_YOURS', statusCode: 403 });
+  }
+  if (options.running && !task.running_session_id) {
+    throw new AppError(`Task #${id} is not running right now; messages go out only during the task's own run.`, { code: 'TASK_NOT_RUNNING', statusCode: 409 });
+  }
+  return id;
 }
 
 /** Constant-time: the bridge is reachable through the public reverse proxy. */
@@ -120,7 +138,7 @@ router.post('/tools/:toolName', async (req, res) => {
         break;
       }
       case 'tasks_update':
-        result = tasksService.agentUpdate(readTaskId(input.id), {
+        result = tasksService.agentUpdate(requireOwnTask(input.id, cwd), {
           summary: input.summary,
           checklist: input.checklist,
           status: input.status,
@@ -129,15 +147,15 @@ router.post('/tools/:toolName', async (req, res) => {
         });
         break;
       case 'tasks_log':
-        result = compact(tasksService.log(readTaskId(input.id), input.text));
+        result = compact(tasksService.log(requireOwnTask(input.id, cwd), input.text));
         break;
       case 'tasks_ask_owner': {
-        const task = tasksService.ask(readTaskId(input.id), { question: input.question, options: input.options });
+        const task = tasksService.ask(requireOwnTask(input.id, cwd), { question: input.question, options: input.options });
         result = { task: compact(task), note: 'The task now waits for the owner; their answer wakes you. End this turn.' };
         break;
       }
       case 'tasks_send_message': {
-        const taskId = readTaskId(input.task_id);
+        const taskId = requireOwnTask(input.task_id, cwd, { running: true });
         const text = typeof input.text === 'string' ? input.text : '';
         result = await sendTaskMessage({
           taskId,

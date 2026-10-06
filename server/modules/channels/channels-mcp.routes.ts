@@ -1,9 +1,12 @@
+import { timingSafeEqual } from 'node:crypto';
+
 import express from 'express';
 
 import { buildAgentGuide } from '@/modules/channels/agent-info.js';
 import { channelsService } from '@/modules/channels/channels.service.js';
 import { outboxService } from '@/modules/channels/outbox.service.js';
 import { proposalsService } from '@/modules/channels/proposals.service.js';
+import { getChannelTaskHooks } from '@/modules/channels/task-hooks.js';
 import { parseJson } from '@/modules/channels/types.js';
 import type { ChannelMessageRow, ChannelType, InboundAttachment, RuleInput } from '@/modules/channels/types.js';
 import { channelAccountsDb, channelMessagesDb } from '@/modules/database/index.js';
@@ -58,7 +61,10 @@ function messageForAgent(row: ChannelMessageRow, full: boolean) {
 router.use((req, res, next) => {
   const expected = channelsService.getMcpToken();
   const token = readBearerToken(req.headers.authorization) || String(req.headers['x-channels-mcp-token'] || '');
-  if (!token || token !== expected) {
+  // Constant-time, like the other local bridges: it is reachable through the public reverse proxy.
+  const given = Buffer.from(token);
+  const wanted = Buffer.from(expected);
+  if (!token || given.length !== wanted.length || !timingSafeEqual(given, wanted)) {
     res.status(401).json({ success: false, error: 'Invalid Channels MCP token.' });
     return;
   }
@@ -92,6 +98,11 @@ router.post('/tools/:toolName', async (req, res) => {
         break;
       }
       case 'channels_send_message': {
+        // A long-running task's agent must go through tasks_send_message: that is where its mandate is enforced.
+        const cwd = readOptional(input.cwd);
+        if (cwd && getChannelTaskHooks()?.blocksAgentSend(cwd)) {
+          throw new AppError('A long-running task runs in this project: send with tasks_send_message (task_id, …) so the mandate applies and the reply comes back to the task.', { code: 'USE_TASK_SEND', statusCode: 409 });
+        }
         const row = await outboxService.createSend({
           accountId: readString(input.account_id, 'account_id'),
           to: readString(input.to, 'to'),

@@ -13,7 +13,8 @@ type Props = {
   /** Agent project a new task runs in by default (the open project). */
   projectPath: string;
   onClose: () => void;
-  onSubmit: (values: AgentTaskInput) => Promise<void>;
+  /** New task: every field. Edit: only the fields that changed (a rename must not re-send the mandate). */
+  onSubmit: (values: Partial<AgentTaskInput>) => Promise<void>;
 };
 
 const FIELD_CLASS =
@@ -61,7 +62,7 @@ export default function TaskForm({ task, projectPath, onClose, onSubmit }: Props
     setSaving(true);
     setError(null);
     try {
-      await onSubmit({
+      const cleaned: AgentTaskInput = {
         ...values,
         title: values.title.trim(),
         brief: values.brief.trim(),
@@ -69,7 +70,13 @@ export default function TaskForm({ task, projectPath, onClose, onSubmit }: Props
         projectPath: values.projectPath.trim(),
         model: values.model?.trim() || null,
         effort: values.effort?.trim() || null,
-      });
+      };
+      if (task) {
+        const changed = (Object.keys(cleaned) as Array<keyof AgentTaskInput>).filter((key) => cleaned[key] !== task[key]);
+        if (changed.length) await onSubmit(Object.fromEntries(changed.map((key) => [key, cleaned[key]])) as Partial<AgentTaskInput>);
+      } else {
+        await onSubmit(cleaned);
+      }
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -134,16 +141,9 @@ export default function TaskForm({ task, projectPath, onClose, onSubmit }: Props
               <Field label="Effort" hint="Empty = default.">
                 {(id) => <Input id={id} value={values.effort ?? ''} onChange={(event) => set('effort', event.target.value)} placeholder="e.g. high" />}
               </Field>
-              <Field label="Permissions">
-                {(id) => (
-                  <select id={id} className={FIELD_CLASS} value={values.permissionMode} onChange={(event) => set('permissionMode', event.target.value)}>
-                    <option value="bypassPermissions">Autonomous (nobody approves tool calls)</option>
-                    <option value="acceptEdits">Accept edits</option>
-                    <option value="default">Ask in the chat (the run waits)</option>
-                    <option value="plan">Plan only</option>
-                  </select>
-                )}
-              </Field>
+              <p className="text-xs text-muted-foreground sm:col-span-2">
+                Runs are autonomous: nobody sits at the chat to approve tool calls. What the agent may do is set by the mandate above.
+              </p>
             </div>
           </details>
 

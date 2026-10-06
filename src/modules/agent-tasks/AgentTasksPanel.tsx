@@ -27,7 +27,7 @@ export default function AgentTasksPanel({ selectedProject }: Props) {
   const attention = useAgentTasksAttention();
   const elsewhere = scope === 'project' ? attention.total - (attention.byProject[projectPath] ?? 0) : 0;
 
-  const submit = async (values: AgentTaskInput) => {
+  const submit = async (values: Partial<AgentTaskInput>) => {
     if (form?.task) {
       await readApiJson(await api.agentTasks.update(form.task.id, values));
     } else {
@@ -88,7 +88,8 @@ export default function AgentTasksPanel({ selectedProject }: Props) {
         </div>
       </div>
 
-      <TaskDetail taskId={openId} onClose={() => setOpenId(null)} onEdit={(task) => setForm({ task })} />
+      {/* Keyed by task: a half-typed comment or answer never carries over to another task. */}
+      <TaskDetail key={openId ?? 'none'} taskId={openId} onClose={() => setOpenId(null)} onEdit={(task) => setForm({ task })} />
       {form && <TaskForm task={form.task} projectPath={projectPath} onClose={() => setForm(null)} onSubmit={submit} />}
     </div>
   );

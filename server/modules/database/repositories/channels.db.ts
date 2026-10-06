@@ -346,6 +346,14 @@ export const channelOutboxDb = {
     return (getConnection().prepare(`SELECT ${OUTBOX_COLUMNS} FROM channel_outbox WHERE id = ?`).get(id) as ChannelOutboxRow | undefined) ?? null;
   },
 
+  /** Every recipient a task has written to (sent or waiting), lower-cased. */
+  recipientsOfTask(taskId: number): string[] {
+    const rows = getConnection()
+      .prepare(`SELECT DISTINCT lower(trim(to_address)) AS address FROM channel_outbox WHERE task_id = ? AND status NOT IN ('discarded')`)
+      .all(taskId) as Array<{ address: string }>;
+    return rows.map((row) => row.address);
+  },
+
   /** Every message of one task, oldest first. */
   listByTask(taskId: number): ChannelOutboxRow[] {
     return getConnection().prepare(`SELECT ${OUTBOX_COLUMNS} FROM channel_outbox WHERE task_id = ? ORDER BY created_at ASC`).all(taskId) as ChannelOutboxRow[];

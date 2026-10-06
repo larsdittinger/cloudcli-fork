@@ -1,10 +1,14 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { tmpdir } from 'node:os';
 
 import { channelOutboxDb, taskEventsDb, tasksDb } from '@/modules/database/index.js';
 import { renderWakePrompt } from '@/modules/tasks/task-prompt.js';
 import { tasksService } from '@/modules/tasks/tasks.service.js';
 import { withIsolatedDatabase } from '@/modules/tasks/tests/helpers.js';
+
+/** An existing directory: agents may only create tasks in real project folders. */
+const AGENT_DIR = tmpdir();
 
 const ownerInput = {
   title: 'Find a label printer',
@@ -30,10 +34,10 @@ test('an owner task starts confirmed, logged and queued to wake', async () => {
 
 test('an agent task needs the owner to confirm its mandate and defaults to the agent project', async () => {
   await withIsolatedDatabase(() => {
-    const task = tasksService.create({ title: 'Ask printers', brief: 'Prices', mandate: 'Email printers' }, { by: 'agent', cwd: '/workspace/ceo' });
+    const task = tasksService.create({ title: 'Ask printers', brief: 'Prices', mandate: 'Email printers' }, { by: 'agent', cwd: AGENT_DIR });
     assert.equal(task.mandateConfirmed, false);
     assert.equal(task.createdBy, 'agent');
-    assert.equal(task.projectPath, '/workspace/ceo');
+    assert.equal(task.projectPath, AGENT_DIR);
     const confirmed = tasksService.confirmMandate(task.id);
     assert.equal(confirmed.mandateConfirmed, true);
     assert.ok(tasksDb.get(task.id)?.pending_wake.includes('mandate_confirmed'));
@@ -142,7 +146,7 @@ test('owner comments wake an open task but not a closed one; reopening wakes it'
 
 test('owner edits keep the mandate confirmed and are logged', async () => {
   await withIsolatedDatabase(() => {
-    const task = tasksService.create({ title: 'T', brief: 'B', mandate: 'M' }, { by: 'agent', cwd: '/workspace/ceo' });
+    const task = tasksService.create({ title: 'T', brief: 'B', mandate: 'M' }, { by: 'agent', cwd: AGENT_DIR });
     const edited = tasksService.updateByOwner(task.id, { mandate: 'Email at most 3 printers.' });
     assert.equal(edited.mandateConfirmed, true);
     assert.equal(edited.mandate, 'Email at most 3 printers.');
@@ -163,7 +167,7 @@ test('deleting a task discards its unsent drafts', async () => {
 
 test('the wake prompt carries the card, reasons and only the new diary entries', async () => {
   await withIsolatedDatabase(() => {
-    const created = tasksService.create({ title: 'Ask printers', brief: 'Get three quotes.', mandate: 'Email printers' }, { by: 'agent', cwd: '/workspace/ceo' });
+    const created = tasksService.create({ title: 'Ask printers', brief: 'Get three quotes.', mandate: 'Email printers' }, { by: 'agent', cwd: AGENT_DIR });
     tasksService.agentUpdate(created.id, { summary: 'Asked A and B.', checklist: [{ text: 'Ask A', done: true }] });
     const seen = taskEventsDb.latestId(created.id);
     tasksDb.update(created.id, { seen_event_id: seen });

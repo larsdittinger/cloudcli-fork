@@ -63,6 +63,17 @@ export type EmailAdapterOptions = {
   transportFactory?: (options: { host: string; port: number; secure: boolean; auth: { user: string; pass: string } }) => MailTransportLike;
 };
 
+
+/** Out-of-office and other machine answers (RFC 3834 `Auto-Submitted`, common vendor headers). */
+function isAutomaticReply(headers: Map<string, unknown> | undefined): boolean {
+  if (!headers) return false;
+  const read = (name: string) => String(headers.get(name) ?? '').trim().toLowerCase();
+  const autoSubmitted = read('auto-submitted');
+  if (autoSubmitted && autoSubmitted !== 'no') return true;
+  if (headers.has('x-autoreply') || headers.has('x-autorespond')) return true;
+  return ['auto_reply', 'auto-reply'].includes(read('precedence'));
+}
+
 function addressList(value: AddressObject | AddressObject[] | undefined): Array<{ address: string; name?: string }> {
   const objects = Array.isArray(value) ? value : value ? [value] : [];
   return objects.flatMap((object) => object.value.map((entry) => ({ address: (entry.address ?? '').toLowerCase(), name: entry.name || undefined })));
@@ -124,6 +135,7 @@ export async function parseEmailToInbound(accountId: string, uid: number, source
       inReplyTo: parsed.inReplyTo ?? null,
       references,
       replyTo: replyTo ?? null,
+      ...(isAutomaticReply(parsed.headers) ? { autoReply: true } : {}),
       ...(skipped.length ? { skippedAttachments: skipped } : {}),
     },
   };

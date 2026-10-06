@@ -414,6 +414,10 @@ async function startServer() {
             // then keeps polling.
             initializeScheduledMessageDispatcher(providerRuntimeService);
             // Inbound e-mail / WhatsApp / webhook messages that start agent turns.
+            // Long-running agent tasks: before Channels starts, so the first fetched replies already reach their task.
+            await initializeTasks(providerRuntimeService).catch(err => {
+                console.error('[Tasks] Error during startup:', getErrorMessage(err));
+            });
             initializeChannels(providerRuntimeService).catch(err => {
                 console.error('[Channels] Error during startup:', getErrorMessage(err));
             });
@@ -422,10 +426,6 @@ async function startServer() {
             // one-time import can switch the old cron plugin off first.
             await initializeSchedules(providerRuntimeService).catch(err => {
                 console.error('[Schedules] Error during startup:', getErrorMessage(err));
-            });
-            // Long-running agent tasks: wake-ups and replies routed from Channels.
-            await initializeTasks(providerRuntimeService).catch(err => {
-                console.error('[Tasks] Error during startup:', getErrorMessage(err));
             });
 
             // Start server-side plugin processes for enabled plugins
@@ -439,11 +439,6 @@ async function startServer() {
         // Clean up plugin processes on shutdown
         const shutdownRuntimeServices = async () => {
             try {
-                await closeTasks();
-            } catch (err) {
-                console.error('[Tasks] Error stopping tasks during shutdown:', getErrorMessage(err));
-            }
-            try {
                 await closeSchedules();
             } catch (err) {
                 console.error('[Schedules] Error stopping schedules during shutdown:', getErrorMessage(err));
@@ -452,6 +447,11 @@ async function startServer() {
                 await closeChannels();
             } catch (err) {
                 console.error('[Channels] Error stopping channels during shutdown:', getErrorMessage(err));
+            }
+            try {
+                await closeTasks();
+            } catch (err) {
+                console.error('[Tasks] Error stopping tasks during shutdown:', getErrorMessage(err));
             }
             try {
                 await browserUseService.stopAllSessions();

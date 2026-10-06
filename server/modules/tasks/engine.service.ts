@@ -19,13 +19,24 @@ const RETRY_MS = 30 * 60_000;
 const MAX_FAILURES = 3;
 /** More wakes than this within a day (since the owner last spoke) means the task is going in circles. */
 const MAX_WAKES_PER_DAY = 20;
+/** A run longer than this is stuck (a hung tool, a sleep loop): it is stopped and booked as a failure. */
+const DEFAULT_RUN_TIMEOUT_MS = 3 * HOUR_MS;
+/** Nobody sits at a task's chat: tools that wait for a person would hang the run. */
+const INTERACTIVE_TOOLS = ['AskUserQuestion', 'ExitPlanMode', 'EnterPlanMode'];
+/** Reasons the owner gives; only these wake a task that waits for the owner. */
+const OWNER_REASONS = new Set(['owner_answer', 'owner_comment', 'owner_wake', 'owner_edit', 'owner_status', 'mandate_confirmed', 'reopened']);
 
 let runtime: ProviderRuntimeGateway | null = null;
 let tickTimer: ReturnType<typeof setInterval> | null = null;
 let maxRuns = 2;
 let currentTime: () => Date = () => new Date();
 let kickPending = false;
+let runTimeoutMs = DEFAULT_RUN_TIMEOUT_MS;
+/** Set during shutdown: runs cut short then are left for restart recovery, not booked as failures. */
+let closing = false;
 const inFlight = new Set<Promise<void>>();
+/** Runs already booked (by the watchdog); their late end must not be booked twice. */
+const finishedRuns = new Set<string>();
 
 const chatTime = new Intl.DateTimeFormat('cs-CZ', {
   timeZone: 'Europe/Prague', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false,
@@ -45,7 +56,9 @@ function reportedError(sessionId: string): string | null {
 }
 
 function runOptions(task: TaskRow): Record<string, unknown> {
-  const options: Record<string, unknown> = {};
+  const options: Record<string, unknown> = {
+    toolsSettings: { allowedTools: [], disallowedTools: INTERACTIVE_TOOLS, skipPermissions: false },
+  };
   if (task.model) options.model = task.model;
   if (task.effort) options.effort = task.effort;
   if (task.permission_mode && task.permission_mode !== 'default') options.permissionMode = task.permission_mode;
@@ -67,8 +80,12 @@ function recentWakes(task: TaskRow, now: Date): number {
   return taskEventsDb.countSince(task.id, 'wake', ownerSpoke && ownerSpoke > dayAgo ? ownerSpoke : dayAgo);
 }
 
-/** Starts one run of `task`: a fresh chat whose first message is the card. */
-function startTaskRun(task: TaskRow, now: Date): void {
+/**
+ * Starts one run of `task`: a fresh chat whose first message is the card.
+ * Returns false when nothing started (the loop guard parked the task, or the
+ * start failed — then the wake reasons go back to the queue).
+ */
+function startTaskRun(task: TaskRow, now: Date): boolean {
   const reasons = tasksDb.takePendingWake(task.id);
   const checkDue = task.next_check_at !== null && task.next_check_at <= now.toISOString();
   if (checkDue && !reasons.includes('check')) reasons.push('check');
@@ -79,30 +96,49 @@ function startTaskRun(task: TaskRow, now: Date): void {
       question: `The agent woke up ${MAX_WAKES_PER_DAY} times within a day without settling. Look at the diary — should it continue?`,
       options: ['Continue', 'Cancel task'],
     }, 'system');
-    return;
+    return false;
   }
 
   const sessionId = randomUUID();
-  sessionsDb.createAppSession(sessionId, task.provider, task.project_path, `📋 #${task.id} ${task.title} · ${chatTime.format(now)}`.slice(0, 120), task.owner_user_id);
+  let prompt: string;
+  try {
+    sessionsDb.createAppSession(sessionId, task.provider, task.project_path, `📋 #${task.id} ${task.title} · ${chatTime.format(now)}`.slice(0, 120), task.owner_user_id);
 
-  // What the agent has not seen yet, minus its own notes and earlier wake markers.
-  const unseen = taskEventsDb.list(task.id, { afterId: task.seen_event_id });
-  const newEvents = unseen.filter((event) => event.author !== 'agent' && event.kind !== 'wake');
-  const olderCount = taskEventsDb.count(task.id) - unseen.length;
+    // What the agent has not seen yet, minus its own notes and earlier wake markers.
+    const unseen = taskEventsDb.list(task.id, { afterId: task.seen_event_id });
+    const newEvents = unseen.filter((event) => event.author !== 'agent' && event.kind !== 'wake');
+    const olderCount = taskEventsDb.count(task.id) - unseen.length;
 
-  const reasonText = reasons.join(', ');
-  systemNote(task.id, 'wake', `Woke up: ${reasonText}.`, sessionId);
-  tasksDb.update(task.id, {
-    status: task.status === 'new' ? 'working' : task.status,
-    // The due check is used up by this run; the agent plans the next one.
-    next_check_at: checkDue ? null : task.next_check_at,
-    seen_event_id: taskEventsDb.latestId(task.id),
-  });
-  tasksDb.setRunning(task.id, sessionId, now.toISOString());
-  const prompt = renderWakePrompt(tasksDb.get(task.id) as TaskRow, reasons, newEvents, olderCount);
+    systemNote(task.id, 'wake', `Woke up: ${reasons.join(', ')}.`, sessionId);
+    tasksDb.update(task.id, {
+      status: task.status === 'new' ? 'working' : task.status,
+      // The due check is used up by this run; the agent plans the next one.
+      next_check_at: checkDue ? null : task.next_check_at,
+      seen_event_id: taskEventsDb.latestId(task.id),
+    });
+    prompt = renderWakePrompt(tasksDb.get(task.id) as TaskRow, reasons, newEvents, olderCount);
+    tasksDb.setRunning(task.id, sessionId, now.toISOString());
+  } catch (error) {
+    // Nothing runs: never leave the task marked running, and keep why it should wake.
+    try {
+      tasksDb.setRunning(task.id, null, null);
+      for (const reason of reasons) tasksDb.addPendingWake(task.id, reason);
+    } catch {
+      // The database itself is failing; the restart recovery will sort it out.
+    }
+    console.error('[Tasks] Could not start a run', { taskId: task.id, error: error instanceof Error ? error.message : String(error) });
+    return false;
+  }
   broadcastTasksUpdated({ taskId: task.id });
 
   const execute = runtime as ProviderRuntimeGateway;
+  const watchdog = setTimeout(() => {
+    if (closing) return;
+    void Promise.resolve(execute.abort(task.provider as never, sessionId)).catch(() => undefined);
+    safeFinish(task.id, sessionId, `The run hit the ${Math.round(runTimeoutMs / 60_000)} min time limit and was stopped.`);
+  }, runTimeoutMs);
+  watchdog.unref?.();
+
   const run = (async () => {
     let error: string | null = null;
     try {
@@ -114,17 +150,39 @@ function startTaskRun(task: TaskRow, now: Date): void {
       error = result.started ? (result.error ?? reportedError(sessionId)) : (result.error ?? 'The chat turn did not start.');
     } catch (caught) {
       error = caught instanceof Error ? caught.message : String(caught);
+    } finally {
+      clearTimeout(watchdog);
     }
-    finishTaskRun(task.id, sessionId, error);
+    // Shutdown cut the run short: leave it marked running for the next start's recovery.
+    if (closing) return;
+    safeFinish(task.id, sessionId, error);
   })();
   inFlight.add(run);
   void run.finally(() => inFlight.delete(run));
+  return true;
+}
+
+/** `finishTaskRun` once per run, never throwing into a promise nobody handles. */
+function safeFinish(taskId: number, sessionId: string, error: string | null): void {
+  if (finishedRuns.has(sessionId)) return;
+  finishedRuns.add(sessionId);
+  try {
+    finishTaskRun(taskId, sessionId, error);
+  } catch (caught) {
+    console.error('[Tasks] Could not book the end of a run', { taskId, error: caught instanceof Error ? caught.message : String(caught) });
+    try {
+      tasksDb.setRunning(taskId, null, null);
+    } catch {
+      // Left for the restart recovery.
+    }
+  }
 }
 
 /** Books the end of a run and makes sure an open task never ends up without a next step. */
 function finishTaskRun(taskId: number, sessionId: string, error: string | null): void {
   const task = tasksDb.get(taskId);
-  if (!task) return;
+  // Deleted, or a newer run already owns the task (this one was stopped by the watchdog).
+  if (!task || (task.running_session_id !== null && task.running_session_id !== sessionId)) return;
   tasksDb.setRunning(taskId, null, null);
   const now = currentTime();
 
@@ -165,12 +223,17 @@ function finishTaskRun(taskId: number, sessionId: string, error: string | null):
  */
 export function tickTasks(now: Date = currentTime()): Promise<void> {
   if (!runtime) return Promise.resolve();
+  if (closing) return Promise.resolve();
   let free = maxRuns - tasksDb.countRunning();
   for (const task of tasksDb.listWakeable(now.toISOString())) {
     if (free <= 0) break;
+    // A task waiting for the owner keeps other news (messages, restarts) until the owner acts.
+    if (task.status === 'waiting_owner') {
+      const reasons = JSON.parse(task.pending_wake || '[]') as string[];
+      if (!reasons.some((reason) => OWNER_REASONS.has(reason))) continue;
+    }
     try {
-      startTaskRun(task, now);
-      free -= 1;
+      if (startTaskRun(task, now)) free -= 1;
     } catch (error) {
       console.error('[Tasks] Could not start a run', { taskId: task.id, error: error instanceof Error ? error.message : String(error) });
     }
@@ -199,9 +262,16 @@ export async function settleTaskRuns(): Promise<void> {
  * interrupted, hooks wake requests to the engine and starts ticking.
  * `tickMs: 0` keeps the timer off (tests call `tickTasks` themselves).
  */
-export function initializeTaskEngine(nextRuntime: ProviderRuntimeGateway, options: { tickMs?: number; now?: () => Date; maxRuns?: number } = {}): void {
+export function initializeTaskEngine(
+  nextRuntime: ProviderRuntimeGateway,
+  options: { tickMs?: number; now?: () => Date; maxRuns?: number; runTimeoutMs?: number } = {},
+): void {
   closeTaskEngine();
+  closing = false;
+  finishedRuns.clear();
   runtime = nextRuntime;
+  const configuredTimeout = Number(process.env.CLOUDCLI_TASKS_RUN_TIMEOUT_MIN) * 60_000;
+  runTimeoutMs = options.runTimeoutMs ?? (Number.isFinite(configuredTimeout) && configuredTimeout > 0 ? configuredTimeout : DEFAULT_RUN_TIMEOUT_MS);
   currentTime = options.now ?? (() => new Date());
   const configured = Number(process.env.CLOUDCLI_TASKS_MAX_RUNS);
   maxRuns = options.maxRuns ?? (Number.isInteger(configured) && configured > 0 ? configured : 2);
@@ -229,6 +299,7 @@ export function initializeTaskEngine(nextRuntime: ProviderRuntimeGateway, option
 }
 
 export function closeTaskEngine(): void {
+  closing = true;
   if (tickTimer) clearInterval(tickTimer);
   tickTimer = null;
   runtime = null;

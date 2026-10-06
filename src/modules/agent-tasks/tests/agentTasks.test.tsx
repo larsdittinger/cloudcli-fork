@@ -27,7 +27,7 @@ vi.mock('@/shared/api', () => ({
     agentTasks: {
       list: (...args: unknown[]) => { calls.push({ name: 'list', args }); return ok(listData); },
       summary: () => ok(summaryData),
-      get: () => ok(detailData),
+      get: () => (detailData ? ok(detailData) : Promise.resolve(new Response(JSON.stringify({ success: false, error: { message: 'Task #12 not found.' } }), { status: 404 }))),
       create: (body: Record<string, unknown>) => { calls.push({ name: 'create', args: [body] }); return ok({ ...task(), id: 42, projectPath: body.projectPath }); },
       update: record('update'),
       remove: record('remove'),
@@ -42,7 +42,11 @@ vi.mock('@/shared/api', () => ({
       discardOutbox: record('discardOutbox'),
     },
   },
-  readApiJson: async (response: Response) => response.json(),
+  readApiJson: async (response: Response) => {
+    const json = await response.json();
+    if (!response.ok) throw new Error(json.error?.message ?? 'Request failed');
+    return json;
+  },
 }));
 // The real context hands out one stable subscribe function.
 const stableSocket = { subscribe: () => () => {} };
@@ -223,5 +227,48 @@ test('the form requires a title, a brief and an absolute project, then submits t
   await waitFor(() => assert.equal(onSubmit.mock.calls.length, 1));
   const submitted = (onSubmit.mock.calls[0] as unknown as [Record<string, unknown>])[0];
   assert.equal(submitted.title, 'Tiskárna');
-  assert.equal(submitted.permissionMode, 'bypassPermissions');
+  assert.equal(submitted.projectPath, '/workspace/ceo_tasks');
+});
+
+test('editing sends only what changed, so a rename never confirms a mandate', async () => {
+  const onSubmit = vi.fn(async () => {});
+  render(<TaskForm task={task({ mandateConfirmed: false })} projectPath="/workspace/ceo_tasks" onClose={() => {}} onSubmit={onSubmit} />);
+  fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Renamed' } });
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Save' })); });
+  await waitFor(() => assert.equal(onSubmit.mock.calls.length, 1));
+  assert.deepEqual((onSubmit.mock.calls[0] as unknown as [Record<string, unknown>])[0], { title: 'Renamed' });
+});
+
+test('task runs are autonomous: the form offers no permission modes that would hang', () => {
+  render(<TaskForm task={null} projectPath="/workspace/ceo_tasks" onClose={() => {}} onSubmit={async () => {}} />);
+  assert.equal(screen.queryByLabelText('Permissions'), null);
+  assert.ok(screen.getByText(/autonomous/i));
+});
+
+test('closing a task from the status menu asks first', async () => {
+  detailData = { task: task(), events: [], eventCount: 0, messages: [] };
+  const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+  render(<MemoryRouter><TaskDetail taskId={12} onClose={() => {}} onEdit={() => {}} /></MemoryRouter>);
+  const select = await screen.findByLabelText('Status');
+  await act(async () => { fireEvent.change(select, { target: { value: 'cancelled' } }); });
+  assert.equal(confirm.mock.calls.length, 1);
+  assert.equal(calls.some((call) => call.name === 'setStatus'), false);
+  confirm.mockRestore();
+});
+
+test('a task deleted elsewhere shows why instead of a stale card', async () => {
+  detailData = { task: task(), events: [], eventCount: 0, messages: [] };
+  render(<MemoryRouter><TaskDetail taskId={12} onClose={() => {}} onEdit={() => {}} /></MemoryRouter>);
+  const box = await screen.findByLabelText('Message the agent');
+  detailData = null;
+  fireEvent.change(box, { target: { value: 'Ahoj' } });
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: /Send to agent/ })); });
+  assert.ok(await screen.findByText(/no longer exists/i));
+});
+
+test('a card is an article whose title is the button that opens it', async () => {
+  listData = [task({ id: 7, title: 'Krabice' })];
+  render(<MemoryRouter><AgentTasksPanel selectedProject={project} /></MemoryRouter>);
+  const article = await screen.findByRole('article', { name: /Krabice/ });
+  assert.ok(within(article).getByRole('button', { name: /Krabice/ }));
 });

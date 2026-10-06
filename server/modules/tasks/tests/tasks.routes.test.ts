@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import { test } from 'node:test';
+import { tmpdir } from 'node:os';
 
 import express from 'express';
 
@@ -10,6 +11,9 @@ import tasksMcpRoutes from '@/modules/tasks/tasks-mcp.routes.js';
 import tasksRoutes from '@/modules/tasks/tasks.routes.js';
 import { withIsolatedDatabase } from '@/modules/tasks/tests/helpers.js';
 import { AppError } from '@/shared/utils.js';
+
+/** An existing directory: agents may only create tasks in real project folders. */
+const AGENT_DIR = tmpdir();
 
 type Json = { success: boolean; data?: any; error?: { message?: string } | string };
 
@@ -38,7 +42,8 @@ async function startApi() {
     const response = await fetch(`http://127.0.0.1:${port}/api/tasks-mcp/tools/${name}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify(body),
+      // Agents call from their project directory; the tests act from AGENT_DIR unless they say otherwise.
+      body: JSON.stringify({ cwd: AGENT_DIR, ...body }),
     });
     return { status: response.status, json: (await response.json()) as Json };
   };
@@ -96,15 +101,15 @@ test('MCP: token gate, info, create from cwd, update, log, ask, list, get, send 
       assert.equal((await api.tool('tasks_get_info', {}, 'wrong')).status, 401);
       channelAccountsDb.create({ type: 'email', label: 'Nákup', config: {}, secrets: {}, agentSend: 'auto' });
 
-      const info = await api.tool('tasks_get_info', { cwd: '/workspace/ceo' });
+      const info = await api.tool('tasks_get_info', { cwd: AGENT_DIR });
       assert.equal(info.status, 200);
       assert.match(info.json.data.guide, /tasks_send_message/);
       assert.equal(info.json.data.state.channelAccounts[0].label, 'Nákup');
 
-      const created = await api.tool('tasks_create', { title: 'Printer', brief: 'Quotes', mandate: 'Email printers', cwd: '/workspace/ceo' });
+      const created = await api.tool('tasks_create', { title: 'Printer', brief: 'Quotes', mandate: 'Email printers', cwd: AGENT_DIR });
       assert.equal(created.status, 200);
       const id = created.json.data.task.id as number;
-      assert.equal(created.json.data.task.projectPath, '/workspace/ceo');
+      assert.equal(created.json.data.task.projectPath, AGENT_DIR);
       assert.equal(created.json.data.task.mandateConfirmed, false);
 
       const updated = await api.tool('tasks_update', { id: `#${id}`, summary: 'Asked 3.', status: 'waiting_external', next_check_in_minutes: 60, checklist: [{ text: 'Ask', done: true }] });
@@ -122,8 +127,11 @@ test('MCP: token gate, info, create from cwd, update, log, ask, list, get, send 
       assert.ok(got.json.data.events.some((event: { kind: string }) => event.kind === 'note'));
 
       const send = await api.tool('tasks_send_message', { task_id: id, to: 'a@print.cz', subject: 'Poptávka', text: 'Dobrý den' });
-      assert.equal(send.status, 400);
-      assert.match(String(send.json.error), /account_id/);
+      assert.equal(send.status, 409, 'only a running task sends');
+      tasksDb.setRunning(id, 'run-1', new Date().toISOString());
+      const noAccount = await api.tool('tasks_send_message', { task_id: id, to: 'a@print.cz', subject: 'Poptávka', text: 'Dobrý den' });
+      assert.equal(noAccount.status, 400);
+      assert.match(String(noAccount.json.error), /account_id/);
       assert.equal((await api.tool('tasks_get', { id: 'x' })).status, 400);
       assert.equal((await api.tool('nope', {})).status, 404);
       assert.ok(taskEventsDb.count(id) > 0);
