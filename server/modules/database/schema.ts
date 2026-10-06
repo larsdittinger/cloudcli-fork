@@ -469,6 +469,8 @@ CREATE TABLE IF NOT EXISTS schedule_runs (
     output TEXT,
     log_path TEXT,
     error TEXT,
+    -- consecutive identical skips are folded into one row; this counts them
+    repeat_count INTEGER NOT NULL DEFAULT 1,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 

@@ -1,3 +1,4 @@
+import { timingSafeEqual } from 'node:crypto';
 import path from 'node:path';
 
 import express from 'express';
@@ -48,9 +49,16 @@ function readProposalInput(input: Record<string, unknown>, cwd: string | null): 
   };
 }
 
+/** Constant-time: the bridge is reachable through the public reverse proxy. */
+function tokenMatches(given: string | null): boolean {
+  if (!given) return false;
+  const expected = Buffer.from(getSchedulesMcpToken());
+  const actual = Buffer.from(given);
+  return actual.length === expected.length && timingSafeEqual(actual, expected);
+}
+
 router.use((req, res, next) => {
-  const token = readBearerToken(req.headers.authorization);
-  if (!token || token !== getSchedulesMcpToken()) {
+  if (!tokenMatches(readBearerToken(req.headers.authorization))) {
     res.status(401).json({ success: false, error: 'Invalid Schedules MCP token.' });
     return;
   }

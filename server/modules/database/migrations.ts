@@ -556,6 +556,7 @@ export const runMigrations = (db: Database) => {
     db.exec(SCHEDULED_MESSAGES_TABLE_SCHEMA_SQL);
     db.exec(CHANNELS_TABLES_SCHEMA_SQL);
     db.exec(SCHEDULES_TABLES_SCHEMA_SQL);
+    addColumnToTableIfNotExists(db, 'schedule_runs', getTableInfo(db, 'schedule_runs').map((column) => column.name), 'repeat_count', 'INTEGER NOT NULL DEFAULT 1');
     addColumnToTableIfNotExists(db, 'channel_outbox', getTableInfo(db, 'channel_outbox').map((column) => column.name), 'action', "TEXT NOT NULL DEFAULT 'reply'");
     addColumnToTableIfNotExists(db, 'channel_accounts', getTableInfo(db, 'channel_accounts').map((column) => column.name), 'proposal', 'TEXT');
     addColumnToTableIfNotExists(db, 'channel_rules', getTableInfo(db, 'channel_rules').map((column) => column.name), 'proposal', 'TEXT');

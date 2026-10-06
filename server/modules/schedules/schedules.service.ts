@@ -6,6 +6,7 @@ import type { ScheduleKind, ScheduleRow, ScheduleRunRow, ScheduleRunStatus, Sche
 import { describeSchedule, isValidTimezone, nextRuns, parseScheduleSpec } from '@/modules/schedules/schedule-spec.js';
 import type { ScheduleSpec } from '@/modules/schedules/schedule-spec.js';
 import { recomputeNextRun, startRun } from '@/modules/schedules/scheduler.service.js';
+import { stopScriptRuns } from '@/modules/schedules/script-runner.service.js';
 import { broadcastSchedulesUpdated } from '@/modules/schedules/schedules-broadcast.js';
 import { AppError } from '@/shared/utils.js';
 
@@ -62,6 +63,8 @@ export type PublicRun = {
   output: string | null;
   hasLog: boolean;
   error: string | null;
+  /** How many consecutive identical skips this row stands for (1 for every other run). */
+  repeatCount: number;
 };
 
 /** Everything the form (or an agent) may send; missing fields keep their current or default value. */
@@ -159,6 +162,7 @@ function toPublicRun(row: ScheduleRunRow, schedules: Map<string, ScheduleRow>): 
     output: row.output,
     hasLog: Boolean(row.log_path),
     error: row.error,
+    repeatCount: row.repeat_count ?? 1,
   };
 }
 
@@ -188,6 +192,11 @@ function buildWrite(input: ScheduleInput, current: ScheduleRow | null, ownerUser
   const timezone = String(pick(input.timezone, current?.timezone ?? DEFAULT_TIMEZONE)).trim() || DEFAULT_TIMEZONE;
   if (!isValidTimezone(timezone)) invalid(`Unknown time zone "${timezone}".`);
 
+  const enabled = input.enabled === undefined ? (current ? current.enabled === 1 : true) : input.enabled === true;
+  if (spec.type === 'once' && enabled && new Date(spec.at).getTime() <= Date.now()) {
+    invalid('The one-time date is in the past. Pick a future date and time.');
+  }
+
   const prompt = String(pick(input.prompt, current?.prompt ?? ''));
   const command = String(pick(input.command, current?.command ?? '')).trim();
   if (kind === 'prompt' && !prompt.trim()) invalid('An AI schedule needs a prompt.');
@@ -207,7 +216,7 @@ function buildWrite(input: ScheduleInput, current: ScheduleRow | null, ownerUser
     name,
     project_path: path.resolve(projectPath),
     kind,
-    enabled: input.enabled === undefined ? (current ? current.enabled === 1 : true) : input.enabled === true,
+    enabled,
     schedule: JSON.stringify(spec),
     timezone,
     prompt,
@@ -259,13 +268,20 @@ export const schedulesService = {
     schedulesDb.update(id, write);
     // Switching away from "continue" drops the remembered chat.
     if (write.session_mode !== 'continue' && current.session_id) schedulesDb.setSessionId(id, null);
-    const planned = planNextRun(id);
+    // Renaming or rewording keeps the planned run: replanning from "now" would drop a run that
+    // fell due seconds before the save and reset an interval's rhythm.
+    const timingUnchanged = current.enabled === 1 && write.enabled && !current.proposal
+      && current.schedule === write.schedule && current.timezone === write.timezone && current.next_run_at;
+    const planned = timingUnchanged ? requireSchedule(id) : planNextRun(id);
     broadcastSchedulesUpdated({ scheduleId: id });
     return toPublicSchedule(planned);
   },
 
   remove(id: string): void {
     requireSchedule(id);
+    // A script still running for this schedule is stopped; an AI run is a chat and simply continues there.
+    const running = scheduleRunsDb.list({ scheduleId: id, status: 'running', limit: 500 }).map((run) => run.id);
+    removeLogs(stopScriptRuns(running));
     removeLogs(scheduleRunsDb.deleteForSchedule(id));
     schedulesDb.delete(id);
     broadcastSchedulesUpdated({ scheduleId: id });

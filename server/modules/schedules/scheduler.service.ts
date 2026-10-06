@@ -15,6 +15,7 @@ export type ScheduleExecutor = (schedule: ScheduleRow, run: ScheduleRunRow) => P
 /** A due run this late means the server was down at the time: record it as missed instead of running it now. */
 const MISSED_AFTER_MS = 5 * 60_000;
 const DEFAULT_TICK_MS = 20_000;
+const ONCE_RETRY_MS = 60_000;
 const PRUNE_EVERY_MS = 24 * 60 * 60_000;
 const RUN_RETENTION_DAYS = 90;
 const RUNS_KEPT_PER_SCHEDULE = 500;
@@ -41,7 +42,8 @@ export function recomputeNextRun(row: ScheduleRow, from: Date = currentTime()): 
 
 function finishedRun(row: ScheduleRow, trigger: 'schedule' | 'manual', scheduledFor: string | null, status: 'missed' | 'skipped' | 'failed', error: string): ScheduleRunRow {
   const now = currentTime().toISOString();
-  const run = scheduleRunsDb.create({ scheduleId: row.id, trigger, scheduledFor, status, startedAt: null, finishedAt: now, error });
+  const run = (status === 'skipped' ? scheduleRunsDb.foldSkip(row.id, error, now) : null)
+    ?? scheduleRunsDb.create({ scheduleId: row.id, trigger, scheduledFor, status, startedAt: null, finishedAt: now, error });
   schedulesDb.recordResult(row.id, status, now);
   broadcastSchedulesUpdated({ scheduleId: row.id, runId: run.id });
   return run;
@@ -97,13 +99,14 @@ export async function tickSchedules(now: Date = currentTime()): Promise<void> {
         continue;
       }
 
-      if (now.getTime() - dueAt.getTime() > MISSED_AFTER_MS) {
-        finishedRun(row, 'schedule', row.next_run_at, 'missed', 'CloudCLI was not running at the scheduled time.');
-      } else {
-        startRun(row, 'schedule', row.next_run_at);
-      }
+      const run = now.getTime() - dueAt.getTime() > MISSED_AFTER_MS
+        ? finishedRun(row, 'schedule', row.next_run_at, 'missed', 'CloudCLI was not running at the scheduled time.')
+        : startRun(row, 'schedule', row.next_run_at);
 
-      if (spec.type === 'once') {
+      if (spec.type === 'once' && run.status === 'skipped') {
+        // A one-time job must not be used up by an overlap; try again shortly.
+        schedulesDb.setNextRun(row.id, new Date(now.getTime() + ONCE_RETRY_MS).toISOString());
+      } else if (spec.type === 'once') {
         schedulesDb.setNextRun(row.id, null, { disable: true });
       } else {
         // Intervals keep their rhythm from the planned time, not from whenever the tick ran.

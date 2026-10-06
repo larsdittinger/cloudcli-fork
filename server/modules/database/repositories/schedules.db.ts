@@ -50,6 +50,8 @@ export type ScheduleRunRow = {
   output: string | null;
   log_path: string | null;
   error: string | null;
+  /** How many consecutive identical skips this row stands for. */
+  repeat_count: number;
   created_at: string;
 };
 
@@ -68,7 +70,7 @@ const SCHEDULE_COLUMNS = [
   'owner_user_id', 'created_at', 'updated_at',
 ].join(', ');
 
-const RUN_COLUMNS = 'id, schedule_id, trigger, scheduled_for, started_at, finished_at, status, session_id, exit_code, output, log_path, error, created_at';
+const RUN_COLUMNS = 'id, schedule_id, trigger, scheduled_for, started_at, finished_at, status, session_id, exit_code, output, log_path, error, repeat_count, created_at';
 
 /** Editable columns in insert order; `enabled` and `proposal` are converted separately. */
 const WRITE_FIELDS = [
@@ -249,18 +251,42 @@ export const scheduleRunsDb = {
       .all(...values, limit) as ScheduleRunRow[];
   },
 
+  /**
+   * A schedule stuck behind a long run would otherwise write one `skipped` row
+   * per tick and push its real history out. When the newest run is already the
+   * same skip, count it there instead; returns null when a new row is needed.
+   */
+  foldSkip(scheduleId: string, error: string, atIso: string): ScheduleRunRow | null {
+    const latest = getConnection()
+      .prepare(`SELECT ${RUN_COLUMNS} FROM schedule_runs WHERE schedule_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1`)
+      .get(scheduleId) as ScheduleRunRow | undefined;
+    if (!latest || latest.status !== 'skipped' || latest.error !== error) return null;
+    getConnection()
+      .prepare('UPDATE schedule_runs SET repeat_count = repeat_count + 1, finished_at = ? WHERE id = ?')
+      .run(atIso, latest.id);
+    return this.get(latest.id);
+  },
+
   isRunning(scheduleId: string): boolean {
     return Boolean(getConnection().prepare("SELECT 1 FROM schedule_runs WHERE schedule_id = ? AND status = 'running' LIMIT 1").get(scheduleId));
   },
 
   /** A run cannot outlive the server process that started it. */
   failRunningAfterRestart(): number {
+    const now = new Date().toISOString();
+    // The schedule card shows the last result; it must not keep saying "running"/the older result.
+    getConnection()
+      .prepare(
+        `UPDATE schedules SET last_status = 'failed', last_run_at = ?
+         WHERE id IN (SELECT schedule_id FROM schedule_runs WHERE status = 'running')`,
+      )
+      .run(now);
     return getConnection()
       .prepare(
         `UPDATE schedule_runs SET status = 'failed', finished_at = ?, error = COALESCE(error, 'The server restarted while this run was in progress.')
          WHERE status = 'running'`,
       )
-      .run(new Date().toISOString()).changes;
+      .run(now).changes;
   },
 
   /** Deletes runs older than `cutoffIso` and beyond the newest `keepPerSchedule` per schedule; returns their log paths. */

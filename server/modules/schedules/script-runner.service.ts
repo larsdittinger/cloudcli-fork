@@ -16,6 +16,24 @@ const DEFAULT_KILL_GRACE_MS = 10_000;
 /** After bash exits, how long background children may keep its pipes before we stop reading. */
 const DRAIN_AFTER_EXIT_MS = 1_500;
 
+/** Scripts running right now, by run id — so deleting a schedule can stop them. */
+const runningScripts = new Map<string, { stop: () => void; logPath: string }>();
+
+/**
+ * Used by the schedules service when a schedule is deleted mid-run: stops the
+ * given runs' scripts (whole process group) and returns their log paths.
+ */
+export function stopScriptRuns(runIds: string[]): string[] {
+  const logs: string[] = [];
+  for (const runId of runIds) {
+    const entry = runningScripts.get(runId);
+    if (!entry) continue;
+    entry.stop();
+    logs.push(entry.logPath);
+  }
+  return logs;
+}
+
 export type ScriptResult = {
   status: 'succeeded' | 'failed' | 'timeout';
   exitCode: number | null;
@@ -122,6 +140,13 @@ export async function runScript(input: {
   };
   let timedOut = false;
   let killTimer: ReturnType<typeof setTimeout> | null = null;
+  runningScripts.set(input.runId, {
+    logPath,
+    stop: () => {
+      killGroup('SIGTERM');
+      killTimer = setTimeout(() => killGroup('SIGKILL'), input.killGraceMs ?? DEFAULT_KILL_GRACE_MS);
+    },
+  });
   const timeoutMs = Math.max(1, input.timeoutSec ?? schedule.timeout_sec) * 1000;
   const timeoutTimer = setTimeout(() => {
     timedOut = true;
@@ -155,6 +180,7 @@ export async function runScript(input: {
   });
   clearTimeout(timeoutTimer);
   if (killTimer) clearTimeout(killTimer);
+  runningScripts.delete(input.runId);
 
   const status: ScriptResult['status'] = timedOut ? 'timeout' : exitCode === 0 ? 'succeeded' : 'failed';
   writeLog(`\n# finished: ${new Date().toISOString()} · ${status}${exitCode === null ? '' : ` · exit ${exitCode}`}\n`);
