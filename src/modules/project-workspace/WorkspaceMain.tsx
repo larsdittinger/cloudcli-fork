@@ -89,7 +89,7 @@ function WorkspaceMain({
 
   // Resolves bare/partial file references (e.g. links inside chat messages) to
   // real project files before opening them in the in-app editor.
-  const resolvedFileOpen = useFileOpenResolver(selectedProject, handleFileOpen);
+  const { openFile: resolvedFileOpen, resolveFileRef } = useFileOpenResolver(selectedProject, handleFileOpen);
 
   useEffect(() => {
     if (!shouldShowTasksTab && activeTab === 'tasks') {
@@ -130,7 +130,7 @@ function WorkspaceMain({
 
   // Stable arguments keep usePaletteOpsRegister's effect from tearing down and
   // rewriting the whole palette registry on every render.
-  usePaletteOpsRegister({ openFile, openFileInEditor });
+  usePaletteOpsRegister({ openFile, openFileInEditor, resolveFileRef });
 
   if (isLoading) {
     return <WorkspaceStateView mode="loading" isMobile={isMobile} onMenuClick={onMenuClick} />;

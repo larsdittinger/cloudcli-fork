@@ -42,6 +42,8 @@ function readOptionalString(value: unknown): string | null {
  * Reads the project id and checks it against the caller's project grants, so a
  * restricted user can browse files only in the projects an admin gave them.
  */
+const MAXIMUM_EXISTS_PATHS = 200;
+
 function readProjectId(request: Request): string {
   const projectId = readRequiredString(request.params.projectId, 'projectId');
   assertProjectIdAccess((request as Request & { user?: Parameters<typeof assertProjectIdAccess>[0] }).user, projectId);
@@ -192,6 +194,22 @@ export function createFileTreeRouter(
       });
     }
     response.json(await services.saveTextFile(readProjectId(request), filePath, body.content));
+  }, logger));
+
+  // ethia fork: ktere z cest (`inline kod` v chatu) jsou soubory v projektu.
+  router.post('/projects/:projectId/files/exists', createRouteHandler(async (request, response) => {
+    const body = readBody(request);
+    const paths = Array.isArray(body.paths)
+      ? body.paths.filter((entry): entry is string => typeof entry === 'string' && entry.length > 0 && entry.length <= 1024)
+      : [];
+    if (paths.length > MAXIMUM_EXISTS_PATHS) {
+      throw new AppError(`At most ${MAXIMUM_EXISTS_PATHS} paths per request`, {
+        code: 'TOO_MANY_PATHS',
+        statusCode: 400,
+      });
+    }
+    const projectId = readProjectId(request);
+    response.json({ existing: await services.findExistingFiles(projectId, paths) });
   }, logger));
 
   router.get('/projects/:projectId/files', createRouteHandler(async (request, response) => {

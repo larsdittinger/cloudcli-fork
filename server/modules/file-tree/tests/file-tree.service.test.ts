@@ -369,3 +369,41 @@ test('createEntry performs filesystem mutation only through the injected adapter
   assert.equal(result.path, targetPath);
   assert.deepEqual(writtenFiles, [{ filePath: targetPath, content: '' }]);
 });
+
+// ethia fork: chat zvyrazni `cestu` jako odkaz jen kdyz soubor opravdu existuje.
+test('findExistingFiles returns only the inputs that are files inside the project', async () => {
+  const projectRoot = path.resolve('file-tree-test-project');
+  const files = new Set([
+    path.join(projectRoot, 'vystup', 'krabice', 'velky.pdf'),
+    path.join(projectRoot, 'README.md'),
+  ]);
+  const directories = new Set([path.join(projectRoot, 'vystup')]);
+  const statted: string[] = [];
+  const fileSystem = createFakeFileSystem({
+    stat: async (candidatePath) => {
+      statted.push(candidatePath);
+      if (files.has(candidatePath)) return createStats(false, 0o644);
+      if (directories.has(candidatePath)) return createStats(true, 0o755);
+      throw Object.assign(new Error('missing'), { code: 'ENOENT' });
+    },
+  });
+  const service = createFileTreeService(createDependencies(fileSystem, projectRoot));
+
+  const existing = await service.findExistingFiles('project-1', [
+    'vystup/krabice/velky.pdf',
+    './README.md',
+    path.join(projectRoot, 'README.md'),
+    'vystup',
+    'chybi.pdf',
+    '../mimo/projekt.pdf',
+    '/etc/passwd',
+  ]);
+
+  assert.deepEqual(existing, [
+    'vystup/krabice/velky.pdf',
+    './README.md',
+    path.join(projectRoot, 'README.md'),
+  ]);
+  // Cesty mimo projekt se ani nestatuji.
+  assert.ok(!statted.some((candidate) => !candidate.startsWith(projectRoot + path.sep)));
+});

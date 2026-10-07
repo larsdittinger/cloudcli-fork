@@ -281,6 +281,9 @@ export const api = {
     put(`/api/file-tree/projects/${projectId}/file`, { filePath, content }),
   getFiles: (projectId: string, options: ApiRequestOptions = {}) =>
     get(`/api/file-tree/projects/${projectId}/files${query({ respectGitignore: true })}`, options),
+  // ethia fork: which of these paths are files in the project (chat file links).
+  filesExist: (projectId: string, paths: string[]) =>
+    post(`/api/file-tree/projects/${projectId}/files/exists`, { paths }),
 
   // File operations
   createFile: (

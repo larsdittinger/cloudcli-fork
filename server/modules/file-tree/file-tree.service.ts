@@ -437,6 +437,26 @@ export function createFileTreeService(dependencies: FileTreeServiceDependencies)
       };
     },
 
+    // ethia fork: chat zvyrazni `cestu` jako odkaz jen kdyz soubor existuje.
+    // Cesty mimo projekt se tise vynechaji (ani se nestatuji).
+    async findExistingFiles(projectId, filePaths) {
+      const projectRoot = await resolveProjectRoot(projectId);
+      const checks = await Promise.all(filePaths.map(async (filePath) => {
+        let resolvedPath: string;
+        try {
+          resolvedPath = resolvePathInsideProject(projectRoot, filePath);
+        } catch {
+          return false;
+        }
+        try {
+          return !(await fileSystem.stat(resolvedPath)).isDirectory();
+        } catch {
+          return false;
+        }
+      }));
+      return filePaths.filter((_, index) => checks[index]);
+    },
+
     // ethia fork: cely projekt jako ZIP. Na rozdil od stromu se tady nic
     // nevynechava — archiv ma byt presna kopie slozky, vcetne node_modules.
     async openProjectArchive(projectId) {

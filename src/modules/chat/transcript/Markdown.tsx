@@ -1,4 +1,4 @@
-import React, { memo, useMemo, useState } from 'react';
+import React, { memo, useEffect, useMemo, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkBreaks from 'remark-breaks';
 import remarkGfm from 'remark-gfm';
@@ -9,6 +9,7 @@ import { useTranslation } from 'react-i18next';
 
 import { MermaidDiagram } from '@/modules/code-editor';
 import { normalizeInlineCodeFences } from '@/modules/chat/utils/chatFormatting';
+import { inlineCodeFileRef } from '@/modules/chat/utils/inlineFileReference';
 import { copyTextToClipboard } from '@/shared/utils';
 import { SyntaxHighlighter } from '@/shared/syntaxHighlighter';
 import { usePaletteOps } from '@/modules/command-palette';
@@ -70,6 +71,48 @@ type CodeBlockProps = {
   forceBlock?: boolean;
 };
 
+const INLINE_CODE_CLASS =
+  'whitespace-pre-wrap break-words rounded-md border border-border/70 bg-muted px-1.5 py-0.5 font-mono text-[0.875em]';
+
+/**
+ * ethia fork: `inline code` that names an existing project file (agents print
+ * the paths of what they produced this way) opens that file next to the chat.
+ * Until the lookup answers — and for anything that is not a file — it is plain
+ * inline code.
+ */
+const InlineFileCode = ({ fileRef, className, children }: { fileRef: string; className?: string; children?: React.ReactNode }) => {
+  const { resolveFileRef, openFileInEditor } = usePaletteOps();
+  const [resolvedPath, setResolvedPath] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void resolveFileRef(fileRef).then((found) => {
+      if (!cancelled) setResolvedPath(found);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [fileRef, resolveFileRef]);
+
+  if (!resolvedPath) {
+    return <code className={`${INLINE_CODE_CLASS} text-foreground ${className || ''}`}>{children}</code>;
+  }
+
+  return (
+    <a
+      href={resolvedPath}
+      title={resolvedPath}
+      className="cursor-pointer no-underline hover:underline"
+      onClick={(event) => {
+        event.preventDefault();
+        openFileInEditor(resolvedPath);
+      }}
+    >
+      <code className={`${INLINE_CODE_CLASS} text-blue-600 dark:text-blue-400 ${className || ''}`}>{children}</code>
+    </a>
+  );
+};
+
 // `node` is destructured out so react-markdown's hast node never reaches the DOM.
 const CodeBlock = ({ node: _node, className, children, forceBlock, ...props }: CodeBlockProps) => {
   const { t } = useTranslation('chat');
@@ -82,12 +125,12 @@ const CodeBlock = ({ node: _node, className, children, forceBlock, ...props }: C
   const shouldInline = !forceBlock && !/[\r\n]/.test(raw);
 
   if (shouldInline) {
+    const fileRef = inlineCodeFileRef(raw);
+    if (fileRef) {
+      return <InlineFileCode fileRef={fileRef} className={className}>{children}</InlineFileCode>;
+    }
     return (
-      <code
-        className={`whitespace-pre-wrap break-words rounded-md border border-border/70 bg-muted px-1.5 py-0.5 font-mono text-[0.875em] text-foreground ${className || ''
-          }`}
-        {...props}
-      >
+      <code className={`${INLINE_CODE_CLASS} text-foreground ${className || ''}`} {...props}>
         {children}
       </code>
     );

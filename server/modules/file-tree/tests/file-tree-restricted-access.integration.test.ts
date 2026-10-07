@@ -49,6 +49,7 @@ const services: FileTreeServices = {
   renameEntry: unexpectedOperation,
   deleteEntry: unexpectedOperation,
   storeUploadedFiles: unexpectedOperation,
+  findExistingFiles: async (_projectId, filePaths) => filePaths,
 };
 
 const passUploadRequest: RequestHandler = (_request, _response, next) => next();
@@ -102,6 +103,17 @@ test('restricted user reads files only in granted projects', async () => {
 
       const otherContent = await fetch(`${baseUrl}/api/file-tree/projects/proj-b/files/content?path=x.png`);
       assert.equal(otherContent.status, 403);
+
+      const existsInit = {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ paths: ['README.md'] }),
+      };
+      const grantedExists = await fetch(`${baseUrl}/api/file-tree/projects/proj-a/files/exists`, existsInit);
+      assert.equal(grantedExists.status, 200);
+
+      const otherExists = await fetch(`${baseUrl}/api/file-tree/projects/proj-b/files/exists`, existsInit);
+      assert.equal(otherExists.status, 403);
 
       const browse = await fetch(`${baseUrl}/api/file-tree/browse-filesystem`);
       assert.equal(browse.status, 403);

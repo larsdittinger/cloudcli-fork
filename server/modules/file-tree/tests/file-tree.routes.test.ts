@@ -26,6 +26,7 @@ function createFakeServices(overrides: Partial<FileTreeServices> = {}): FileTree
     renameEntry: unexpectedOperation,
     deleteEntry: unexpectedOperation,
     storeUploadedFiles: unexpectedOperation,
+    findExistingFiles: unexpectedOperation,
     ...overrides,
   };
 }
@@ -198,5 +199,42 @@ test('project archive route stays closed to restricted users', async () => {
     });
 
     assert.equal(response.status, 403);
+  });
+});
+
+test('files exists route forwards string paths and returns the existing subset', async () => {
+  const inputs: Parameters<FileTreeServices['findExistingFiles']>[] = [];
+  const services = createFakeServices({
+    findExistingFiles: async (...input) => {
+      inputs.push(input);
+      return ['a.pdf'];
+    },
+  });
+
+  await withFileTreeServer(services, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/api/file-tree/projects/project-1/files/exists`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ paths: ['a.pdf', 42, 'b.pdf', ''] }),
+    });
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { existing: ['a.pdf'] });
+  });
+
+  assert.deepEqual(inputs, [['project-1', ['a.pdf', 'b.pdf']]]);
+});
+
+test('files exists route rejects oversized batches', async () => {
+  const services = createFakeServices();
+
+  await withFileTreeServer(services, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/api/file-tree/projects/project-1/files/exists`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ paths: Array.from({ length: 201 }, (_, index) => `f${index}.txt`) }),
+    });
+
+    assert.equal(response.status, 400);
   });
 });
