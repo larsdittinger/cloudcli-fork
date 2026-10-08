@@ -80,11 +80,13 @@ function readRuleInput(body: Record<string, unknown>, userId: number | null): Ru
     conversation: (body.conversation as RuleInput['conversation']) ?? 'thread',
     replyMode: (body.replyMode as RuleInput['replyMode']) ?? 'none',
     replyScope: (body.replyScope as RuleInput['replyScope']) ?? 'sender',
+    autoReplySenders: Array.isArray(body.autoReplySenders) ? body.autoReplySenders.filter((value): value is string => typeof value === 'string') : undefined,
+    holdInbound: typeof body.holdInbound === 'boolean' ? body.holdInbound : undefined,
     ownerUserId: userId,
   };
 }
 
-const MESSAGE_STATUSES: MessageStatus[] = ['unmatched', 'ignored', 'queued', 'dispatched', 'failed', 'manual'];
+const MESSAGE_STATUSES: MessageStatus[] = ['unmatched', 'held', 'ignored', 'queued', 'dispatched', 'failed', 'manual', 'task'];
 const OUTBOX_STATUSES: OutboxStatus[] = ['draft', 'approved', 'sending', 'sent', 'failed', 'discarded'];
 
 const router = express.Router();
@@ -129,6 +131,7 @@ router.get('/summary', asyncHandler(async (_req: Request, res: Response) => {
   const counts = channelMessagesDb.countByStatus();
   res.json(createApiSuccessResponse({
     unmatched: counts.unmatched,
+    held: counts.held,
     queued: counts.queued,
     failed: counts.failed,
     drafts: outboxService.countDrafts(),
@@ -192,7 +195,7 @@ router.get('/rules', asyncHandler(async (_req: Request, res: Response) => {
 
 router.post('/rules', asyncHandler(async (req: Request, res: Response) => {
   const input = readRuleInput((req.body ?? {}) as Record<string, unknown>, readUserId(req));
-  validateRuleInput(input);
+  validateRuleInput(input, input.accountId ? channelAccountsDb.get(input.accountId) : null);
   res.status(201).json(createApiSuccessResponse(publicRule(channelRulesDb.create(input))));
 }));
 
@@ -212,7 +215,7 @@ router.put('/rules/:id', asyncHandler(async (req: Request, res: Response) => {
     throw new AppError('Rule not found.', { code: 'RULE_NOT_FOUND', statusCode: 404 });
   }
   const input = readRuleInput((req.body ?? {}) as Record<string, unknown>, current.owner_user_id);
-  validateRuleInput(input);
+  validateRuleInput(input, input.accountId ? channelAccountsDb.get(input.accountId) : null);
   const updated = channelRulesDb.update(id, input) as ChannelRuleRow;
   // An admin enabling a proposed rule has approved it.
   res.json(createApiSuccessResponse(publicRule(updated.enabled === 1 && updated.proposal ? channelRulesDb.approveProposal(id) as ChannelRuleRow : updated)));
@@ -291,7 +294,8 @@ router.get('/messages/:id', asyncHandler(async (req: Request, res: Response) => 
 
 router.post('/messages/:id/dispatch', asyncHandler(async (req: Request, res: Response) => {
   const id = readParam(req.params.id, 'id');
-  const ruleId = readParam((req.body ?? {}).ruleId, 'ruleId');
+  // A held message goes to the rule that matched it unless another one is picked.
+  const ruleId = readParam((req.body ?? {}).ruleId ?? channelMessagesDb.get(id)?.rule_id, 'ruleId');
   const runtime = channelsService.getRuntime();
   if (!runtime) {
     throw new AppError('The agent runtime is not ready yet.', { code: 'RUNTIME_UNAVAILABLE', statusCode: 503 });
@@ -343,8 +347,11 @@ router.get('/outbox', asyncHandler(async (req: Request, res: Response) => {
 }));
 
 router.post('/outbox/:id/approve', asyncHandler(async (req: Request, res: Response) => {
-  const text = (req.body ?? {}).text;
-  res.json(createApiSuccessResponse(await outboxService.approve(readParam(req.params.id, 'id'), { text: typeof text === 'string' ? text : undefined })));
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  res.json(createApiSuccessResponse(await outboxService.approve(readParam(req.params.id, 'id'), {
+    text: typeof body.text === 'string' ? body.text : undefined,
+    trustSender: body.trustSender === true,
+  })));
 }));
 
 router.post('/outbox/:id/discard', asyncHandler(async (req: Request, res: Response) => {

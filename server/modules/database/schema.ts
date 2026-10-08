@@ -303,6 +303,10 @@ CREATE TABLE IF NOT EXISTS channel_rules (
     reply_mode TEXT NOT NULL DEFAULT 'none',
     -- sender | anyone
     reply_scope TEXT NOT NULL DEFAULT 'sender',
+    -- JSON array of sender patterns whose replies go out without approval even in draft mode
+    auto_reply_senders TEXT NOT NULL DEFAULT '[]',
+    -- 1 = a matching message waits for the owner before the agent sees it
+    hold_inbound INTEGER NOT NULL DEFAULT 0,
     owner_user_id INTEGER,
     -- JSON { note, projectPath, createdAt } while an agent's proposal awaits approval; NULL once approved
     proposal TEXT,

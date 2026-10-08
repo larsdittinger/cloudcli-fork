@@ -61,6 +61,16 @@ nasazuje — je v `../CLAUDE.md`.
   jen zapíše do draftu composeru, nic neodešle. Veřejná URL: `CLOUDCLI_PUBLIC_URL`, jinak
   `app_config.channels_public_url` z posledního admin requestu na `/api/channels`.
   Spec: `docs/superpowers/specs/2026-10-06-channels-agent-setup-design.md`.
+  **Autonomie odpovědí a UX (2026-10-08):** pravidlo má `auto_reply_senders` (JSON vzory jako filtr odesílatelů:
+  u `draft` pravidla jim odpověď odejde hned, ostatním koncept; doplňuje je tlačítko „Send, then always for this
+  sender" = `POST /outbox/:id/approve { trustSender: true }`) a `hold_inbound` (zpráva čeká ve stavu `held`, agent ji
+  dostane až po „Send to agent"). Pravidlo bez filtru odesílatelů nesmí mít jiný než `default` permission mode a
+  `reply_mode: auto` jen na účtu s `config.autoReplyAnyone: true` („Reply automatically to anyone"); když se přepínač
+  vypne, odpovědi spadnou zpět na koncepty (`agentReplyMode` v `outbox.service.ts`). Zpráva je `dispatched` už při
+  předání agentovi, ne až po doběhnutí tahu (jinak Inbox nabízel „Send to agent" podruhé). Inbox: viditelný nadpis,
+  počty v záložkách, štítek „Reply waits for you", koncept přímo v detailu zprávy, „Open the agent's chat" zavře celý
+  Inbox; `PendingReplyCard` je jedna komponenta pro chat, detail i „To send", v chatu ve sloupci composeru.
+  Časy z SQLite (`CURRENT_TIMESTAMP` = UTC bez zóny) čte `parseServerTime`.
 
 - **Schedules** (`server/modules/schedules`, `src/modules/schedules`, záložka `schedules`
   jen pro admina; od 2026-10-06, nahrazuje plugin `workspace-scheduled-prompts`): úlohy

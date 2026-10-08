@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { buildTemplateVars, DEFAULT_PROMPT_TEMPLATE, renderPromptTemplate } from '@/modules/channels/prompt-template.js';
-import { findMatchingRule, senderMatches, validateRuleInput } from '@/modules/channels/rules.service.js';
+import { findMatchingRule, senderMatches, senderTrustedForAutoReply, validateRuleInput } from '@/modules/channels/rules.service.js';
 import { emailThreadKey, normalizeAddress, whatsappThreadKey } from '@/modules/channels/thread-key.js';
 import { makeMessage } from '@/modules/channels/tests/helpers.js';
 import type { ChannelAccountRow, ChannelRuleRow } from '@/modules/channels/types.js';
@@ -68,7 +68,7 @@ function rule(overrides: Partial<ChannelRuleRow>): ChannelRuleRow {
     id: overrides.id ?? Math.random().toString(16).slice(2),
     name: 'r', enabled: 1, position: 1, account_id: null, channel: null, conditions: '{}',
     project_path: '/p', provider: 'claude', model: null, effort: null, permission_mode: 'default',
-    prompt_template: '', conversation: 'thread', reply_mode: 'none', reply_scope: 'sender', owner_user_id: null, proposal: null,
+    prompt_template: '', conversation: 'thread', reply_mode: 'none', reply_scope: 'sender', auto_reply_senders: '[]', hold_inbound: 0, owner_user_id: null, proposal: null,
     created_at: '', updated_at: '',
     ...overrides,
   };
@@ -111,6 +111,17 @@ test('validateRuleInput refuses autonomy without a sender filter', () => {
     (error: unknown) => (error as { code?: string }).code === 'RULE_INVALID_REGEX',
   );
   validateRuleInput({ name: 'x', conditions: {}, projectPath: '/p', provider: 'claude', replyMode: 'draft' });
+  // Automatic replies to anyone are allowed only by the account's own switch; bypass never.
+  const anyone = { ...account, config: JSON.stringify({ autoReplyAnyone: true }) };
+  validateRuleInput({ name: 'x', conditions: {}, projectPath: '/p', provider: 'claude', accountId: 'acc-1', replyMode: 'auto' }, anyone);
+  assert.throws(
+    () => validateRuleInput({ name: 'x', conditions: {}, projectPath: '/p', provider: 'claude', accountId: 'acc-1', replyMode: 'auto' }, account),
+    /Reply automatically to anyone/,
+  );
+  assert.throws(
+    () => validateRuleInput({ name: 'x', conditions: {}, projectPath: '/p', provider: 'claude', accountId: 'acc-1', permissionMode: 'bypassPermissions' }, anyone),
+    (error: unknown) => (error as { code?: string }).code === 'RULE_OPEN_AUTONOMY',
+  );
   validateRuleInput({ name: 'x', conditions: { senders: ['jan@firma.cz'] }, projectPath: '/p', provider: 'claude', permissionMode: 'bypassPermissions', replyMode: 'auto' });
 });
 
@@ -138,4 +149,14 @@ test('a sender who failed SPF/DKIM never matches a sender filter, only open rule
   assert.equal(findMatchingRule([trusted, open], forged, account)?.id, 'open');
   assert.equal(findMatchingRule([trusted], makeMessage({ from: { address: 'jan@firma.cz' }, raw: { senderAuth: 'pass' } }), account)?.id, 'trusted');
   assert.equal(findMatchingRule([trusted], makeMessage({ from: { address: 'jan@firma.cz' } }), account)?.id, 'trusted');
+});
+
+test('trusted senders of a draft rule are answered right away, forged ones never', () => {
+  const trusted = rule({ reply_mode: 'draft', auto_reply_senders: JSON.stringify(['jana@seznam.cz', '@firma.cz']) });
+  assert.ok(senderTrustedForAutoReply(trusted, makeMessage({ from: { address: 'Jana@Seznam.cz' } })));
+  assert.ok(senderTrustedForAutoReply(trusted, makeMessage({ from: { address: 'petr@firma.cz' } })));
+  assert.ok(!senderTrustedForAutoReply(trusted, makeMessage({ from: { address: 'cizi@gmail.com' } })));
+  assert.ok(!senderTrustedForAutoReply(trusted, makeMessage({ from: { address: 'petr@firma.cz' }, raw: { senderAuth: 'fail' } })));
+  // "*" would be "reply to anyone", which only the account switch may allow.
+  assert.ok(!senderTrustedForAutoReply(rule({ auto_reply_senders: JSON.stringify(['*']) }), makeMessage({ from: { address: 'x@y.cz' } })));
 });

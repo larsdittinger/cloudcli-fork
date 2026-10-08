@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 
 import { api, readApiJson } from '@/shared/api';
 import { useIsAdmin } from '@/shared/hooks/useIsAdmin';
+import { parseServerTime } from '@/modules/channels/ChannelBits';
 import { useChannelsEvents } from '@/modules/channels/hooks/useChannelsEvents';
 import type { ChannelMessage, ChannelRule, OutboxItem } from '@/modules/channels/types';
 
@@ -31,7 +32,7 @@ export function useSessionChannelContext(sessionId: string | null) {
       setOrigin(originData.data);
       // Sent replies stay visible for a while so the user sees the confirmation; older ones drop off.
       const cutoff = Date.now() - 10 * 60 * 1000;
-      setDrafts(outboxData.data.filter((item) => item.status !== 'sent' || new Date(item.sent_at ?? item.created_at).getTime() > cutoff));
+      setDrafts(outboxData.data.filter((item) => item.status !== 'sent' || parseServerTime(item.sent_at ?? item.created_at).getTime() > cutoff));
     } catch {
       setOrigin(null);
       setDrafts([]);
@@ -62,7 +63,7 @@ export function useSessionChannelContext(sessionId: string | null) {
     origin,
     drafts,
     busyId,
-    approve: (id: string, text: string) => run(id, () => api.channels.approveOutbox(id, { text })),
+    approve: (id: string, text: string, trustSender = false) => run(id, () => api.channels.approveOutbox(id, { text, trustSender })),
     discard: (id: string) => run(id, () => api.channels.discardOutbox(id)),
     retry: (id: string) => run(id, () => api.channels.retryOutbox(id)),
     refresh,

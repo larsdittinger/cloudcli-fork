@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { ExternalLink } from 'lucide-react';
 
-import { Dialog, DialogContent, DialogTitle } from '@/shared/ui';
+import { Dialog, DialogContent } from '@/shared/ui';
 import { ChannelIcon, channelName } from '@/modules/channels/ChannelBits';
 import MessageDetail from '@/modules/channels/inbox/MessageDetail';
 import PendingReplyCard from '@/modules/channels/chat/PendingReplyCard';
@@ -39,7 +39,6 @@ export default function ChatChannelPanel({ sessionId, slot }: Props) {
         </div>
         <Dialog open={showMessage} onOpenChange={setShowMessage}>
           <DialogContent wrapperClassName="z-[10000]" className="max-w-none max-h-[85vh] w-[min(100vw-2rem,48rem)] overflow-y-auto p-4">
-            <DialogTitle className="mb-2 text-base font-semibold">Inbound message</DialogTitle>
             <MessageDetail messageId={message.id} onClose={() => setShowMessage(false)} />
           </DialogContent>
         </Dialog>
@@ -48,8 +47,9 @@ export default function ChatChannelPanel({ sessionId, slot }: Props) {
   }
 
   if (drafts.length === 0) return null;
+  // Same column as the composer below, so the reply reads as part of the conversation.
   return (
-    <div className="flex-shrink-0 pt-2">
+    <div className="mx-auto w-[calc(100%-1rem)] max-w-[54.25rem] space-y-2 pb-2 pt-2 sm:w-[calc(100%-2rem)]">
       {drafts.map((item) => (
         <PendingReplyCard key={item.id} item={item} busy={busyId === item.id} onApprove={approve} onDiscard={discard} onRetry={retry} />
       ))}

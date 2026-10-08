@@ -1,7 +1,10 @@
 import { broadcastOutboxUpdated } from '@/modules/channels/channels-broadcast.js';
 import { channelsService } from '@/modules/channels/channels.service.js';
+import { rowToInboundMessage } from '@/modules/channels/dispatcher.service.js';
+import { accountAllowsOpenAutoReply, isOpenRule, parseConditions, senderTrustedForAutoReply } from '@/modules/channels/rules.service.js';
+import { senderFailedAuth } from '@/modules/channels/sender-auth.js';
 import { getChannelTaskHooks } from '@/modules/channels/task-hooks.js';
-import { whatsappThreadKey } from '@/modules/channels/thread-key.js';
+import { normalizeAddress, whatsappThreadKey } from '@/modules/channels/thread-key.js';
 import { parseJson } from '@/modules/channels/types.js';
 import type { ChannelMessageRow, ChannelOutboxRow, ChannelRuleRow, OutboxStatus } from '@/modules/channels/types.js';
 import { channelAccountsDb, channelMessagesDb, channelOutboxDb, channelRulesDb } from '@/modules/database/index.js';
@@ -103,6 +106,38 @@ function ruleForMessage(message: ChannelMessageRow): ChannelRuleRow | null {
   return message.rule_id ? channelRulesDb.get(message.rule_id) : null;
 }
 
+/**
+ * How an agent's reply leaves: the rule's mode, except that a draft rule
+ * answers its trusted senders right away, and an open rule's automatic
+ * replies stop the moment its account no longer allows them.
+ */
+function agentReplyMode(rule: ChannelRuleRow | null, message: ChannelMessageRow): 'none' | 'draft' | 'auto' {
+  if (!rule) return 'draft';
+  const inbound = rowToInboundMessage(message);
+  if (rule.reply_mode === 'draft' && senderTrustedForAutoReply(rule, inbound)) return 'auto';
+  if (rule.reply_mode === 'auto' && isOpenRule(parseConditions(rule.conditions)) && !accountAllowsOpenAutoReply(channelAccountsDb.get(message.account_id))) {
+    return 'draft';
+  }
+  return rule.reply_mode;
+}
+
+/** Adds the reply's recipient to its rule's auto-reply senders. Only replies to an inbound message of a rule qualify. */
+function trustReplySender(row: ChannelOutboxRow): void {
+  const message = row.in_reply_to_message_id ? channelMessagesDb.get(row.in_reply_to_message_id) : null;
+  const rule = message ? ruleForMessage(message) : null;
+  if (!message || !rule || row.action !== 'reply' || row.task_id !== null) {
+    throw new AppError('Only a reply to a message handled by a rule can trust its sender.', { code: 'OUTBOX_CANNOT_TRUST', statusCode: 409 });
+  }
+  if (senderFailedAuth(message.raw_json)) {
+    throw new AppError('This sender failed SPF/DKIM — the address may be forged, so it cannot be trusted.', { code: 'OUTBOX_CANNOT_TRUST', statusCode: 409 });
+  }
+  const sender = normalizeAddress(message.from_address);
+  const current = parseJson<string[]>(rule.auto_reply_senders, []);
+  if (!current.some((pattern) => normalizeAddress(pattern) === sender)) {
+    channelRulesDb.update(rule.id, { autoReplySenders: [...current, sender] });
+  }
+}
+
 export const outboxService = {
   /** An answer to one inbound message; the message's rule decides whether it goes out now, waits for approval, or is refused. */
   async createReply(input: { messageId: string; text: string; action?: 'reply' | 'escalate'; createdBy: 'agent' | 'user' }): Promise<ChannelOutboxRow> {
@@ -128,7 +163,7 @@ export const outboxService = {
       throw new AppError('A reply needs some text.', { code: 'OUTBOX_TEXT_REQUIRED', statusCode: 400 });
     }
     const rule = ruleForMessage(message);
-    const mode = input.createdBy === 'user' ? 'auto' : (rule?.reply_mode ?? 'draft');
+    const mode = input.createdBy === 'user' ? 'auto' : agentReplyMode(rule, message);
     if (mode === 'none') {
       throw new AppError('Replies are not allowed for the rule that handled this message.', { code: 'REPLY_NOT_ALLOWED', statusCode: 403 });
     }
@@ -230,11 +265,13 @@ export const outboxService = {
     return auto ? deliverNow(row.id) : announce(row);
   },
 
-  async approve(id: string, patch: { text?: string } = {}): Promise<ChannelOutboxRow> {
+  /** `trustSender`: the owner also lets the agent answer this sender without approval from now on (the reply's rule remembers them). */
+  async approve(id: string, patch: { text?: string; trustSender?: boolean } = {}): Promise<ChannelOutboxRow> {
     const row = requireOutbox(id);
     if (row.status !== 'draft' && row.status !== 'failed') {
       throw new AppError('Only drafts and failed messages can be sent.', { code: 'OUTBOX_NOT_APPROVABLE', statusCode: 409 });
     }
+    if (patch.trustSender) trustReplySender(row);
     const text = typeof patch.text === 'string' && patch.text.trim() ? patch.text.trim() : row.text;
     channelOutboxDb.setStatus(id, 'approved', { text });
     return deliverNow(id, { afterApproval: true });

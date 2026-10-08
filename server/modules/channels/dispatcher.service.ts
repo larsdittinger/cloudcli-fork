@@ -139,6 +139,12 @@ export async function dispatchMessage(
     buildTemplateVars({ message: rowToInboundMessage(message), accountLabel: account.label, replyMode: rule.reply_mode, allowEscalation: parseJson<Record<string, unknown>>(account.config, {}).allowEscalation === true }),
   );
 
+  // Marked before the turn: a run takes minutes, and until it ended the inbox showed the message
+  // as unhandled and offered to send it to the agent a second time.
+  const status = options.manual ? 'manual' : 'dispatched';
+  channelMessagesDb.setStatus(messageId, status, null);
+  broadcastInboxUpdated({ messageId, status, sessionId });
+
   let result: { started: boolean; error: string | null };
   try {
     result = await runDetachedChatTurn(
@@ -150,9 +156,6 @@ export async function dispatchMessage(
   }
 
   if (result.started && !result.error) {
-    const status = options.manual ? 'manual' : 'dispatched';
-    channelMessagesDb.setStatus(messageId, status, null);
-    broadcastInboxUpdated({ messageId, status, sessionId });
     return { started: true, sessionId, error: null };
   }
   if (result.error === 'A run was already in progress for this session.') {

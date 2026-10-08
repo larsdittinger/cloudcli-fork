@@ -157,6 +157,19 @@ export default function AccountForm({ open, account, onOpenChange, onSubmit }: P
             </>
           )}
 
+          {values.type !== 'webhook' && (
+            <label className="flex items-start gap-2 text-sm">
+              <input type="checkbox" className="mt-0.5" checked={config.autoReplyAnyone === true} onChange={(event) => setConfig({ autoReplyAnyone: event.target.checked })} />
+              <span>
+                Reply automatically to anyone
+                <span className="block text-xs text-muted-foreground">
+                  Lets rules of this account without a sender filter (e.g. a support mailbox) send the agent's replies without your approval.
+                  The agent still has no extra permissions; anyone who writes in can make it answer them.
+                </span>
+              </span>
+            </label>
+          )}
+
           <Field label="Agents may send new messages" hint="Replies to inbound messages are governed by the rule that handled them; this covers everything else.">
             <select className={FIELD_CLASS} value={values.agentSend} onChange={(event) => setValues((current) => ({ ...current, agentSend: event.target.value as AgentSendMode }))}>
               <option value="off">No</option>

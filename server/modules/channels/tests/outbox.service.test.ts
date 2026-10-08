@@ -113,3 +113,36 @@ test('two automatic sends on one account are spaced by the minimum gap', async (
     }
   });
 });
+
+test('a draft rule answers trusted senders at once; "send and trust" adds the sender', async () => {
+  await withIsolatedDatabase(async (dir) => {
+    const draft = await setup(dir, 'draft');
+    const first = await outboxService.createReply({ messageId: draft.message.id, text: 'Dobrý den', createdBy: 'agent' });
+    assert.equal(first.status, 'draft');
+    await outboxService.approve(first.id, { trustSender: true });
+    assert.deepEqual(JSON.parse(channelRulesDb.get(draft.rule.id)?.auto_reply_senders ?? '[]'), ['jan@firma.cz']);
+
+    const second = await outboxService.createReply({ messageId: draft.message.id, text: 'Ještě doplním', createdBy: 'agent' });
+    assert.equal(second.status, 'sent', 'the trusted sender gets the next reply without approval');
+    assert.equal(draft.sent.length, 2);
+    await teardown();
+  });
+});
+
+test('an open rule replies automatically only while its account allows replies to anyone', async () => {
+  await withIsolatedDatabase(async (dir) => {
+    const sent: Sent[] = [];
+    channelsService.setRuntime(createRuntime([]));
+    channelsService.registerAdapterFactory('webhook', () => fakeAdapter(sent));
+    appConfigDb.set('channels_enabled', 'true');
+    const account = await channelsService.createAccount({ type: 'webhook', label: 'Hook', agentSend: 'off', config: { autoReplyAnyone: true } });
+    const rule = channelRulesDb.create({ name: 'support', accountId: account.id, conditions: {}, projectPath: dir, provider: 'claude', replyMode: 'auto' });
+    const message = channelMessagesDb.insert(makeMessage({ accountId: account.id, from: { address: 'zakaznice@seznam.cz' } }), 'dispatched')!;
+    channelMessagesDb.attachRule(message.id, rule.id, 'session-1');
+
+    assert.equal((await outboxService.createReply({ messageId: message.id, text: 'Dobrý den', createdBy: 'agent' })).status, 'sent');
+    await channelsService.updateAccount(account.id, { config: { autoReplyAnyone: false } });
+    assert.equal((await outboxService.createReply({ messageId: message.id, text: 'Ještě', createdBy: 'agent' })).status, 'draft');
+    await teardown();
+  });
+});

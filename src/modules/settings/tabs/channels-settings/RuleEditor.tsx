@@ -41,6 +41,8 @@ type FormState = {
   conversation: ConversationMode;
   replyMode: ReplyMode;
   replyScope: ReplyScope;
+  autoReplySenders: string;
+  holdInbound: boolean;
 };
 
 function toForm(rule: ChannelRule | null): FormState {
@@ -67,6 +69,8 @@ function toForm(rule: ChannelRule | null): FormState {
     conversation: rule?.conversation ?? 'thread',
     replyMode: rule?.replyMode ?? 'draft',
     replyScope: rule?.replyScope ?? 'sender',
+    autoReplySenders: (rule?.autoReplySenders ?? []).join('\n'),
+    holdInbound: rule?.holdInbound ?? false,
   };
 }
 
@@ -103,6 +107,8 @@ function toInput(form: FormState): ChannelRuleInput {
     conversation: form.conversation,
     replyMode: form.replyMode,
     replyScope: form.replyScope,
+    autoReplySenders: form.replyMode === 'draft' ? parseLines(form.autoReplySenders) : [],
+    holdInbound: form.holdInbound,
   };
 }
 
@@ -143,7 +149,8 @@ export default function RuleEditor({ open, rule, accounts, onOpenChange, onSubmi
 
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) => setForm((current) => ({ ...current, [key]: value }));
   const input = toInput(form);
-  const warning = ruleOpenAutonomyError(input);
+  const ruleAccount = accounts.find((account) => account.id === input.accountId);
+  const warning = ruleOpenAutonomyError(input, ruleAccount?.config.autoReplyAnyone === true);
   const canSave = Boolean(input.name && input.projectPath) && !warning;
 
   const submit = async () => {
@@ -179,7 +186,7 @@ export default function RuleEditor({ open, rule, accounts, onOpenChange, onSubmi
               </select>
             </Field>
             <div className="grid gap-3 sm:grid-cols-2">
-              <Field label="Senders" hint="One per line. E-mail, @domain.cz, +420…, or a glob like +420*. Empty = anyone (then no autonomy).">
+              <Field label="Senders" hint="One per line. E-mail, @domain.cz, +420…, or a glob like +420*. Empty = anyone: then the default permission mode only, and automatic replies only if the account allows replying to anyone.">
                 <textarea className={cn(FIELD_CLASS, 'min-h-[72px]')} value={form.senders} onChange={(event) => set('senders', event.target.value)} />
               </Field>
               <Field label="Exclude senders" hint="Never match these.">
@@ -241,6 +248,12 @@ export default function RuleEditor({ open, rule, accounts, onOpenChange, onSubmi
               </Field>
               <Field label="Model" hint="Empty = provider default."><Input value={form.model} onChange={(event) => set('model', event.target.value)} placeholder="e.g. opus" /></Field>
               <Field label="Reasoning effort" hint="Empty = default."><Input value={form.effort} onChange={(event) => set('effort', event.target.value)} placeholder="low / medium / high" /></Field>
+              <Field label="When a message matches" className="sm:col-span-2">
+                <select className={FIELD_CLASS} value={form.holdInbound ? 'hold' : 'run'} onChange={(event) => set('holdInbound', event.target.value === 'hold')}>
+                  <option value="run">Hand it to the agent right away</option>
+                  <option value="hold">Wait in the Inbox until I send it to the agent</option>
+                </select>
+              </Field>
               <Field label="Conversation">
                 <select className={FIELD_CLASS} value={form.conversation} onChange={(event) => set('conversation', event.target.value as ConversationMode)}>
                   <option value="thread">Continue the same chat per thread</option>
@@ -255,6 +268,15 @@ export default function RuleEditor({ open, rule, accounts, onOpenChange, onSubmi
                   <option value="auto">Agent replies automatically</option>
                 </select>
               </Field>
+              {form.replyMode === 'draft' && (
+                <Field
+                  label="Reply without approval to"
+                  className="sm:col-span-2"
+                  hint="One per line: an address or @domain.cz. The agent answers these senders right away, everyone else gets a draft. “Send, then always for this sender” on a draft adds to this list."
+                >
+                  <textarea className={cn(FIELD_CLASS, 'min-h-[56px]')} value={form.autoReplySenders} onChange={(event) => set('autoReplySenders', event.target.value)} placeholder="jana@seznam.cz" />
+                </Field>
+              )}
               <Field label="Reply scope">
                 <select className={FIELD_CLASS} value={form.replyScope} onChange={(event) => set('replyScope', event.target.value as ReplyScope)}>
                   <option value="sender">Only to the original sender</option>

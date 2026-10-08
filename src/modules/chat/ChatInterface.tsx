@@ -485,9 +485,9 @@ function ChatInterface({
           onLoadFullTranscript={loadFullTranscript}
         />
 
-        <ChatChannelPanel sessionId={currentSessionId || selectedSession?.id || null} slot="bottom" />
-
         <div className="relative flex-shrink-0">
+          {/* Inside the composer block, so the scroll-to-bottom button floats above the reply cards, not over them. */}
+          <ChatChannelPanel sessionId={currentSessionId || selectedSession?.id || null} slot="bottom" />
           {isUserScrolledUp && chatMessages.length > 0 && (
             <div className="pointer-events-none absolute -top-11 left-0 right-0 z-20 flex justify-center">
               <button

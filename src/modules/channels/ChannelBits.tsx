@@ -41,16 +41,18 @@ const MESSAGE_STATUS_CLASS: Record<MessageStatus, string> = {
   task: 'bg-violet-500/15 text-violet-700 dark:text-violet-300 border-violet-500/30',
   queued: 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30',
   unmatched: 'bg-sky-500/15 text-sky-700 dark:text-sky-300 border-sky-500/30',
+  held: 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30',
   failed: 'bg-red-500/15 text-red-700 dark:text-red-300 border-red-500/30',
   ignored: 'bg-muted text-muted-foreground border-border',
 };
 
 const MESSAGE_STATUS_LABEL: Record<MessageStatus, string> = {
-  dispatched: 'Agent started',
-  manual: 'Sent manually',
-  task: 'Sent to a task',
-  queued: 'Queued',
+  dispatched: 'With the agent',
+  manual: 'With the agent',
+  task: 'With a task',
+  queued: 'Queued for the agent',
   unmatched: 'No rule',
+  held: 'Waits for you',
   failed: 'Failed',
   ignored: 'Ignored',
 };
@@ -81,9 +83,18 @@ export function OutboxStatusBadge({ status }: { status: OutboxStatus }) {
   return <Badge variant="outline" className={cn('font-normal', OUTBOX_STATUS_CLASS[status])}>{OUTBOX_STATUS_LABEL[status]}</Badge>;
 }
 
+/**
+ * Server times: ISO strings, or SQLite's CURRENT_TIMESTAMP, which is UTC
+ * without a zone ("2026-10-08 06:02:41") and would otherwise read as local time.
+ */
+export function parseServerTime(value: string | null | undefined): Date {
+  if (!value) return new Date(NaN);
+  return new Date(/^\d{4}-\d\d-\d\d \d\d:\d\d(:\d\d)?$/.test(value) ? `${value.replace(' ', 'T')}Z` : value);
+}
+
 export function formatWhen(iso: string | null | undefined): string {
   if (!iso) return '';
-  const date = new Date(iso);
+  const date = parseServerTime(iso);
   if (Number.isNaN(date.getTime())) return '';
   const sameDay = date.toDateString() === new Date().toDateString();
   return sameDay

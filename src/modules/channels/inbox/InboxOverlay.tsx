@@ -1,48 +1,70 @@
-import { useCallback, useEffect, useState } from 'react';
-import { Loader2, RotateCcw, Send, Trash2, X } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Loader2, X } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 
 import { api, readApiJson } from '@/shared/api';
 import { Button, Dialog, DialogContent, DialogTitle, Pill, PillBar } from '@/shared/ui';
 import { cn } from '@/shared/utils';
-import {
-  ChannelIcon,
-  FIELD_CLASS,
-  MessageStatusBadge,
-  OutboxStatusBadge,
-  formatWhen,
-} from '@/modules/channels/ChannelBits';
+import { ChannelIcon, FIELD_CLASS, MessageStatusBadge, formatWhen } from '@/modules/channels/ChannelBits';
+import PendingReplyCard from '@/modules/channels/chat/PendingReplyCard';
 import MessageDetail from '@/modules/channels/inbox/MessageDetail';
 import { useChannelsEvents } from '@/modules/channels/hooks/useChannelsEvents';
-import type { ChannelAccount, ChannelMessage, MessageStatus, OutboxItem } from '@/modules/channels/types';
+import { useOutboxActions } from '@/modules/channels/hooks/useOutboxActions';
+import type { ChannelAccount, ChannelMessage, ChannelsSummary, MessageStatus, OutboxItem } from '@/modules/channels/types';
 
-type Props = { open: boolean; onOpenChange: (open: boolean) => void; /** Agent proposals waiting in Settings → Channels. */ proposals?: number };
+type Props = {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  /** Badge counts, shown on the tabs. */
+  summary?: Pick<ChannelsSummary, 'unmatched' | 'held' | 'failed' | 'drafts' | 'proposals'>;
+};
 
 type Tab = 'messages' | 'outbox';
 
 const MESSAGE_FILTERS: Array<{ value: MessageStatus | ''; label: string }> = [
   { value: '', label: 'All' },
+  { value: 'held', label: 'Waits for you' },
   { value: 'unmatched', label: 'No rule' },
-  { value: 'queued', label: 'Queued' },
-  { value: 'dispatched', label: 'Agent started' },
-  { value: 'task', label: 'Sent to a task' },
   { value: 'failed', label: 'Failed' },
+  { value: 'dispatched', label: 'With the agent' },
+  { value: 'queued', label: 'Queued for the agent' },
+  { value: 'task', label: 'With a task' },
   { value: 'ignored', label: 'Ignored' },
 ];
 
-function MessagesTab({ accounts }: { accounts: ChannelAccount[] }) {
+function Count({ value }: { value: number }) {
+  if (value <= 0) return null;
+  return <span className="ml-1 rounded-full bg-amber-500 px-1.5 text-[10px] font-semibold leading-4 text-white">{value > 99 ? '99+' : value}</span>;
+}
+
+function MessagesTab({ accounts, onOpenChat, onDetailOpen }: {
+  accounts: ChannelAccount[];
+  onOpenChat: (sessionId: string) => void;
+  /** Tells the inbox a message is open above it, so Escape closes only that. */
+  onDetailOpen: (open: boolean) => void;
+}) {
   const [messages, setMessages] = useState<ChannelMessage[]>([]);
+  const [drafts, setDrafts] = useState<OutboxItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState<MessageStatus | ''>('');
   const [accountId, setAccountId] = useState('');
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedIdState] = useState<string | null>(null);
+  const setSelectedId = (id: string | null) => {
+    setSelectedIdState(id);
+    onDetailOpen(id !== null);
+  };
 
   const load = useCallback(async () => {
     const query = new URLSearchParams({ limit: '100' });
     if (status) query.set('status', status);
     if (accountId) query.set('accountId', accountId);
     try {
-      const data = await readApiJson<{ data: ChannelMessage[] }>(await api.channels.messages(`?${query.toString()}`));
-      setMessages(data.data);
+      const [messageData, draftData] = await Promise.all([
+        readApiJson<{ data: ChannelMessage[] }>(await api.channels.messages(`?${query.toString()}`)),
+        readApiJson<{ data: OutboxItem[] }>(await api.channels.outbox('?status=draft,failed&limit=200')),
+      ]);
+      setMessages(messageData.data);
+      setDrafts(draftData.data);
     } finally {
       setLoading(false);
     }
@@ -50,6 +72,9 @@ function MessagesTab({ accounts }: { accounts: ChannelAccount[] }) {
 
   useEffect(() => { void load(); }, [load]);
   useChannelsEvents(() => { void load(); });
+
+  // Which messages have a reply waiting for approval.
+  const waitingReply = useMemo(() => new Set(drafts.map((item) => item.in_reply_to_message_id).filter(Boolean)), [drafts]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
@@ -68,7 +93,7 @@ function MessagesTab({ accounts }: { accounts: ChannelAccount[] }) {
       {loading ? (
         <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" aria-hidden /> Loading…</div>
       ) : messages.length === 0 ? (
-        <p className="py-8 text-center text-sm text-muted-foreground">Nothing here yet. Messages arrive once an account is connected.</p>
+        <p className="py-8 text-center text-sm text-muted-foreground">{status ? 'No messages with this status.' : 'Nothing here yet. Messages arrive once an account is connected.'}</p>
       ) : (
         <ul className="min-h-0 flex-1 divide-y divide-border/60 overflow-y-auto rounded-md border border-border/60">
           {messages.map((message) => (
@@ -84,6 +109,9 @@ function MessagesTab({ accounts }: { accounts: ChannelAccount[] }) {
                     <span className="truncate text-sm font-medium">{message.from.name || message.from.address}</span>
                     <span className="text-xs text-muted-foreground">{formatWhen(message.receivedAt)}</span>
                     <MessageStatusBadge status={message.status} />
+                    {waitingReply.has(message.id) && (
+                      <span className="rounded-full border border-amber-500/40 bg-amber-500/10 px-1.5 text-[11px] font-medium text-amber-700 dark:text-amber-300">Reply waits for you</span>
+                    )}
                     {message.ruleName && <span className="text-xs text-muted-foreground">{message.ruleName}</span>}
                   </div>
                   <div className="truncate text-sm text-muted-foreground">{message.subject || message.text.slice(0, 120)}</div>
@@ -96,19 +124,23 @@ function MessagesTab({ accounts }: { accounts: ChannelAccount[] }) {
 
       <Dialog open={selectedId !== null} onOpenChange={(next) => { if (!next) setSelectedId(null); }}>
         <DialogContent wrapperClassName="z-[10000]" className="max-w-none max-h-[85vh] w-[min(100vw-2rem,48rem)] overflow-y-auto p-4">
-          <DialogTitle className="mb-2 text-base font-semibold">Inbound message</DialogTitle>
-          {selectedId && <MessageDetail messageId={selectedId} onClose={() => setSelectedId(null)} onChanged={() => { void load(); }} />}
+          {selectedId && (
+            <MessageDetail
+              messageId={selectedId}
+              onClose={() => setSelectedId(null)}
+              onChanged={() => { void load(); }}
+              onOpenChat={onOpenChat}
+            />
+          )}
         </DialogContent>
       </Dialog>
     </div>
   );
 }
 
-function OutboxTab() {
+function OutboxTab({ onOpenChat }: { onOpenChat: (sessionId: string) => void }) {
   const [items, setItems] = useState<OutboxItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [texts, setTexts] = useState<Record<string, string>>({});
-  const [busyId, setBusyId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -121,16 +153,7 @@ function OutboxTab() {
 
   useEffect(() => { void load(); }, [load]);
   useChannelsEvents(() => { void load(); });
-
-  const act = async (id: string, action: () => Promise<Response>) => {
-    setBusyId(id);
-    try {
-      await readApiJson(await action());
-    } finally {
-      setBusyId(null);
-      await load();
-    }
-  };
+  const outbox = useOutboxActions(load);
 
   if (loading) {
     return <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" aria-hidden /> Loading…</div>;
@@ -140,58 +163,30 @@ function OutboxTab() {
   }
 
   return (
-    <ul className="min-h-0 flex-1 space-y-2 overflow-y-auto">
-      {items.map((item) => {
-        const editable = item.status === 'draft';
-        const text = texts[item.id] ?? item.text;
-        return (
-          <li key={item.id} className="rounded-md border border-border/60 p-3 text-sm">
-            <div className="mb-1.5 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-              <span className="text-foreground">{item.action === 'escalate' ? `Internal handoff about ${item.to_address}` : `To ${item.to_address}`}</span>
-              {item.subject && <span>· {item.subject}</span>}
-              <OutboxStatusBadge status={item.status} />
-              <span>{formatWhen(item.sent_at ?? item.created_at)}</span>
-              <span>· by {item.created_by}</span>
-            </div>
-            {editable ? (
-              <textarea
-                aria-label="Message text"
-                className={cn(FIELD_CLASS, 'min-h-[64px] resize-y')}
-                value={text}
-                disabled={busyId === item.id}
-                onChange={(event) => setTexts((current) => ({ ...current, [item.id]: event.target.value }))}
-              />
-            ) : (
-              <p className="whitespace-pre-wrap">{item.text}</p>
-            )}
-            {item.status === 'failed' && item.status_detail && <p className="mt-1 text-xs text-red-600 dark:text-red-300">{item.status_detail}</p>}
-            {(editable || item.status === 'failed') && (
-              <div className="mt-2 flex justify-end gap-2">
-                <Button size="sm" variant="ghost" disabled={busyId === item.id} onClick={() => act(item.id, () => api.channels.discardOutbox(item.id))}>
-                  <Trash2 className="mr-1 h-3.5 w-3.5" aria-hidden /> Discard
-                </Button>
-                {item.status === 'failed' ? (
-                  <Button size="sm" disabled={busyId === item.id} onClick={() => act(item.id, () => api.channels.retryOutbox(item.id))}>
-                    <RotateCcw className="mr-1 h-3.5 w-3.5" aria-hidden /> Retry
-                  </Button>
-                ) : (
-                  <Button size="sm" disabled={busyId === item.id || !text.trim()} onClick={() => act(item.id, () => api.channels.approveOutbox(item.id, { text }))}>
-                    <Send className="mr-1 h-3.5 w-3.5" aria-hidden /> Send
-                  </Button>
-                )}
-              </div>
-            )}
-          </li>
-        );
-      })}
-    </ul>
+    <div className="min-h-0 flex-1 space-y-2 overflow-y-auto">
+      {outbox.error && <p role="alert" className="text-sm text-red-600 dark:text-red-300">{outbox.error}</p>}
+      {items.map((item) => (
+        <PendingReplyCard
+          key={item.id}
+          item={item}
+          busy={outbox.busyId === item.id}
+          onApprove={outbox.approve}
+          onDiscard={outbox.discard}
+          onRetry={outbox.retry}
+          onOpenChat={onOpenChat}
+        />
+      ))}
+    </div>
   );
 }
 
 /** The admin's inbox: every message the channels received, and everything agents want to send. */
-export default function InboxOverlay({ open, onOpenChange, proposals = 0 }: Props) {
+export default function InboxOverlay({ open, onOpenChange, summary }: Props) {
+  const navigate = useNavigate();
   const [tab, setTab] = useState<Tab>('messages');
   const [accounts, setAccounts] = useState<ChannelAccount[]>([]);
+  // A message detail is open above the list.
+  const [detailOpen, setDetailOpen] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -201,27 +196,40 @@ export default function InboxOverlay({ open, onOpenChange, proposals = 0 }: Prop
       .catch(() => setAccounts([]));
   }, [open]);
 
+  // Leaving for a chat closes the inbox too; otherwise it would stay over the chat it opened.
+  const openChat = useCallback((sessionId: string) => {
+    setDetailOpen(false);
+    onOpenChange(false);
+    navigate(`/session/${sessionId}`);
+  }, [navigate, onOpenChange]);
+
+  const needsYou = (summary?.unmatched ?? 0) + (summary?.held ?? 0) + (summary?.failed ?? 0);
+  const proposals = summary?.proposals ?? 0;
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    // Escape reaches every open dialog; with a message open it closes only that message.
+    <Dialog open={open} onOpenChange={(next) => { if (next || !detailOpen) onOpenChange(next); }}>
       <DialogContent wrapperClassName="z-[10000]" className="max-w-none flex h-[min(90vh,52rem)] w-[min(100vw-1rem,56rem)] flex-col gap-3 p-4 md:p-5">
-        <div className="flex items-center justify-between gap-3">
-          <DialogTitle className="text-base font-semibold">Inbox</DialogTitle>
-          <div className="flex items-center gap-2">
-            <PillBar>
-              <Pill isActive={tab === 'messages'} onClick={() => setTab('messages')}>Messages</Pill>
-              <Pill isActive={tab === 'outbox'} onClick={() => setTab('outbox')}>To send</Pill>
-            </PillBar>
-            <Button variant="ghost" size="icon" aria-label="Close" onClick={() => onOpenChange(false)}>
-              <X className="h-4 w-4" aria-hidden />
-            </Button>
-          </div>
+        <div className="flex items-center gap-3">
+          <DialogTitle className="not-sr-only text-base font-semibold">Inbox</DialogTitle>
+          <PillBar aria-label="Inbox view">
+            <Pill isActive={tab === 'messages'} aria-pressed={tab === 'messages'} onClick={() => setTab('messages')}>
+              Messages<Count value={needsYou} />
+            </Pill>
+            <Pill isActive={tab === 'outbox'} aria-pressed={tab === 'outbox'} onClick={() => setTab('outbox')}>
+              To send<Count value={summary?.drafts ?? 0} />
+            </Pill>
+          </PillBar>
+          <Button variant="ghost" size="icon" className="ml-auto shrink-0" aria-label="Close" onClick={() => onOpenChange(false)}>
+            <X className="h-4 w-4" aria-hidden />
+          </Button>
         </div>
         {proposals > 0 && (
           <p className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-800 dark:text-amber-200">
             {proposals === 1 ? 'An agent proposed' : `Agents proposed ${proposals} items of`} channel setup — review and approve in Settings → Channels.
           </p>
         )}
-        {tab === 'messages' ? <MessagesTab accounts={accounts} /> : <OutboxTab />}
+        {tab === 'messages' ? <MessagesTab accounts={accounts} onOpenChat={openChat} onDetailOpen={setDetailOpen} /> : <OutboxTab onOpenChat={openChat} />}
       </DialogContent>
     </Dialog>
   );

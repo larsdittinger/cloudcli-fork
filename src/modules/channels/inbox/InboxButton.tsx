@@ -6,14 +6,14 @@ import { useIsAdmin } from '@/shared/hooks/useIsAdmin';
 import InboxOverlay from '@/modules/channels/inbox/InboxOverlay';
 import { useChannelsSummary } from '@/modules/channels/hooks/useChannelsSummary';
 
-/** Sidebar entry to the channels inbox; the badge counts what needs a human (no rule, failed, drafts, agent proposals). */
+/** Sidebar entry to the channels inbox; the badge counts what needs a human (held, no rule, failed, drafts, agent proposals). */
 export default function InboxButton() {
   const isAdmin = useIsAdmin();
   const [open, setOpen] = useState(false);
   const summary = useChannelsSummary();
 
   if (!isAdmin || !summary.enabled) return null;
-  const count = summary.unmatched + summary.failed + summary.drafts + (summary.proposals ?? 0);
+  const count = summary.unmatched + (summary.held ?? 0) + summary.failed + summary.drafts + (summary.proposals ?? 0);
 
   return (
     <>
@@ -33,7 +33,7 @@ export default function InboxButton() {
           )}
         </Button>
       </Tooltip>
-      <InboxOverlay open={open} onOpenChange={setOpen} proposals={summary.proposals ?? 0} />
+      <InboxOverlay open={open} onOpenChange={setOpen} summary={summary} />
     </>
   );
 }

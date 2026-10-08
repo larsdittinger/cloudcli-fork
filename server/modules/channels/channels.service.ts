@@ -525,6 +525,13 @@ export const channelsService = {
       broadcastInboxUpdated({ messageId: row.id, status: 'unmatched' });
       return channelMessagesDb.get(row.id);
     }
+    // The owner asked to see these first: the agent gets it only after "Send to agent".
+    if (rule.hold_inbound === 1) {
+      channelMessagesDb.attachRule(row.id, rule.id, null);
+      channelMessagesDb.setStatus(row.id, 'held', null);
+      broadcastInboxUpdated({ messageId: row.id, status: 'held' });
+      return channelMessagesDb.get(row.id);
+    }
     if (!runtime) {
       channelMessagesDb.setStatus(row.id, 'queued', null);
       channelMessagesDb.attachRule(row.id, rule.id, null);

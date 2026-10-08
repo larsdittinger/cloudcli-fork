@@ -14,7 +14,7 @@ export type AccountStatus = 'disconnected' | 'connecting' | 'connected' | 'error
 export type AgentSendMode = 'off' | 'draft' | 'auto';
 
 /** `task` = routed to a long-running task (Tasks module) instead of a rule. */
-export type MessageStatus = 'unmatched' | 'ignored' | 'queued' | 'dispatched' | 'failed' | 'manual' | 'task';
+export type MessageStatus = 'unmatched' | 'held' | 'ignored' | 'queued' | 'dispatched' | 'failed' | 'manual' | 'task';
 
 export type OutboxStatus = 'draft' | 'approved' | 'sending' | 'sent' | 'failed' | 'discarded';
 
@@ -73,6 +73,10 @@ export type RuleInput = {
   conversation?: ConversationMode;
   replyMode?: ReplyMode;
   replyScope?: ReplyScope;
+  /** Senders (address, @domain, glob) whose replies are sent without approval when replies are drafts. */
+  autoReplySenders?: string[];
+  /** Hold matching messages until the owner hands them to the agent. */
+  holdInbound?: boolean;
   ownerUserId?: number | null;
 };
 
@@ -110,6 +114,10 @@ export type ChannelRuleRow = {
   conversation: ConversationMode;
   reply_mode: ReplyMode;
   reply_scope: ReplyScope;
+  /** JSON array of sender patterns (like the senders filter) whose replies go out without approval in draft mode. */
+  auto_reply_senders: string;
+  /** 1 = a matching message waits for the owner's "Send to agent" instead of reaching the agent right away. */
+  hold_inbound: number;
   owner_user_id: number | null;
   /** JSON {@link ChannelProposal} while an agent's proposal awaits approval; null once approved. */
   proposal: string | null;

@@ -60,7 +60,9 @@ Příjem: \`POST ${base}/api/channels/webhook/<účet>\`, \`Authorization: Beare
 - \`permission_mode\`: \`default\` (výchozí) | \`acceptEdits\` | \`plan\` | \`bypassPermissions\`.
 - \`reply_mode\`: \`none\` (výchozí) | \`draft\` (odpověď čeká na schválení v chatu/Inboxu) | \`auto\` (odešle se hned). \`reply_scope\`: \`sender\` | \`anyone\`.
 - \`conversation\`: \`thread\` (výchozí, pokračuje ve vlákně) | \`sender\` (jeden chat na odesílatele) | \`new\` (vždy nový chat).
-- **Pojistka:** pravidlo bez filtru odesílatelů (nebo se \`*\`) nesmí mít \`bypassPermissions\`/\`acceptEdits\`/\`plan\` ani \`reply_mode: auto\` — server ho odmítne. Navrhuj co nejužší filtr a \`draft\`, pokud uživatel výslovně nechce víc.
+- **Pojistka:** pravidlo bez filtru odesílatelů (nebo se \`*\`) nesmí mít \`bypassPermissions\`/\`acceptEdits\`/\`plan\` — server ho odmítne. \`reply_mode: auto\` smí jen na účtu, kde uživatel sám zapnul „Reply automatically to anyone". Navrhuj co nejužší filtr a \`draft\`, pokud uživatel výslovně nechce víc.
+- U \`draft\` pravidla má uživatel seznam „Reply without approval to" (adresy, \`@domena.cz\`): těm odesílatelům odpověď odejde hned, ostatním jako koncept. Doplňuje ho sám tlačítkem „Send, then always for this sender" u konceptu — proto u \`channels_reply\` vždy čti, jestli šla odpověď ven (\`status\`), nebo čeká.
+- Pravidlo může mít „Wait in the Inbox until I send it to the agent": zprávu pak uvidíš, až ji uživatel pošle agentovi.
 - \`prompt_template\`: prázdné = výchozí šablona. Proměnné \`{{channel}} {{account}} {{from}} {{fromName}} {{to}} {{subject}} {{text}} {{metadata}} {{threadKey}} {{receivedAt}} {{attachments}} {{messageId}} {{isGroup}} {{replyInstructions}}\`. Vlastní šablona má obsahovat \`{{text}}\` a \`{{replyInstructions}}\` (u webhooku i \`{{metadata}}\`). Výchozí:
 
 \`\`\`

@@ -107,3 +107,42 @@ test('webhook end to end: token check, running adapter, dispatch', async () => {
     appConfigDb.set('channels_enabled', 'false');
   });
 });
+
+test('a held rule keeps the message for the owner; "send to agent" then runs that rule', async () => {
+  await withIsolatedDatabase(async (dir) => {
+    const runs: RunCall[] = [];
+    channelsService.setRuntime(createRuntime(runs));
+    const account = channelAccountsDb.create({ type: 'email', label: 'Podpora', config: { user: 'podpora@ethia.cz' }, secrets: {} });
+    const rule = channelRulesDb.create({ name: 'support', conditions: {}, projectPath: dir, provider: 'claude', holdInbound: true });
+
+    const held = await channelsService.ingest(account.id, makeMessage({ accountId: account.id }));
+    assert.equal(held?.status, 'held');
+    assert.equal(held?.rule_id, rule.id);
+    assert.equal(runs.length, 0);
+    assert.equal(channelMessagesDb.countByStatus().held, 1);
+
+    const { dispatchMessage } = await import('@/modules/channels/dispatcher.service.js');
+    await dispatchMessage(held!.id, rule.id, createRuntime(runs), { manual: true });
+    assert.equal(runs.length, 1);
+    assert.equal(channelMessagesDb.get(held!.id)?.status, 'manual');
+  });
+});
+
+test('a message counts as handed to the agent while its turn still runs', async () => {
+  await withIsolatedDatabase(async (dir) => {
+    let statusDuringRun: string | undefined;
+    let messageId = '';
+    const runtime = {
+      hasRuntime: () => true,
+      run: async () => { statusDuringRun = channelMessagesDb.get(messageId)?.status; },
+      abort: async () => true,
+    } as never;
+    channelsService.setRuntime(runtime);
+    const account = channelAccountsDb.create({ type: 'email', label: 'Gmail', config: { user: 'me@example.com' }, secrets: {} });
+    channelRulesDb.create({ name: 'all', conditions: {}, projectPath: dir, provider: 'claude' });
+    const message = makeMessage({ accountId: account.id });
+    messageId = message.id;
+    await channelsService.ingest(account.id, message);
+    assert.equal(statusDuringRun, 'dispatched');
+  });
+});

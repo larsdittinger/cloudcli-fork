@@ -2,7 +2,7 @@ export type ChannelType = 'email' | 'whatsapp' | 'webhook';
 export type AccountStatus = 'disconnected' | 'connecting' | 'connected' | 'error' | 'needs_pairing';
 export type AgentSendMode = 'off' | 'draft' | 'auto';
 /** `task` = the message went to a long-running agent task instead of a rule. */
-export type MessageStatus = 'unmatched' | 'ignored' | 'queued' | 'dispatched' | 'failed' | 'manual' | 'task';
+export type MessageStatus = 'unmatched' | 'held' | 'ignored' | 'queued' | 'dispatched' | 'failed' | 'manual' | 'task';
 export type OutboxStatus = 'draft' | 'approved' | 'sending' | 'sent' | 'failed' | 'discarded';
 export type ConversationMode = 'thread' | 'sender' | 'new';
 export type ReplyMode = 'none' | 'draft' | 'auto';
@@ -64,6 +64,10 @@ export type ChannelRule = {
   conversation: ConversationMode;
   replyMode: ReplyMode;
   replyScope: ReplyScope;
+  /** Senders whose replies go out without approval while replies are drafts. */
+  autoReplySenders: string[];
+  /** Matching messages wait for the owner's "Send to agent". */
+  holdInbound: boolean;
   ownerUserId: number | null;
   /** Set while an agent's proposal awaits approval; the rule stays disabled until then. */
   proposal: ChannelProposal | null;
@@ -110,10 +114,14 @@ export type OutboxItem = {
   created_by: 'agent' | 'user';
   created_at: string;
   sent_at: string | null;
+  /** Set for messages a long-running agent task sent. */
+  task_id?: number | null;
 };
 
 export type ChannelsSummary = {
   unmatched: number;
+  /** Messages a rule holds until the owner hands them to the agent. */
+  held?: number;
   queued: number;
   failed: number;
   drafts: number;

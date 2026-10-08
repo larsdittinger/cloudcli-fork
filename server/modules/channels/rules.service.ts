@@ -95,7 +95,24 @@ export function isOpenRule(conditions: RuleConditions): boolean {
   return senders.length === 0 || senders.includes('*');
 }
 
-export function validateRuleInput(input: RuleInput): void {
+/**
+ * Used by rule validation and the outbox: the account's "reply automatically
+ * to anyone" switch, the owner's explicit choice to let an open rule (no sender
+ * filter) send replies without approval.
+ */
+export function accountAllowsOpenAutoReply(account: ChannelAccountRow | null | undefined): boolean {
+  return Boolean(account) && parseJson<Record<string, unknown>>(account?.config ?? '{}', {}).autoReplyAnyone === true;
+}
+
+/** Used by the outbox: replies to these senders go out without approval even when the rule drafts. */
+export function senderTrustedForAutoReply(rule: ChannelRuleRow, message: InboundMessage): boolean {
+  if (senderFailedAuth(message.raw)) return false;
+  const patterns = parseJson<string[]>(rule.auto_reply_senders, []);
+  return patterns.some((pattern) => pattern.trim() !== '*' && senderMatches(pattern, message));
+}
+
+/** `account` is the rule's own account (null for rules over every account or a whole channel type). */
+export function validateRuleInput(input: RuleInput, account: ChannelAccountRow | null = null): void {
   const fail = (message: string, code: string) => {
     throw new AppError(message, { code, statusCode: 400 });
   };
@@ -117,10 +134,18 @@ export function validateRuleInput(input: RuleInput): void {
     }
   }
 
-  const autonomous = (input.permissionMode && input.permissionMode !== 'default') || input.replyMode === 'auto';
-  if (autonomous && isOpenRule(conditions)) {
+  if (!isOpenRule(conditions)) return;
+  // Open to anyone who can reach the mailbox or number: a stranger's message must not drive an agent without prompts.
+  if (input.permissionMode && input.permissionMode !== 'default') {
     fail(
-      'A rule without a sender filter may not bypass permissions or reply automatically. Add the senders you trust, or keep the default permission mode and draft replies.',
+      'A rule without a sender filter may not bypass permissions: anyone who writes in would steer the agent. Add the senders you trust, or keep the default permission mode.',
+      'RULE_OPEN_AUTONOMY',
+    );
+  }
+  // Automatic replies to anyone are the account owner's explicit choice, made on the account.
+  if (input.replyMode === 'auto' && !accountAllowsOpenAutoReply(account)) {
+    fail(
+      'A rule without a sender filter replies automatically only on an account with "Reply automatically to anyone" switched on (Settings → Channels → the account). Or keep drafts and list the senders to answer right away.',
       'RULE_OPEN_AUTONOMY',
     );
   }
@@ -145,6 +170,8 @@ export function publicRule(row: ChannelRuleRow) {
     conversation: row.conversation,
     replyMode: row.reply_mode,
     replyScope: row.reply_scope,
+    autoReplySenders: parseJson<string[]>(row.auto_reply_senders, []),
+    holdInbound: row.hold_inbound === 1,
     ownerUserId: row.owner_user_id,
     proposal: parseJson<ChannelProposal | null>(row.proposal, null),
     createdAt: row.created_at,

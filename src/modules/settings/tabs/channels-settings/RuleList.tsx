@@ -95,6 +95,12 @@ export default function RuleList({ rules, accounts, onEdit, onChanged }: Props) 
                   {rule.permissionMode === 'bypassPermissions' && <Badge variant="outline" className="border-amber-500/40 font-normal text-amber-700 dark:text-amber-300">autonomous</Badge>}
                   {rule.permissionMode !== 'default' && rule.permissionMode !== 'bypassPermissions' && <Badge variant="outline" className="font-normal">{rule.permissionMode}</Badge>}
                   <Badge variant="outline" className="font-normal">{REPLY_LABEL[rule.replyMode]}</Badge>
+                  {rule.replyMode === 'draft' && (rule.autoReplySenders?.length ?? 0) > 0 && (
+                    <Badge variant="outline" className="font-normal" title={rule.autoReplySenders.join(', ')}>
+                      replies right away to {rule.autoReplySenders.length} sender{rule.autoReplySenders.length === 1 ? '' : 's'}
+                    </Badge>
+                  )}
+                  {rule.holdInbound && <Badge variant="outline" className="font-normal">waits for me first</Badge>}
                 </div>
                 <div className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
                   {rule.channel && <ChannelIcon channel={rule.channel} className="h-3.5 w-3.5" />}

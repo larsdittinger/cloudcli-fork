@@ -32,9 +32,27 @@ describe('PendingReplyCard', () => {
     const textarea = screen.getByLabelText('Reply text') as HTMLTextAreaElement;
     expect(textarea.value).toBe('Dobry den, potvrzuji.');
     fireEvent.change(textarea, { target: { value: 'Dobry den, potvrzuji objednavku.' } });
-    fireEvent.click(screen.getByRole('button', { name: /send/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^send$/i }));
 
     expect(onApprove).toHaveBeenCalledWith('out-1', 'Dobry den, potvrzuji objednavku.');
+  });
+
+  it('can send and trust the sender for next time, but never for task messages', () => {
+    const onApprove = vi.fn();
+    const { rerender } = render(<PendingReplyCard item={item()} busy={false} onApprove={onApprove} onDiscard={vi.fn()} onRetry={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: /always for this sender/i }));
+    expect(onApprove).toHaveBeenCalledWith('out-1', 'Dobry den, potvrzuji.', true);
+
+    rerender(<PendingReplyCard item={item({ task_id: 3 })} busy={false} onApprove={onApprove} onDiscard={vi.fn()} onRetry={vi.fn()} />);
+    expect(screen.queryByRole('button', { name: /always for this sender/i })).toBeNull();
+    expect(screen.getByText('Message from task #3')).toBeTruthy();
+  });
+
+  it('offers to open the chat where it is shown outside it', () => {
+    const onOpenChat = vi.fn();
+    render(<PendingReplyCard item={item()} busy={false} onApprove={vi.fn()} onDiscard={vi.fn()} onRetry={vi.fn()} onOpenChat={onOpenChat} />);
+    fireEvent.click(screen.getByRole('button', { name: /open chat/i }));
+    expect(onOpenChat).toHaveBeenCalledWith('session');
   });
 
   it('shows the failure and offers a retry', () => {
