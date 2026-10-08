@@ -2,6 +2,7 @@ import express from 'express';
 import type { Request, Response } from 'express';
 
 import { channelsService } from '@/modules/channels/channels.service.js';
+import { isQuarantined } from '@/modules/channels/injection/injection-guard.service.js';
 import { parseJson } from '@/modules/channels/types.js';
 import { channelMessagesDb, channelOutboxDb } from '@/modules/database/index.js';
 import { chatRunRegistry } from '@/modules/websocket/index.js';
@@ -46,7 +47,8 @@ router.get('/:accountId/messages/:messageId', asyncHandler(async (req: Request, 
     thread: message.thread_key,
     metadata: parseJson<Record<string, unknown>>(message.raw_json, {}).metadata ?? null,
     status: message.status,
-    statusDetail: message.status_detail,
+    // The caller learns that it waits for review, not which signatures fired (that would help tune an evasion).
+    statusDetail: isQuarantined(message) ? 'Held for review.' : message.status_detail,
     sessionId: message.session_id,
     processing: !!message.session_id && chatRunRegistry.isProcessing(message.session_id),
     results: channelOutboxDb.listByMessage(message.id).map((row) => ({

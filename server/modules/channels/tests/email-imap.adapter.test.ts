@@ -134,7 +134,7 @@ test('send threads the reply and derives the SMTP host from the IMAP host', asyn
         id: 'm', account_id: 'acc-mail', channel: 'email', external_id: '<c@firma.cz>', thread_key: 'a@example.com',
         from_address: 'jan@firma.cz', from_name: null, to_json: '[]', subject: 'Objednavka 42', text: '', html: null, is_group: 0,
         attachments_json: '[]', raw_json: JSON.stringify({ messageId: '<c@firma.cz>', references: ['<a@example.com>', '<b@example.com>'] }),
-        received_at: '', rule_id: null, session_id: null, status: 'dispatched', status_detail: null, created_at: '',
+        received_at: '', rule_id: null, session_id: null, status: 'dispatched', status_detail: null, created_at: '', injection_json: null,
       },
     });
 

@@ -71,6 +71,24 @@ nasazuje — je v `../CLAUDE.md`.
   počty v záložkách, štítek „Reply waits for you", koncept přímo v detailu zprávy, „Open the agent's chat" zavře celý
   Inbox; `PendingReplyCard` je jedna komponenta pro chat, detail i „To send", v chatu ve sloupci composeru.
   Časy z SQLite (`CURRENT_TIMESTAMP` = UTC bez zóny) čte `parseServerTime`.
+  **Filtr prompt injection (2026-10-08):** `server/modules/channels/injection/` — každá příchozí zpráva (i odpověď do
+  úkolu) projde `injectionGuard.inspect` v `channelsService.ingest` **před** úkoly a pravidly. Skener (`injection-scanner.ts`)
+  normalizuje text (`text-views.ts`: bez diakritiky, homoglyfy, leetspeak, rozházená písmena, neviditelné znaky, mapa zpět
+  na originál pro úryvky), hledá skrytý text v HTML (`html-hidden.ts`, htmlparser2), čte textové přílohy a dekóduje
+  base64/hex/Unicode tagy; signatury CZ/SK/EN/DE v `signatures.ts` (váhy, `unless` = výjimky typu „moje předchozí faktura",
+  citace v uvozovkách a popis místo rozkazu váží méně). Skóre ≥ práh (strict 0.6 výchozí / normal 1.0, `app_config`
+  `channels_injection_filter` + `_sensitivity`) → `status = 'held'`, `channel_messages.injection_json`, push adminům
+  (`/?inbox=<id>` otevře zprávu), MCP `channels_get_message/list_messages` vrací `[Withheld…]`, dispatcher odmítne
+  automatické předání. Uvolnění: `POST /messages/:id/release` (`releaseHeld` → `routeStored`: úkol, jinak pravidlo bez jeho
+  vlastního holdu) nebo „Send to agent" (manual dispatch = taky uvolnění). Pod prahem se skóre ≥ 0.3 agent dostane
+  varování v promptu (`promptWarning` — jen typ a místo nálezu, nikdy úryvek: ten by agentovi donesl skrytý text; i
+  v deníku úkolu). Skenuje se i jméno/adresa odesílatele, webhook vlákno a `metadata`, WA citace a názvy příloh;
+  dlouhé části začátek + konec, rozpočet 1 MB na zprávu, co se nevejde = `notChecked` + nález `unscanned`.
+  `scanForInjectionAsync` mezi částmi uvolní event loop (nejhorší zpráva ~0,5 s). Výjimky (`unless`) platí jen ve
+  stejné větě, popis jen ve 3. osobě, uvozovky snižují váhu jen u citace („such as", „věty jako"). Agent nemůže
+  `channels_reply` ani `tasks_send_message` na zadrženou zprávu. Chyba skeneru = zpráva projde (fail-open) a Inbox
+  ukáže „filter failed".
+  Data a měření: `scripts/prompt-injection/` (README s čísly, `dataset.py` fetch/prepare/mine, `eval.ts`).
 
 - **Schedules** (`server/modules/schedules`, `src/modules/schedules`, záložka `schedules`
   jen pro admina; od 2026-10-06, nahrazuje plugin `workspace-scheduled-prompts`): úlohy

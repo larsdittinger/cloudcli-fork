@@ -154,6 +154,8 @@ export type ChannelMessageRow = {
   status: MessageStatus;
   status_detail: string | null;
   created_at: string;
+  /** JSON InjectionScan when the prompt-injection filter found anything; null otherwise. */
+  injection_json: string | null;
 };
 
 export type ChannelOutboxRow = {

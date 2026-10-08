@@ -6,7 +6,8 @@ import path from 'node:path';
 import type { AdapterDeps, AdapterFactory, ChannelAdapter } from '@/modules/channels/adapters/channel-adapter.js';
 import type { WebhookAdapter } from '@/modules/channels/adapters/webhook.adapter.js';
 import { broadcastInboxUpdated } from '@/modules/channels/channels-broadcast.js';
-import { dispatchMessage } from '@/modules/channels/dispatcher.service.js';
+import { dispatchMessage, rowToInboundMessage } from '@/modules/channels/dispatcher.service.js';
+import { injectionGuard, isQuarantined } from '@/modules/channels/injection/injection-guard.service.js';
 import { findMatchingRule } from '@/modules/channels/rules.service.js';
 import { senderFailedAuth } from '@/modules/channels/sender-auth.js';
 import { getChannelTaskHooks } from '@/modules/channels/task-hooks.js';
@@ -249,6 +250,48 @@ function isSelfMessage(row: ChannelAccountRow, message: InboundMessage): boolean
     .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
     .map(normalizeAddress);
   return own.length > 0 && own.includes(normalizeAddress(message.from.address));
+}
+
+/**
+ * Where a stored message goes: its task, else the first matching rule (dispatched, or held
+ * when the rule asks the owner first — unless the owner already reviewed it), else unmatched.
+ */
+async function routeStored(row: ChannelMessageRow, account: ChannelAccountRow, options: { ownerReviewed: boolean }): Promise<ChannelMessageRow | null> {
+  // A reply in a long-running task's conversation belongs to that task, not to the rules.
+  let taskId: number | null = null;
+  try {
+    taskId = getChannelTaskHooks()?.routeInbound(row) ?? null;
+  } catch (error) {
+    console.error('[Channels] Task routing failed', { messageId: row.id, error: error instanceof Error ? error.message : String(error) });
+  }
+  if (taskId !== null) {
+    channelMessagesDb.setStatus(row.id, 'task', `Task #${taskId}`);
+    broadcastInboxUpdated({ messageId: row.id, status: 'task' });
+    return channelMessagesDb.get(row.id);
+  }
+
+  const message = rowToInboundMessage(row);
+  const rule = findMatchingRule(channelRulesDb.listOrdered(), message, account);
+  if (!rule) {
+    if (senderFailedAuth(message.raw)) channelMessagesDb.setStatus(row.id, 'unmatched', 'The sender failed SPF/DKIM: possibly forged, so no sender filter or task trusted it.');
+    broadcastInboxUpdated({ messageId: row.id, status: 'unmatched' });
+    return channelMessagesDb.get(row.id);
+  }
+  // The owner asked to see these first: the agent gets it only after "Send to agent".
+  if (rule.hold_inbound === 1 && !options.ownerReviewed) {
+    channelMessagesDb.attachRule(row.id, rule.id, null);
+    channelMessagesDb.setStatus(row.id, 'held', null);
+    broadcastInboxUpdated({ messageId: row.id, status: 'held' });
+    return channelMessagesDb.get(row.id);
+  }
+  if (!runtime) {
+    channelMessagesDb.setStatus(row.id, 'queued', null);
+    channelMessagesDb.attachRule(row.id, rule.id, null);
+    broadcastInboxUpdated({ messageId: row.id, status: 'queued' });
+    return channelMessagesDb.get(row.id);
+  }
+  await dispatchMessage(row.id, rule.id, runtime, { manual: options.ownerReviewed });
+  return channelMessagesDb.get(row.id);
 }
 
 export const channelsService = {
@@ -496,7 +539,10 @@ export const channelsService = {
     return running.get(accountId)?.adapter ?? null;
   },
 
-  /** Deduplicates, drops our own messages, hands task replies to their task, else matches a rule and dispatches. */
+  /**
+   * Deduplicates, drops our own messages, holds suspected prompt injection for the owner,
+   * hands task replies to their task, else matches a rule and dispatches.
+   */
   async ingest(accountId: string, message: InboundMessage): Promise<ChannelMessageRow | null> {
     const account = channelAccountsDb.get(accountId);
     if (!account) return null;
@@ -506,40 +552,33 @@ export const channelsService = {
     if (!row) return null;
     if (self) return row;
 
-    // A reply in a long-running task's conversation belongs to that task, not to the rules.
-    let taskId: number | null = null;
-    try {
-      taskId = getChannelTaskHooks()?.routeInbound(row) ?? null;
-    } catch (error) {
-      console.error('[Channels] Task routing failed', { messageId: row.id, error: error instanceof Error ? error.message : String(error) });
-    }
-    if (taskId !== null) {
-      channelMessagesDb.setStatus(row.id, 'task', `Task #${taskId}`);
-      broadcastInboxUpdated({ messageId: row.id, status: 'task' });
-      return channelMessagesDb.get(row.id);
-    }
-
-    const rule = findMatchingRule(channelRulesDb.listOrdered(), message, account);
-    if (!rule) {
-      if (senderFailedAuth(message.raw)) channelMessagesDb.setStatus(row.id, 'unmatched', 'The sender failed SPF/DKIM: possibly forged, so no sender filter or task trusted it.');
-      broadcastInboxUpdated({ messageId: row.id, status: 'unmatched' });
-      return channelMessagesDb.get(row.id);
-    }
-    // The owner asked to see these first: the agent gets it only after "Send to agent".
-    if (rule.hold_inbound === 1) {
-      channelMessagesDb.attachRule(row.id, rule.id, null);
-      channelMessagesDb.setStatus(row.id, 'held', null);
+    // Before any task or rule: a flagged message reaches no agent until the owner releases it.
+    if (await injectionGuard.inspect(row)) {
       broadcastInboxUpdated({ messageId: row.id, status: 'held' });
       return channelMessagesDb.get(row.id);
     }
-    if (!runtime) {
-      channelMessagesDb.setStatus(row.id, 'queued', null);
-      channelMessagesDb.attachRule(row.id, rule.id, null);
-      broadcastInboxUpdated({ messageId: row.id, status: 'queued' });
-      return channelMessagesDb.get(row.id);
+    return routeStored(channelMessagesDb.get(row.id) ?? row, account, { ownerReviewed: false });
+  },
+
+  /**
+   * The owner checked a message the prompt-injection filter held and lets it through:
+   * it goes where it would have gone (its task, its rule), without the rule's own hold.
+   */
+  async releaseHeld(id: string): Promise<ChannelMessageRow> {
+    const row = channelMessagesDb.get(id);
+    if (!row) {
+      throw new AppError('Message not found.', { code: 'CHANNEL_MESSAGE_NOT_FOUND', statusCode: 404 });
     }
-    await dispatchMessage(row.id, rule.id, runtime);
-    return channelMessagesDb.get(row.id);
+    if (!isQuarantined(row)) {
+      throw new AppError('This message is not held by the prompt-injection filter.', { code: 'CHANNEL_MESSAGE_NOT_QUARANTINED', statusCode: 409 });
+    }
+    const account = channelAccountsDb.get(row.account_id);
+    if (!account) {
+      throw new AppError('The account no longer exists.', { code: 'CHANNEL_ACCOUNT_NOT_FOUND', statusCode: 404 });
+    }
+    injectionGuard.markReleased(row);
+    channelMessagesDb.setStatus(row.id, 'unmatched', null);
+    return (await routeStored(channelMessagesDb.get(row.id) ?? row, account, { ownerReviewed: true })) ?? row;
   },
 
   /** Shared account-scoped authentication for webhook ingress and result polling. */

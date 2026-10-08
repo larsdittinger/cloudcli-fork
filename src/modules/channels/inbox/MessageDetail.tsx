@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
-import { EyeOff, Loader2, MessageSquare, Paperclip, Play, X } from 'lucide-react';
+import { EyeOff, Loader2, MessageSquare, Paperclip, Play, ShieldCheck, X } from 'lucide-react';
 
 import { api, readApiJson } from '@/shared/api';
 import { Button, DialogTitle } from '@/shared/ui';
 import { ChannelIcon, channelName, FIELD_CLASS, MessageStatusBadge, formatWhen } from '@/modules/channels/ChannelBits';
 import PendingReplyCard from '@/modules/channels/chat/PendingReplyCard';
+import InjectionNotice from '@/modules/channels/inbox/InjectionNotice';
+import { isQuarantined } from '@/modules/channels/utils/injection';
 import { useOutboxActions } from '@/modules/channels/hooks/useOutboxActions';
 import type { ChannelMessage, ChannelRule, MessageStatus, OutboxItem } from '@/modules/channels/types';
 
@@ -114,6 +116,7 @@ export default function MessageDetail({ messageId, onClose, onChanged, onOpenCha
   }
 
   const withAgent = WITH_AGENT.includes(message.status);
+  const quarantined = isQuarantined(message);
   const ruleOptions = rules.map((rule) => <option key={rule.id} value={rule.id}>{rule.name} → {rule.projectPath.split('/').pop()}</option>);
   const sendToAgent = (label: string) => (
     <div className="flex flex-wrap items-center gap-2">
@@ -147,6 +150,8 @@ export default function MessageDetail({ messageId, onClose, onChanged, onOpenCha
           {message.isGroup && <div className="text-muted-foreground">Group chat</div>}
         </div>
 
+        {message.injection && <InjectionNotice scan={message.injection} quarantined={quarantined} />}
+
         <pre className="max-h-[40vh] overflow-auto whitespace-pre-wrap rounded-md border border-border/60 bg-muted/40 p-3 font-sans text-sm">{message.text || '(no text)'}</pre>
 
         {message.attachments.length > 0 && (
@@ -176,7 +181,7 @@ export default function MessageDetail({ messageId, onClose, onChanged, onOpenCha
           </section>
         )}
 
-        {message.statusDetail && (
+        {message.statusDetail && !quarantined && (
           <p className={message.status === 'failed' ? 'text-red-600 dark:text-red-300' : 'text-muted-foreground'}>{message.statusDetail}</p>
         )}
         {error && <p className="text-red-600 dark:text-red-300">{error}</p>}
@@ -195,17 +200,24 @@ export default function MessageDetail({ messageId, onClose, onChanged, onOpenCha
                 </button>
               )}
             </div>
+          ) : quarantined ? (
+            <div className="space-y-2">
+              <Button size="sm" disabled={busy} onClick={() => act(() => api.channels.releaseMessage(message.id))}>
+                {busy ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" aria-hidden /> : <ShieldCheck className="mr-1 h-3.5 w-3.5" aria-hidden />} It is safe — release it
+              </Button>
+              <p className="text-xs text-muted-foreground">It goes where it would have gone: its task or the matching rule's agent, with a warning in the prompt. Ignore it if it is an attack.</p>
+            </div>
           ) : (
             <p className="text-muted-foreground">{WAITING_REASON[message.status]}</p>
           )}
 
-          {(!withAgent || rerun) && rules.length > 0 && (
+          {!quarantined && (!withAgent || rerun) && rules.length > 0 && (
             <>
               {sendToAgent(withAgent ? 'Send to agent again' : 'Send to agent')}
               <p className="text-xs text-muted-foreground">The agent gets the message to work on. Nothing goes to the sender until you approve a reply (or the rule replies on its own).</p>
             </>
           )}
-          {!withAgent && rules.length === 0 && <p className="text-xs text-muted-foreground">Create a rule in Settings → Channels to hand messages to an agent.</p>}
+          {!quarantined && !withAgent && rules.length === 0 && <p className="text-xs text-muted-foreground">Create a rule in Settings → Channels to hand messages to an agent.</p>}
 
           {!withAgent && message.status !== 'ignored' && (
             <Button size="sm" variant="ghost" disabled={busy} onClick={() => act(() => api.channels.ignoreMessage(message.id))}>

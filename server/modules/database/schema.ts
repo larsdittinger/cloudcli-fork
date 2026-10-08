@@ -332,9 +332,11 @@ CREATE TABLE IF NOT EXISTS channel_messages (
     received_at DATETIME NOT NULL,
     rule_id TEXT,
     session_id TEXT,
-    -- unmatched | ignored | queued | dispatched | failed | manual
+    -- unmatched | held | ignored | queued | dispatched | failed | manual | task
     status TEXT NOT NULL DEFAULT 'unmatched',
     status_detail TEXT,
+    -- prompt-injection scan (JSON) when it found anything; a flagged message waits as 'held'
+    injection_json TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(account_id, external_id)
 );

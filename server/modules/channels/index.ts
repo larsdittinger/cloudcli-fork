@@ -43,6 +43,9 @@ export { setChannelTaskHooks } from './task-hooks.js';
 // senderFailedAuth: used by the Tasks module so a forged sender cannot wake a task.
 export { senderFailedAuth } from './sender-auth.js';
 export type { ChannelTaskHooks } from './task-hooks.js';
+// injectionPromptWarning / isQuarantined: used by the Tasks module to warn a task's agent about a suspicious
+// reply and to refuse answering a message the prompt-injection filter still holds.
+export { injectionPromptWarning, isQuarantined } from './injection/injection-guard.service.js';
 
 /** Inbound messages and their attachments are kept this long; the inbox is a working queue, not an archive. */
 const RETENTION_DAYS = 90;

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Loader2, X } from 'lucide-react';
+import { Loader2, ShieldAlert, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 import { api, readApiJson } from '@/shared/api';
@@ -8,6 +8,7 @@ import { cn } from '@/shared/utils';
 import { ChannelIcon, FIELD_CLASS, MessageStatusBadge, formatWhen } from '@/modules/channels/ChannelBits';
 import PendingReplyCard from '@/modules/channels/chat/PendingReplyCard';
 import MessageDetail from '@/modules/channels/inbox/MessageDetail';
+import { isQuarantined } from '@/modules/channels/utils/injection';
 import { useChannelsEvents } from '@/modules/channels/hooks/useChannelsEvents';
 import { useOutboxActions } from '@/modules/channels/hooks/useOutboxActions';
 import type { ChannelAccount, ChannelMessage, ChannelsSummary, MessageStatus, OutboxItem } from '@/modules/channels/types';
@@ -17,6 +18,8 @@ type Props = {
   onOpenChange: (open: boolean) => void;
   /** Badge counts, shown on the tabs. */
   summary?: Pick<ChannelsSummary, 'unmatched' | 'held' | 'failed' | 'drafts' | 'proposals'>;
+  /** A message to open right away (`?inbox=<id>` from a notification). */
+  initialMessageId?: string | null;
 };
 
 type Tab = 'messages' | 'outbox';
@@ -37,8 +40,9 @@ function Count({ value }: { value: number }) {
   return <span className="ml-1 rounded-full bg-amber-500 px-1.5 text-[10px] font-semibold leading-4 text-white">{value > 99 ? '99+' : value}</span>;
 }
 
-function MessagesTab({ accounts, onOpenChat, onDetailOpen }: {
+function MessagesTab({ accounts, onOpenChat, onDetailOpen, initialMessageId }: {
   accounts: ChannelAccount[];
+  initialMessageId?: string | null;
   onOpenChat: (sessionId: string) => void;
   /** Tells the inbox a message is open above it, so Escape closes only that. */
   onDetailOpen: (open: boolean) => void;
@@ -48,7 +52,7 @@ function MessagesTab({ accounts, onOpenChat, onDetailOpen }: {
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState<MessageStatus | ''>('');
   const [accountId, setAccountId] = useState('');
-  const [selectedId, setSelectedIdState] = useState<string | null>(null);
+  const [selectedId, setSelectedIdState] = useState<string | null>(initialMessageId ?? null);
   const setSelectedId = (id: string | null) => {
     setSelectedIdState(id);
     onDetailOpen(id !== null);
@@ -72,6 +76,10 @@ function MessagesTab({ accounts, onOpenChat, onDetailOpen }: {
 
   useEffect(() => { void load(); }, [load]);
   useChannelsEvents(() => { void load(); });
+  // A linked message opens above the list; the inbox must know, so Escape closes only the message.
+  useEffect(() => {
+    if (initialMessageId) onDetailOpen(true);
+  }, [initialMessageId, onDetailOpen]);
 
   // Which messages have a reply waiting for approval.
   const waitingReply = useMemo(() => new Set(drafts.map((item) => item.in_reply_to_message_id).filter(Boolean)), [drafts]);
@@ -109,6 +117,11 @@ function MessagesTab({ accounts, onOpenChat, onDetailOpen }: {
                     <span className="truncate text-sm font-medium">{message.from.name || message.from.address}</span>
                     <span className="text-xs text-muted-foreground">{formatWhen(message.receivedAt)}</span>
                     <MessageStatusBadge status={message.status} />
+                    {isQuarantined(message) && (
+                      <span className="inline-flex items-center gap-1 rounded-full border border-red-500/40 bg-red-500/10 px-1.5 text-[11px] font-medium text-red-700 dark:text-red-300">
+                        <ShieldAlert className="h-3 w-3" aria-hidden /> Possible prompt injection
+                      </span>
+                    )}
                     {waitingReply.has(message.id) && (
                       <span className="rounded-full border border-amber-500/40 bg-amber-500/10 px-1.5 text-[11px] font-medium text-amber-700 dark:text-amber-300">Reply waits for you</span>
                     )}
@@ -181,7 +194,7 @@ function OutboxTab({ onOpenChat }: { onOpenChat: (sessionId: string) => void }) 
 }
 
 /** The admin's inbox: every message the channels received, and everything agents want to send. */
-export default function InboxOverlay({ open, onOpenChange, summary }: Props) {
+export default function InboxOverlay({ open, onOpenChange, summary, initialMessageId }: Props) {
   const navigate = useNavigate();
   const [tab, setTab] = useState<Tab>('messages');
   const [accounts, setAccounts] = useState<ChannelAccount[]>([]);
@@ -229,7 +242,7 @@ export default function InboxOverlay({ open, onOpenChange, summary }: Props) {
             {proposals === 1 ? 'An agent proposed' : `Agents proposed ${proposals} items of`} channel setup — review and approve in Settings → Channels.
           </p>
         )}
-        {tab === 'messages' ? <MessagesTab accounts={accounts} onOpenChat={openChat} onDetailOpen={setDetailOpen} /> : <OutboxTab onOpenChat={openChat} />}
+        {tab === 'messages' ? <MessagesTab accounts={accounts} onOpenChat={openChat} onDetailOpen={setDetailOpen} initialMessageId={initialMessageId} /> : <OutboxTab onOpenChat={openChat} />}
       </DialogContent>
     </Dialog>
   );

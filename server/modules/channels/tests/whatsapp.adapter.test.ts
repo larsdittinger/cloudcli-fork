@@ -123,7 +123,7 @@ test('adapter: QR pairing, open, inbound with media, send with quote, logged-out
         id: 'm', account_id: 'acc-wa', channel: 'whatsapp', external_id: 'T1', thread_key: '420777123456@s.whatsapp.net',
         from_address: '+420777123456', from_name: 'Jan', to_json: '[]', subject: null, text: 'text', html: null, is_group: 0,
         attachments_json: '[]', raw_json: JSON.stringify({ waKey: { id: 'T1', remoteJid: '420777123456@s.whatsapp.net', fromMe: false, participant: null } }),
-        received_at: '', rule_id: null, session_id: null, status: 'dispatched', status_detail: null, created_at: '',
+        received_at: '', rule_id: null, session_id: null, status: 'dispatched', status_detail: null, created_at: '', injection_json: null,
       },
     });
     assert.equal(result.externalId, 'OUT1');

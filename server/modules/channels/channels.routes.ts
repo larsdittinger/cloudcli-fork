@@ -6,6 +6,7 @@ import type { Request, Response } from 'express';
 
 import { channelsService, CHANNELS_ROOT, MCP_SERVER_NAME } from '@/modules/channels/channels.service.js';
 import { dispatchMessage, rowToInboundMessage } from '@/modules/channels/dispatcher.service.js';
+import { injectionGuard, readInjectionScan } from '@/modules/channels/injection/injection-guard.service.js';
 import { outboxService } from '@/modules/channels/outbox.service.js';
 import { proposalsService } from '@/modules/channels/proposals.service.js';
 import { publicRule, ruleMatches, validateRuleInput } from '@/modules/channels/rules.service.js';
@@ -54,6 +55,7 @@ function publicMessage(row: ChannelMessageRow, ruleNames: Map<string, string>, a
     sessionId: row.session_id,
     status: row.status,
     statusDetail: row.status_detail,
+    injection: readInjectionScan(row),
   };
 }
 
@@ -107,6 +109,8 @@ router.get('/settings', asyncHandler(async (_req: Request, res: Response) => {
   res.json(createApiSuccessResponse({
     enabled: channelsService.isEnabled(),
     agentsAutoApprove: channelsService.agentsAutoApprove(),
+    injectionFilter: injectionGuard.isEnabled(),
+    injectionSensitivity: injectionGuard.sensitivity(),
     mcpServerName: MCP_SERVER_NAME,
     mcpError: channelsService.getMcpError(),
     accounts: channelsService.listAccounts().length,
@@ -115,16 +119,28 @@ router.get('/settings', asyncHandler(async (_req: Request, res: Response) => {
 }));
 
 router.put('/settings', asyncHandler(async (req: Request, res: Response) => {
-  const { enabled, agentsAutoApprove } = (req.body ?? {}) as { enabled?: unknown; agentsAutoApprove?: unknown };
-  if (enabled === undefined && agentsAutoApprove === undefined) {
-    throw new AppError('Send "enabled" and/or "agentsAutoApprove".', { code: 'INVALID_REQUEST', statusCode: 400 });
+  const { enabled, agentsAutoApprove, injectionFilter, injectionSensitivity } = (req.body ?? {}) as Record<string, unknown>;
+  if (enabled === undefined && agentsAutoApprove === undefined && injectionFilter === undefined && injectionSensitivity === undefined) {
+    throw new AppError('Send "enabled", "agentsAutoApprove", "injectionFilter" and/or "injectionSensitivity".', { code: 'INVALID_REQUEST', statusCode: 400 });
   }
-  if ((enabled !== undefined && typeof enabled !== 'boolean') || (agentsAutoApprove !== undefined && typeof agentsAutoApprove !== 'boolean')) {
-    throw new AppError('"enabled" and "agentsAutoApprove" must be booleans.', { code: 'INVALID_REQUEST', statusCode: 400 });
+  for (const [name, value] of Object.entries({ enabled, agentsAutoApprove, injectionFilter })) {
+    if (value !== undefined && typeof value !== 'boolean') {
+      throw new AppError(`"${name}" must be a boolean.`, { code: 'INVALID_REQUEST', statusCode: 400 });
+    }
+  }
+  if (injectionSensitivity !== undefined && injectionSensitivity !== 'normal' && injectionSensitivity !== 'strict') {
+    throw new AppError('"injectionSensitivity" must be "normal" or "strict".', { code: 'INVALID_REQUEST', statusCode: 400 });
   }
   if (typeof agentsAutoApprove === 'boolean') channelsService.setAgentsAutoApprove(agentsAutoApprove);
+  if (typeof injectionFilter === 'boolean') injectionGuard.setEnabled(injectionFilter);
+  if (injectionSensitivity !== undefined) injectionGuard.setSensitivity(injectionSensitivity);
   const state = typeof enabled === 'boolean' ? await channelsService.setEnabled(enabled) : { enabled: channelsService.isEnabled(), mcpError: channelsService.getMcpError() };
-  res.json(createApiSuccessResponse({ ...state, agentsAutoApprove: channelsService.agentsAutoApprove() }));
+  res.json(createApiSuccessResponse({
+    ...state,
+    agentsAutoApprove: channelsService.agentsAutoApprove(),
+    injectionFilter: injectionGuard.isEnabled(),
+    injectionSensitivity: injectionGuard.sensitivity(),
+  }));
 }));
 
 router.get('/summary', asyncHandler(async (_req: Request, res: Response) => {
@@ -305,6 +321,12 @@ router.post('/messages/:id/dispatch', asyncHandler(async (req: Request, res: Res
     throw new AppError(result.error, { code: 'DISPATCH_FAILED', statusCode: 409 });
   }
   res.json(createApiSuccessResponse(result));
+}));
+
+router.post('/messages/:id/release', asyncHandler(async (req: Request, res: Response) => {
+  const row = await channelsService.releaseHeld(readParam(req.params.id, 'id'));
+  const { ruleNames, accountLabels } = lookups();
+  res.json(createApiSuccessResponse(publicMessage(row, ruleNames, accountLabels)));
 }));
 
 router.post('/messages/:id/ignore', asyncHandler(async (req: Request, res: Response) => {

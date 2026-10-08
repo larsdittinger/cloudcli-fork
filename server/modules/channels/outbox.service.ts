@@ -1,6 +1,7 @@
 import { broadcastOutboxUpdated } from '@/modules/channels/channels-broadcast.js';
 import { channelsService } from '@/modules/channels/channels.service.js';
 import { rowToInboundMessage } from '@/modules/channels/dispatcher.service.js';
+import { isQuarantined } from '@/modules/channels/injection/injection-guard.service.js';
 import { accountAllowsOpenAutoReply, isOpenRule, parseConditions, senderTrustedForAutoReply } from '@/modules/channels/rules.service.js';
 import { senderFailedAuth } from '@/modules/channels/sender-auth.js';
 import { getChannelTaskHooks } from '@/modules/channels/task-hooks.js';
@@ -144,6 +145,10 @@ export const outboxService = {
     const message = channelMessagesDb.get(input.messageId);
     if (!message) {
       throw new AppError('The message to reply to was not found.', { code: 'CHANNEL_MESSAGE_NOT_FOUND', statusCode: 404 });
+    }
+    // An agent answers only what it was allowed to read; the owner may still reply by hand.
+    if (input.createdBy === 'agent' && isQuarantined(message)) {
+      throw new AppError('That message is held by the prompt-injection filter until the owner reviews it.', { code: 'CHANNEL_MESSAGE_QUARANTINED', statusCode: 409 });
     }
     const action = input.action ?? 'reply';
     if (action !== 'reply' && action !== 'escalate') {

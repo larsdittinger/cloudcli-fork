@@ -69,7 +69,8 @@ export function buildTemplateVars(input: {
     channel: channelLabel(message.channel),
     account: input.accountLabel,
     from: message.from.address,
-    fromName: message.from.name ?? '',
+    // Sender-chosen text in the prompt header: keep it to the length of a name.
+    fromName: (message.from.name ?? '').replace(/\s+/g, ' ').slice(0, 80),
     to: message.to.join(', '),
     subject: message.subject ?? '',
     text: text

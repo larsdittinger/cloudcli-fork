@@ -97,6 +97,35 @@ export type ChannelMessage = {
   sessionId: string | null;
   status: MessageStatus;
   statusDetail: string | null;
+  /** The prompt-injection filter's findings; null when it found nothing. */
+  injection: InjectionScan | null;
+};
+
+/** One phrase or trick the prompt-injection filter found, with the original text as evidence. */
+export type InjectionFinding = {
+  id: string;
+  category: string;
+  label: string;
+  weight: number;
+  /** subject, text, html, html-hidden (how), attachment:<name>, decoded:<kind> … */
+  where: string;
+  excerpt: string;
+};
+
+export type InjectionScan = {
+  score: number;
+  threshold: number;
+  /** True when the score reached the threshold and the message was held. */
+  flagged: boolean;
+  findings: InjectionFinding[];
+  /** Parts the filter could not check (an oversize part, a PDF attachment). */
+  notChecked?: string[];
+  /** Set when the filter itself failed; the message then went on unchecked. */
+  error?: string;
+  scannedAt: string;
+  version: number;
+  /** When the owner let a flagged message through. */
+  releasedAt?: string;
 };
 
 export type OutboxItem = {

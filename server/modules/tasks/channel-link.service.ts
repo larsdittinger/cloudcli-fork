@@ -1,4 +1,4 @@
-import { outboxService, senderFailedAuth, setChannelTaskHooks } from '@/modules/channels/index.js';
+import { injectionPromptWarning, isQuarantined, outboxService, senderFailedAuth, setChannelTaskHooks } from '@/modules/channels/index.js';
 import type { ChannelMessageRow, ChannelOutboxRow } from '@/modules/channels/index.js';
 import { channelAccountsDb, channelMessagesDb, channelOutboxDb, taskEventsDb, tasksDb, taskThreadsDb } from '@/modules/database/index.js';
 import type { TaskRow } from '@/modules/database/index.js';
@@ -89,6 +89,7 @@ function routeInbound(message: ChannelMessageRow): number | null {
   })();
   const header = [
     automatic ? 'Automatic reply (out of office or similar) — did not wake the agent.' : null,
+    injectionPromptWarning(message),
     `Od: ${from}`, message.subject ? `Předmět: ${message.subject}` : null, attachments ? `Přílohy: ${attachments} (channels_get_message)` : null,
   ]
     .filter(Boolean)
@@ -165,6 +166,8 @@ export async function sendTaskMessage(input: {
 
   const original = input.replyToMessageId ? channelMessagesDb.get(input.replyToMessageId) : null;
   if (input.replyToMessageId && !original) throw new AppError('The message to reply to was not found.', { code: 'CHANNEL_MESSAGE_NOT_FOUND', statusCode: 404 });
+  // Not even its subject: the owner has not looked at it yet.
+  if (original && isQuarantined(original)) throw new AppError('That message is held by the prompt-injection filter until the owner reviews it.', { code: 'CHANNEL_MESSAGE_QUARANTINED', statusCode: 409 });
   const accountId = original?.account_id ?? input.accountId;
   if (!accountId) throw new AppError('account_id is required (see channels_list_accounts) unless you reply to a message.', { code: 'INVALID_TASK', statusCode: 400 });
   const account = channelAccountsDb.get(accountId);

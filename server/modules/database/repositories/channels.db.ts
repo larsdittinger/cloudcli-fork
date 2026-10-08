@@ -20,7 +20,7 @@ const ACCOUNT_COLUMNS =
 const RULE_COLUMNS =
   'id, name, enabled, position, account_id, channel, conditions, project_path, provider, model, effort, permission_mode, prompt_template, conversation, reply_mode, reply_scope, auto_reply_senders, hold_inbound, owner_user_id, proposal, created_at, updated_at';
 const MESSAGE_COLUMNS =
-  'id, account_id, channel, external_id, thread_key, from_address, from_name, to_json, subject, text, html, is_group, attachments_json, raw_json, received_at, rule_id, session_id, status, status_detail, created_at';
+  'id, account_id, channel, external_id, thread_key, from_address, from_name, to_json, subject, text, html, is_group, attachments_json, raw_json, received_at, rule_id, session_id, status, status_detail, created_at, injection_json';
 const OUTBOX_COLUMNS =
   'id, account_id, session_id, in_reply_to_message_id, to_address, subject, text, action, status, status_detail, external_id, created_by, created_at, sent_at, task_id';
 
@@ -264,6 +264,11 @@ export const channelMessagesDb = {
 
   setStatus(id: string, status: MessageStatus, detail: string | null = null): void {
     getConnection().prepare('UPDATE channel_messages SET status = ?, status_detail = ? WHERE id = ?').run(status, detail, id);
+  },
+
+  /** Stores the prompt-injection scan (JSON) shown in the Inbox; null clears it. */
+  setInjection(id: string, scanJson: string | null): void {
+    getConnection().prepare('UPDATE channel_messages SET injection_json = ? WHERE id = ?').run(scanJson, id);
   },
 
   attachRule(id: string, ruleId: string | null, sessionId: string | null): void {

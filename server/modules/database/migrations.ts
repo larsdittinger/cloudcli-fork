@@ -563,6 +563,7 @@ export const runMigrations = (db: Database) => {
     addColumnToTableIfNotExists(db, 'channel_rules', getTableInfo(db, 'channel_rules').map((column) => column.name), 'proposal', 'TEXT');
     addColumnToTableIfNotExists(db, 'channel_rules', getTableInfo(db, 'channel_rules').map((column) => column.name), 'auto_reply_senders', "TEXT NOT NULL DEFAULT '[]'");
     addColumnToTableIfNotExists(db, 'channel_rules', getTableInfo(db, 'channel_rules').map((column) => column.name), 'hold_inbound', 'INTEGER NOT NULL DEFAULT 0');
+    addColumnToTableIfNotExists(db, 'channel_messages', getTableInfo(db, 'channel_messages').map((column) => column.name), 'injection_json', 'TEXT');
     db.exec(TASKS_TABLES_SCHEMA_SQL);
     addColumnToTableIfNotExists(db, 'channel_outbox', getTableInfo(db, 'channel_outbox').map((column) => column.name), 'task_id', 'INTEGER');
     db.exec('CREATE INDEX IF NOT EXISTS idx_channel_outbox_task ON channel_outbox(task_id)');

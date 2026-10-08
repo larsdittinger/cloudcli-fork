@@ -586,6 +586,7 @@ export const api = {
     messageBySession: (sessionId: string) => get(`/api/channels/messages/by-session/${sessionId}`),
     dispatchMessage: (id: string, body: unknown) => post(`/api/channels/messages/${id}/dispatch`, body),
     ignoreMessage: (id: string) => post(`/api/channels/messages/${id}/ignore`),
+    releaseMessage: (id: string) => post(`/api/channels/messages/${id}/release`),
     attachmentUrl: (messageId: string, index: number) => `/api/channels/attachments/${messageId}/${index}`,
     outbox: (query = '') => get(`/api/channels/outbox${query}`),
     approveOutbox: (id: string, body: unknown = {}) => post(`/api/channels/outbox/${id}/approve`, body),

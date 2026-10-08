@@ -17,7 +17,18 @@ import type { AccountFormValues } from '@/modules/settings/tabs/channels-setting
 import RuleEditor from '@/modules/settings/tabs/channels-settings/RuleEditor';
 import RuleList from '@/modules/settings/tabs/channels-settings/RuleList';
 
-type ChannelsSettings = { enabled: boolean; agentsAutoApprove: boolean; mcpServerName: string; mcpError: string | null; accounts: number; rules: number };
+type InjectionSensitivity = 'normal' | 'strict';
+
+type ChannelsSettings = {
+  enabled: boolean;
+  agentsAutoApprove: boolean;
+  injectionFilter: boolean;
+  injectionSensitivity: InjectionSensitivity;
+  mcpServerName: string;
+  mcpError: string | null;
+  accounts: number;
+  rules: number;
+};
 
 /** Rendered by Settings for the "channels" tab: accounts, rules and the master switch. */
 export default function ChannelsSettingsTab() {
@@ -72,10 +83,10 @@ export default function ChannelsSettingsTab() {
     }
   };
 
-  const saveAutoApprove = async (agentsAutoApprove: boolean) => {
+  const saveSettings = async (patch: Partial<Pick<ChannelsSettings, 'agentsAutoApprove' | 'injectionFilter' | 'injectionSensitivity'>>) => {
     setSaving(true);
     try {
-      await readApiJson(await api.channels.saveSettings({ agentsAutoApprove }));
+      await readApiJson(await api.channels.saveSettings(patch));
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -128,6 +139,40 @@ export default function ChannelsSettingsTab() {
         {error && <p className="mt-2 text-sm text-red-600 dark:text-red-300">{error}</p>}
       </SettingsSection>
 
+      <SettingsSection
+        title="Prompt-injection filter"
+        description="Every inbound message is checked before any agent sees it — e-mail (including text hidden in HTML), WhatsApp, webhooks and replies to agent tasks. A message that looks like an attempt to give the agent orders waits in the Inbox until you release it; agents cannot read it until then."
+      >
+        <SettingsCard>
+          <SettingsRow
+            label="Hold suspected prompt injection"
+            description="On: a message under the threshold still reaches the agent, with a warning in its prompt when it looked suspicious. Off: nothing is checked or held; messages already held stay held until you release or ignore them."
+          >
+            <SettingsToggle
+              checked={settings?.injectionFilter !== false}
+              onChange={(value) => void saveSettings({ injectionFilter: value })}
+              ariaLabel="Hold suspected prompt injection"
+              disabled={saving}
+            />
+          </SettingsRow>
+          <SettingsRow
+            label="Sensitivity"
+            description="Strict holds two medium signals together (more attacks caught; a mail about AI or prompts may wait for you). Normal holds only strong ones."
+          >
+            <select
+              aria-label="Prompt-injection filter sensitivity"
+              className="rounded-md border border-border bg-background px-2 py-1 text-sm"
+              value={settings?.injectionSensitivity ?? 'strict'}
+              disabled={saving || settings?.injectionFilter === false}
+              onChange={(event) => void saveSettings({ injectionSensitivity: event.target.value as InjectionSensitivity })}
+            >
+              <option value="strict">Strict (recommended)</option>
+              <option value="normal">Normal</option>
+            </select>
+          </SettingsRow>
+        </SettingsCard>
+      </SettingsSection>
+
       <SettingsSection title={t('channels.agentsTitle')} description={t('channels.agentsDescription')}>
         <SettingsCard className="mb-3">
           <SettingsRow
@@ -136,7 +181,7 @@ export default function ChannelsSettingsTab() {
           >
             <SettingsToggle
               checked={Boolean(settings?.agentsAutoApprove)}
-              onChange={(value) => void saveAutoApprove(value)}
+              onChange={(value) => void saveSettings({ agentsAutoApprove: value })}
               ariaLabel="Agents set up channels without approval"
               disabled={saving}
             />

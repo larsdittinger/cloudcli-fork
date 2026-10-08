@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
 import { broadcastInboxUpdated } from '@/modules/channels/channels-broadcast.js';
+import { injectionGuard, isQuarantined } from '@/modules/channels/injection/injection-guard.service.js';
 import { buildTemplateVars, channelLabel, DEFAULT_PROMPT_TEMPLATE, renderPromptTemplate } from '@/modules/channels/prompt-template.js';
 import { parseJson } from '@/modules/channels/types.js';
 import type { ChannelMessageRow, ChannelRuleRow, InboundAttachment, InboundMessage } from '@/modules/channels/types.js';
@@ -119,6 +120,13 @@ export async function dispatchMessage(
   if (!account) {
     return fail(messageId, 'The account no longer exists.');
   }
+  // Held by the prompt-injection filter: only the owner's hand ("Send to agent") lets it through.
+  if (isQuarantined(message)) {
+    if (!options.manual) {
+      return { started: false, sessionId: null, error: 'Held by the prompt-injection filter until the owner releases it.' };
+    }
+    injectionGuard.markReleased(message);
+  }
 
   let sessionId: string;
   try {
@@ -134,10 +142,12 @@ export async function dispatchMessage(
     return { started: false, sessionId, error: null };
   }
 
-  const prompt = renderPromptTemplate(
+  const rendered = renderPromptTemplate(
     rule.prompt_template.trim() || DEFAULT_PROMPT_TEMPLATE,
     buildTemplateVars({ message: rowToInboundMessage(message), accountLabel: account.label, replyMode: rule.reply_mode, allowEscalation: parseJson<Record<string, unknown>>(account.config, {}).allowEscalation === true }),
   );
+  const warning = injectionGuard.promptWarning(channelMessagesDb.get(messageId) ?? message);
+  const prompt = warning ? `${warning}\n\n${rendered}` : rendered;
 
   // Marked before the turn: a run takes minutes, and until it ended the inbox showed the message
   // as unhandled and offered to send it to the agent a second time.
