@@ -138,6 +138,11 @@ test('falls back to the catalog default effort when none is chosen', () => {
   assert.equal(resolveClaudeEffort('claude-opus-5-5', 'default'), 'medium');
   assert.equal(resolveClaudeEffort('claude-opus-5-5', undefined), 'medium');
   assert.equal(resolveClaudeEffort('claude-opus-5-5', 'high'), 'high');
+  // The recommended default and the Opus aliases (Opus 5.5 today) start at medium too: high is overkill for most turns.
+  assert.equal(resolveClaudeEffort('default', 'default'), 'medium');
+  assert.equal(resolveClaudeEffort('opus', undefined), 'medium');
+  assert.equal(resolveClaudeEffort('opus[1m]', 'default'), 'medium');
+  assert.equal(resolveClaudeEffort('fable', 'default'), 'high');
   // Unknown models and Haiku still send no effort at all.
   assert.equal(resolveClaudeEffort('claude-unknown', 'high'), undefined);
   assert.equal(resolveClaudeEffort('claude-haiku-4-5', 'default'), undefined);

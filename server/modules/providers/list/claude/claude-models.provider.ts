@@ -49,7 +49,7 @@ export const CLAUDE_PREDEFINED_MODELS: ProviderModelsDefinition = {
       label: 'Default (recommended)',
       description: 'Use the recommended model for your Claude account and deployment.',
       effort: {
-        default: 'high',
+        default: 'medium',
         values: [
           { value: 'low' },
           { value: 'medium' },
@@ -151,7 +151,7 @@ export const CLAUDE_PREDEFINED_MODELS: ProviderModelsDefinition = {
       label: 'Opus',
       description: 'Latest Opus model for complex reasoning and coding tasks.',
       effort: {
-        default: 'high',
+        default: 'medium',
         values: [
           { value: 'low' },
           { value: 'medium' },
@@ -167,7 +167,7 @@ export const CLAUDE_PREDEFINED_MODELS: ProviderModelsDefinition = {
       label: 'Opus (1M context)',
       description: 'Latest Opus model with a 1M context window.',
       effort: {
-        default: 'high',
+        default: 'medium',
         values: [
           { value: 'low' },
           { value: 'medium' },

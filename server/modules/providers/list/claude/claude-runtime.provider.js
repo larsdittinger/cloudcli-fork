@@ -80,7 +80,7 @@ const TOOLS_REQUIRING_INTERACTION = new Set(['AskUserQuestion', 'ExitPlanMode'])
 const ULTRACODE_SDK_EFFORT = 'xhigh';
 
 // "Default" in the picker falls back to the catalog's per-model default, so a model can
-// start lower (Opus 5.5 at medium) than the CLI would on its own.
+// start lower (Default and Opus 5.5 at medium) than the CLI would on its own.
 function resolveClaudeEffort(model, effort, modelsDefinition = CLAUDE_PREDEFINED_MODELS) {
   const selectedModel = modelsDefinition?.OPTIONS?.find((option) => option.value === model) || null;
   const allowedEfforts = selectedModel?.effort?.values
