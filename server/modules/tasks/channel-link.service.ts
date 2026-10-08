@@ -1,7 +1,8 @@
-import { outboxService, setChannelTaskHooks } from '@/modules/channels/index.js';
+import { outboxService, senderFailedAuth, setChannelTaskHooks } from '@/modules/channels/index.js';
 import type { ChannelMessageRow, ChannelOutboxRow } from '@/modules/channels/index.js';
 import { channelAccountsDb, channelMessagesDb, channelOutboxDb, taskEventsDb, tasksDb, taskThreadsDb } from '@/modules/database/index.js';
 import type { TaskRow } from '@/modules/database/index.js';
+import { notifyTaskOwner } from '@/modules/tasks/owner-notify.service.js';
 import { broadcastTasksUpdated } from '@/modules/tasks/tasks-broadcast.js';
 import { queueWake } from '@/modules/tasks/wake-queue.js';
 import { AppError } from '@/shared/utils.js';
@@ -66,6 +67,8 @@ function taggedSubject(subject: string, taskId: number): string {
  * message from someone the task wrote to. Everything else stays with the rules.
  */
 function routeInbound(message: ChannelMessageRow): number | null {
+  // The receiving server says the From is forged: neither the thread nor the tag earns trust.
+  if (senderFailedAuth(message.raw_json)) return null;
   const threadTask = tasksDb.get(taskThreadsDb.find(message.account_id, message.thread_key) ?? 0);
   const tagged = TAG_PATTERN.exec(message.subject ?? '');
   const taggedTask = tagged ? tasksDb.get(Number(tagged[1])) : null;
@@ -128,6 +131,19 @@ export function closeChannelLink(): void {
   setChannelTaskHooks(null);
 }
 
+/** The same text to the same person within this window is a repeat, not a new message. */
+const DUPLICATE_WINDOW_MS = 24 * 60 * 60_000;
+
+/** SQLite's CURRENT_TIMESTAMP is UTC without a zone ("2026-10-08 06:02:41"). */
+function sqliteTimeMs(value: string): number {
+  return Date.parse(/[zZ]|[+-]\d\d:?\d\d$/.test(value) ? value : `${value.replace(' ', 'T')}Z`);
+}
+
+/** Whitespace and case do not make a message different. */
+function normalizedText(text: string): string {
+  return text.replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
 /**
  * Used by the MCP bridge (`tasks_send_message`): sends a message for a task
  * through a Channels account. Unconfirmed mandates only ever produce drafts;
@@ -171,6 +187,24 @@ export async function sendTaskMessage(input: {
     subject = taggedSubject(subject, task.id);
   }
 
+  // A repeated run (restart, retry after an error) must not mail a supplier the same inquiry twice.
+  // Within a day only: "Děkuji, potvrzuji." a week later is a new message.
+  const sameText = normalizedText(input.text);
+  const dayAgo = Date.now() - DUPLICATE_WINDOW_MS;
+  const duplicate = channelOutboxDb.listByTask(task.id).find((message) => message.status !== 'discarded' && message.status !== 'failed'
+    && sqliteTimeMs(message.created_at) >= dayAgo
+    && message.to_address.trim().toLowerCase() === to.toLowerCase() && normalizedText(message.text) === sameText);
+  const sendsNow = task.mandate_confirmed === 1 && account.agent_send === 'auto';
+  if (duplicate && duplicate.status === 'draft' && sendsNow) {
+    // A draft from before the mandate was confirmed: this send replaces it instead of being blocked by it.
+    channelOutboxDb.setStatus(duplicate.id, 'discarded', { detail: 'Replaced by the same message sent after the mandate was confirmed.' });
+  } else if (duplicate) {
+    const state = duplicate.status === 'sent' ? `Already sent (${duplicate.sent_at ?? duplicate.created_at})`
+      : duplicate.status === 'draft' ? 'Already waiting for approval as a draft'
+        : 'Already being sent';
+    return { outboxId: duplicate.id, status: duplicate.status, to, subject: duplicate.subject, detail: `${state}; not sent again.` };
+  }
+
   const row = await outboxService.createTaskMessage({
     taskId: task.id,
     accountId,
@@ -196,5 +230,6 @@ export async function sendTaskMessage(input: {
     sessionId: input.sessionId ?? null,
   });
   broadcastTasksUpdated({ taskId: task.id });
+  if (row.status === 'draft') notifyTaskOwner(task, { message: `A message to ${to} waits for your approval.`, needsAction: true, kind: 'draft' });
   return { outboxId: row.id, status: row.status, to, subject, detail: row.status_detail };
 }

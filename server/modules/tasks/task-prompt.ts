@@ -66,7 +66,7 @@ export function renderWakePrompt(task: TaskRow, reasons: string[], newEvents: Ta
     'Pracuješ na dlouhém úkolu, který trvá dny. Karta úkolu je tvoje jediná paměť: co do ní nezapíšeš, příště vědět nebudeš. V tomhle chatu:',
     '1. Projdi kartu níž. Celý deník i přílohy zpráv: `tasks_get` (all_events) a `channels_get_message`.',
     '2. Udělej další smysluplný krok. Práci deleguj subagentům, ven piš přes `tasks_send_message` (ne `channels_send_message`), ať se odpovědi vrátí k úkolu.',
-    '3. Zapiš výsledek: `tasks_update` (summary = celkový stav, checklist, status, next_check_in_minutes) a důležité kroky do `tasks_log`.',
+    '3. Zapiš výsledek: `tasks_update` (summary = celkový stav, nejvýš 4000 znaků; checklist, status, next_check_in_minutes) a důležité kroky do `tasks_log`.',
     '4. Na rozhodnutí, peníze nebo cokoli mimo mandát se zeptej přes `tasks_ask_owner` (s možnostmi) a skonči.',
     '5. Skonči. Další krok udělá příští probuzení — nečekej v chatu na odpovědi.',
     '',

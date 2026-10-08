@@ -53,3 +53,16 @@ test('notification payload uses the app session id for a provider session id', a
     assert.match(payload.data.tag, /app-session-1/);
   });
 });
+
+test('a notification can point to a page instead of a chat', () => {
+  const payload = buildNotificationPayload({
+    provider: 'system',
+    kind: 'action_required',
+    code: 'agent.notification',
+    meta: { message: 'Question: which printer?', sessionName: '📋 #3 Printer', url: '/?task=3', tag: 'task:3' },
+  });
+  assert.equal(payload.data.url, '/?task=3');
+  assert.equal(payload.data.tag, 'task:3');
+  assert.equal(payload.title, '📋 #3 Printer');
+  assert.match(payload.body, /which printer/);
+});

@@ -156,3 +156,49 @@ test('closed tasks cannot send and a missing account or recipient is a clear err
     await assert.rejects(sendTaskMessage({ taskId: task.id, accountId, to: 'a@b.cz', subject: 'x', text: 'y' }), (error: { statusCode?: number }) => error.statusCode === 409);
   });
 });
+
+test('the same message to the same person is not sent twice, even by a repeated run', async () => {
+  await withMailAccount('auto', async (accountId, sent) => {
+    const task = tasksService.create(taskInput, { by: 'owner' });
+    tasksDb.takePendingWake(task.id);
+    const first = await sendTaskMessage({ taskId: task.id, accountId, to: 'sales@print.cz', subject: 'Poptávka', text: 'Dobrý den,\n\nprosím o nabídku.' });
+    const again = await sendTaskMessage({ taskId: task.id, accountId, to: 'Sales@Print.cz', subject: 'Poptávka', text: 'Dobrý den,\n prosím o nabídku.  ' });
+    assert.equal(again.outboxId, first.outboxId);
+    assert.match(again.detail ?? '', /Already sent.*not sent again/i);
+    assert.equal(sent.length, 1);
+    assert.equal(channelOutboxDb.listByTask(task.id).length, 1);
+
+    // A different text, or the same text to someone else, still goes out.
+    await sendTaskMessage({ taskId: task.id, accountId, to: 'info@other.cz', subject: 'Poptávka', text: 'Dobrý den,\n\nprosím o nabídku.' });
+    assert.equal(sent.length, 2);
+  });
+});
+
+test('a reply whose sender failed SPF/DKIM never reaches the task, it waits in the inbox', async () => {
+  await withMailAccount('auto', async (accountId) => {
+    const task = tasksService.create(taskInput, { by: 'owner' });
+    tasksDb.takePendingWake(task.id);
+    await sendTaskMessage({ taskId: task.id, accountId, to: 'sales@print.cz', subject: 'Poptávka etiket', text: 'Dobrý den, ...' });
+
+    const forged = await channelsService.ingest(accountId, inbound(accountId, {
+      threadKey: 'out-1@ethia.cz', subject: `Re: Poptávka etiket [T-${task.id}]`, raw: { senderAuth: 'fail' },
+    }));
+    assert.equal(forged?.status, 'unmatched');
+    assert.match(forged?.status_detail ?? '', /SPF\/DKIM/);
+    assert.deepEqual(JSON.parse(tasksDb.get(task.id)?.pending_wake ?? '[]'), []);
+  });
+});
+
+test('a draft from before the mandate was confirmed does not block the same message afterwards', async () => {
+  await withMailAccount('auto', async (accountId, sent) => {
+    const task = tasksService.create({ title: 'Agent task', brief: 'Quotes.', mandate: 'Email printers.' }, { by: 'agent', cwd: AGENT_DIR });
+    tasksDb.takePendingWake(task.id);
+    const draft = await sendTaskMessage({ taskId: task.id, accountId, to: 'sales@print.cz', subject: 'Poptávka', text: 'Prosím o nabídku.' });
+    assert.equal(draft.status, 'draft');
+    tasksService.confirmMandate(task.id);
+    const sentNow = await sendTaskMessage({ taskId: task.id, accountId, to: 'sales@print.cz', subject: 'Poptávka', text: 'Prosím o nabídku.' });
+    assert.equal(sentNow.status, 'sent');
+    assert.equal(sent.length, 1);
+    assert.equal(channelOutboxDb.get(draft.outboxId)?.status, 'discarded');
+  });
+});

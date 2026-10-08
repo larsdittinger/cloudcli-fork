@@ -32,7 +32,8 @@ export default function ProjectEffects({
         return;
       }
 
-      if (typeof message.provider === 'string' && message.provider.trim()) {
+      // 'system' notifications (agent tasks) are not a chat provider to switch to.
+      if (typeof message.provider === 'string' && message.provider.trim() && message.provider !== 'system') {
         writeSelectedProvider(message.provider as LLMProvider);
       }
 
@@ -45,7 +46,8 @@ export default function ProjectEffects({
         return;
       }
 
-      navigate('/');
+      // Notifications that point elsewhere in the app, e.g. an agent task card (/?task=N).
+      navigate(typeof message.urlPath === 'string' && /^\/(?!\/)/.test(message.urlPath) ? message.urlPath : '/');
     };
 
     navigator.serviceWorker.addEventListener('message', handleServiceWorkerMessage);

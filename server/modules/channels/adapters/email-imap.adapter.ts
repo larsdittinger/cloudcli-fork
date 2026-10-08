@@ -5,6 +5,7 @@ import type { AddressObject, ParsedMail } from 'mailparser';
 
 import type { AdapterDeps, AdapterHooks, ChannelAdapter, SendInput } from '@/modules/channels/adapters/channel-adapter.js';
 import { storeAttachments } from '@/modules/channels/adapters/webhook.adapter.js';
+import { readSenderAuth } from '@/modules/channels/sender-auth.js';
 import { emailThreadKey } from '@/modules/channels/thread-key.js';
 import { parseJson } from '@/modules/channels/types.js';
 import type { ChannelAccountRow, InboundMessage } from '@/modules/channels/types.js';
@@ -114,6 +115,9 @@ export async function parseEmailToInbound(accountId: string, uid: number, source
   );
 
   const text = (parsed.text ?? '').trim() || (typeof parsed.html === 'string' ? stripHtml(parsed.html) : '');
+  // Top first: the receiving server's verdict sits on top; lower lines may be planted by the sender.
+  const authHeaders = (parsed.headerLines ?? []).filter((line) => line.key === 'authentication-results').map((line) => line.line.replace(/^[^:]*:\s*/, ''));
+  const senderAuth = readSenderAuth(authHeaders, from.address);
 
   return {
     id,
@@ -136,6 +140,7 @@ export async function parseEmailToInbound(accountId: string, uid: number, source
       references,
       replyTo: replyTo ?? null,
       ...(isAutomaticReply(parsed.headers) ? { autoReply: true } : {}),
+      ...(senderAuth ? { senderAuth } : {}),
       ...(skipped.length ? { skippedAttachments: skipped } : {}),
     },
   };

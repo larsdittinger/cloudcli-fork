@@ -1,3 +1,5 @@
+import path from 'node:path';
+
 import { getConnection } from '@/modules/database/connection.js';
 
 /** Where a task stands; `done` and `cancelled` are closed and never wake. */
@@ -185,9 +187,11 @@ export const tasksDb = {
 
   /** Open tasks with a run in progress in this project directory (used to scope agent sends). */
   listRunningIn(projectPath: string): TaskRow[] {
-    return getConnection()
-      .prepare(`SELECT ${TASK_COLUMNS} FROM tasks WHERE project_path = ? AND running_session_id IS NOT NULL`)
-      .all(projectPath) as TaskRow[];
+    // Compared resolved: a stored "/workspace/x/" and a cwd "/workspace/x" are the same project.
+    const wanted = path.resolve(projectPath);
+    return (getConnection()
+      .prepare(`SELECT ${TASK_COLUMNS} FROM tasks WHERE running_session_id IS NOT NULL`)
+      .all() as TaskRow[]).filter((row) => path.resolve(row.project_path) === wanted);
   },
 
   countRunning(): number {

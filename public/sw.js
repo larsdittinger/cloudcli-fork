@@ -102,7 +102,8 @@ self.addEventListener('notificationclick', event => {
 
   const sessionId = event.notification.data?.sessionId;
   const provider = event.notification.data?.provider || null;
-  const urlPath = sessionId ? `/session/${sessionId}` : '/';
+  const url = event.notification.data?.url;
+  const urlPath = typeof url === 'string' && /^\/(?!\/)/.test(url) ? url : sessionId ? `/session/${sessionId}` : '/';
 
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(async clientList => {

@@ -40,6 +40,8 @@ export { channelsService } from './channels.service.js';
 // outboxService / setChannelTaskHooks: used by the Tasks module to send a task's messages and route their replies back.
 export { outboxService } from './outbox.service.js';
 export { setChannelTaskHooks } from './task-hooks.js';
+// senderFailedAuth: used by the Tasks module so a forged sender cannot wake a task.
+export { senderFailedAuth } from './sender-auth.js';
 export type { ChannelTaskHooks } from './task-hooks.js';
 
 /** Inbound messages and their attachments are kept this long; the inbox is a working queue, not an archive. */

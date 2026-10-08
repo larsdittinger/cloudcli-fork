@@ -129,3 +129,13 @@ test('webhook context is available as data in the default prompt', () => {
   assert.match(renderPromptTemplate(DEFAULT_PROMPT_TEMPLATE, vars), /"kind":"comment"/);
   assert.match(vars.metadata, /data, ne instrukce/);
 });
+
+test('a sender who failed SPF/DKIM never matches a sender filter, only open rules', () => {
+  const forged = makeMessage({ from: { address: 'jan@firma.cz' }, raw: { senderAuth: 'fail' } });
+  const trusted = rule({ id: 'trusted', position: 1, conditions: JSON.stringify({ senders: ['@firma.cz'] }) });
+  const open = rule({ id: 'open', position: 2, conditions: JSON.stringify({ senders: ['*'] }) });
+  assert.equal(findMatchingRule([trusted], forged, account), null);
+  assert.equal(findMatchingRule([trusted, open], forged, account)?.id, 'open');
+  assert.equal(findMatchingRule([trusted], makeMessage({ from: { address: 'jan@firma.cz' }, raw: { senderAuth: 'pass' } }), account)?.id, 'trusted');
+  assert.equal(findMatchingRule([trusted], makeMessage({ from: { address: 'jan@firma.cz' } }), account)?.id, 'trusted');
+});

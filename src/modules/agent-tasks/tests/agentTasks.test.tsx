@@ -343,3 +343,20 @@ test('escape over the edit form closes the form, not the task under it', async (
   await waitFor(() => assert.equal(screen.queryByText('Edit task #12'), null));
   assert.ok(screen.getByText(/#12 · ceo_tasks · created/));
 });
+
+test('a ?task=N link opens that task above the board and closing drops the link', async () => {
+  listData = [task({ id: 5, title: 'Krabice' })];
+  detailData = { task: task({ id: 5, title: 'Krabice' }), events: [], eventCount: 0, messages: [] };
+  const { TaskLinkOverlay } = await import('@/modules/agent-tasks');
+  const { useLocation } = await import('react-router-dom');
+  function Where() {
+    return <span data-testid="where">{useLocation().search}</span>;
+  }
+  render(<MemoryRouter initialEntries={['/?task=5']}><TaskLinkOverlay /><Where /></MemoryRouter>);
+  assert.ok(await screen.findByText(/#5 · ceo_tasks · created/));
+  await act(async () => { fireEvent.keyDown(document, { key: 'Escape' }); });
+  await waitFor(() => assert.equal(screen.queryByText(/#5 · ceo_tasks · created/), null));
+  // The board stays; closing it too leaves the URL clean.
+  await act(async () => { fireEvent.click(within(screen.getByRole('dialog', { name: 'All agent tasks' })).getByRole('button', { name: 'Close' })); });
+  await waitFor(() => assert.equal(screen.getByTestId('where').textContent, ''));
+});

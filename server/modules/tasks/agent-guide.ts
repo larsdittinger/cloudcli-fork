@@ -58,6 +58,8 @@ Tasks (${tasksUrl}). Karta je zdroj pravdy a tvoje jediná paměť mezi probuzen
 v chatu dovolil (komu smí agent psát, kolik, co nesmí), a \`project_path\` agenta, který dlouhé úkoly vede.
 Úkol se rozběhne hned. Mandát čeká na Larsovo potvrzení v záložce Agent tasks — řekni mu to — **kromě případu**,
 kdy má zapnuté „Trust mandates written by agents" (\`state.trustAgentMandates: true\`): pak platí hned a stačí mu říct číslo úkolu.
+Během běhu jiného úkolu v tomtéž projektu vznikne nový úkol jen jako **návrh** — nespustí se, dokud ho Lars
+nepotvrdí (úkoly samy nezakládají další úkoly). Napiš to do souhrnu.
 
 ## Nástroje
 

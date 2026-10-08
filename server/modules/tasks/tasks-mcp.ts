@@ -82,7 +82,7 @@ const tools: ToolDefinition[] = [
   },
   {
     name: 'tasks_create',
-    description: 'Create a long-running task for something that takes days (waiting for replies, follow-ups). It starts right away in project_path; its mandate waits for the owner to confirm (until then outgoing messages are only drafts).',
+    description: 'Create a long-running task for something that takes days (waiting for replies, follow-ups). It starts right away in project_path; its mandate waits for the owner to confirm (until then outgoing messages are only drafts). Created during another task\'s run in the same project, it is only a proposal the owner starts.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -97,7 +97,7 @@ const tools: ToolDefinition[] = [
   },
   {
     name: 'tasks_update',
-    description: 'Update your task card: summary (the whole current state, rewritten), checklist, status (working | waiting_external | done | cancelled) and when to look again. Brief and mandate belong to the owner.',
+    description: 'Update your task card: summary (the whole current state, rewritten, at most 4000 characters — details go to tasks_log), checklist, status (working | waiting_external | done | cancelled) and when to look again. Brief and mandate belong to the owner.',
     inputSchema: {
       type: 'object',
       properties: {

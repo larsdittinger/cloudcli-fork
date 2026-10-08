@@ -1,3 +1,4 @@
+import { senderFailedAuth } from '@/modules/channels/sender-auth.js';
 import { normalizeAddress } from '@/modules/channels/thread-key.js';
 import { parseJson } from '@/modules/channels/types.js';
 import type {
@@ -63,6 +64,8 @@ export function conditionsMatch(conditions: RuleConditions, message: InboundMess
   if (conditions.senders && conditions.senders.length > 0 && !conditions.senders.some((pattern) => senderMatches(pattern, message))) {
     return false;
   }
+  // A forged From must not pass for a trusted sender; open rules (`*`) still see the message.
+  if (!isOpenRule(conditions) && senderFailedAuth(message.raw)) return false;
   if (!containsAny(message.subject, conditions.subject?.contains)) return false;
   if (!regexMatches(message.subject, conditions.subject?.regex)) return false;
   if (!containsAny(message.text, conditions.text?.contains)) return false;

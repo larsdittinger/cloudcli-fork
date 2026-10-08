@@ -147,3 +147,54 @@ test('send threads the reply and derives the SMTP host from the IMAP host', asyn
     await adapter.stop();
   });
 });
+
+function mail(headers: string[]): Buffer {
+  return Buffer.from([
+    ...headers,
+    'From: "Petr" <petr@firma.cz>',
+    'To: me@example.com',
+    'Subject: Faktura',
+    'Message-ID: <auth-1@firma.cz>',
+    'Content-Type: text/plain; charset=utf-8',
+    '',
+    'Dobry den.',
+    '',
+  ].join('\r\n'));
+}
+
+test('parseEmailToInbound: the receiving server\'s SPF/DKIM verdict marks forged senders', async () => {
+  await withIsolatedDatabase(async (dir) => {
+    const parse = (headers: string[]) => parseEmailToInbound('acc', 9, mail(headers), deps(dir));
+
+    const dkimPass = await parse(['Authentication-Results: mx.ethia.cz; dkim=pass header.d=firma.cz; spf=fail smtp.mailfrom=evil.com']);
+    assert.equal(dkimPass.raw?.senderAuth, 'pass');
+    const spfPass = await parse(['Authentication-Results: mx.ethia.cz;\r\n spf=pass smtp.mailfrom=petr@firma.cz']);
+    assert.equal(spfPass.raw?.senderAuth, 'pass');
+    const forged = await parse(['Authentication-Results: mx.ethia.cz; dkim=none; spf=softfail smtp.mailfrom=firma.cz; dmarc=fail header.from=firma.cz']);
+    assert.equal(forged.raw?.senderAuth, 'fail');
+    // A pass for some other domain does not vouch for firma.cz; firma.cz's own SPF fail does disown it.
+    const otherDomain = await parse(['Authentication-Results: mx.ethia.cz; dkim=pass header.d=evil.com; spf=fail smtp.mailfrom=firma.cz']);
+    assert.equal(otherDomain.raw?.senderAuth, 'fail');
+    // Only the topmost header is the receiving server's; a sender can plant lower ones.
+    const planted = await parse([
+      'Authentication-Results: mx.ethia.cz; spf=fail smtp.mailfrom=firma.cz',
+      'Authentication-Results: fake; dkim=pass header.d=firma.cz',
+    ]);
+    assert.equal(planted.raw?.senderAuth, 'fail');
+    // Comments may hold ";" (OpenDKIM), and one server may write a line per method.
+    const commented = await parse(['Authentication-Results: mx.ethia.cz; dkim=pass (2048-bit key; unprotected) header.d=firma.cz; spf=fail smtp.mailfrom=firma.cz']);
+    assert.equal(commented.raw?.senderAuth, 'pass');
+    const perMethod = await parse([
+      'Authentication-Results: mx.ethia.cz; spf=fail smtp.mailfrom=firma.cz',
+      'Authentication-Results: mx.ethia.cz; dkim=pass header.d=firma.cz',
+    ]);
+    assert.equal(perMethod.raw?.senderAuth, 'pass');
+    // A broken signature is no signature; a bounce domain's SPF says nothing about the From domain.
+    assert.equal((await parse(['Authentication-Results: mx.ethia.cz; dkim=fail header.d=firma.cz; spf=none'])).raw?.senderAuth, undefined);
+    assert.equal((await parse(['Authentication-Results: mx.ethia.cz; spf=fail smtp.mailfrom=bounce@esp.com'])).raw?.senderAuth, undefined);
+    // No verdict, or an undecided one, leaves the message as it always was.
+    assert.equal((await parse([])).raw?.senderAuth, undefined);
+    assert.equal((await parse(['Authentication-Results: mx.ethia.cz; spf=temperror'])).raw?.senderAuth, undefined);
+    assert.equal((await parse(['Authentication-Results: mx.ethia.cz; spf=softfail smtp.mailfrom=firma.cz'])).raw?.senderAuth, undefined);
+  });
+});

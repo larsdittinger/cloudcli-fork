@@ -100,6 +100,15 @@ nasazuje — je v `../CLAUDE.md`.
   drží jeden sdílený store v `useAgentTasksAttention` (jeden fetch `/api/tasks/summary` pro celou
   stránku). Esc dosáhne na všechny otevřené dialogy (`Dialog` poslouchá na `document`) — spodní
   dialog se proto nezavírá, dokud je nad ním jiný.
+  **Zpevnění (2026-10-08):** (1) `owner-notify.service.ts` pošle vlastníkovi (nebo adminům) web push / desktop
+  notifikaci při otázce, nepotvrzeném mandátu, konceptu, návrhu úkolu a konci; klik vede na `/?task=N`
+  (`data.url` v payloadu → `sw.js` → `ProjectEffects` → `TaskLinkOverlay`). (2) Vyčerpaný limit providera
+  (`usage limit…|<epoch>`, text bez nástrojů nebo `error`) není chyba: kontrola v čas resetu (jinak +1 h), počet
+  chyb se nemění. Neúspěšný běh vrací `seen_event_id`, takže další běh vidí novinky znovu. (3) `tasks_create`
+  během běhu úkolu ve stejném projektu (cwd) = jen návrh (`waiting_owner` + systémová otázka Start / Cancel task).
+  (4) E-mail adaptér zapisuje `raw.senderAuth` z nejvyšší `Authentication-Results` (jen tvrdé `fail`, softfail
+  ne); `fail` neprojde filtrem odesílatelů (`*` ano) ani do úkolu (`sender-auth.ts`, `senderFailedAuth` v barrelu).
+  (5) `tasks_send_message` nepošle stejný text stejnému příjemci v rámci úkolu podruhé. (6) Souhrn max 4000 znaků.
 - **Přepínače autonomie agentů** (od 2026-10-06, výchozí vypnuto, `app_config`): Settings → Channels
   „Agents set up channels without approval" (`channels_agents_auto_approve` → návrh účtu/pravidla se hned
   schválí; validace pravidel platí dál), záložka Schedules „Agents' schedules run without approval"

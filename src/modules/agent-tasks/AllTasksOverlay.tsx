@@ -9,14 +9,18 @@ import TaskBoard from '@/modules/agent-tasks/TaskBoard';
 import TaskDetail from '@/modules/agent-tasks/TaskDetail';
 import TaskForm from '@/modules/agent-tasks/TaskForm';
 
-type Props = { onClose: () => void };
+type Props = {
+  onClose: () => void;
+  /** A task whose card opens right away (from a `?task=N` link). */
+  initialTaskId?: number | null;
+};
 
-/** Opened by AllTasksButton: the board of every project's agent tasks; new tasks are made in a project's tab. */
-export default function AllTasksOverlay({ onClose }: Props) {
+/** Opened by AllTasksButton and TaskLinkOverlay: the board of every project's agent tasks; new tasks are made in a project's tab. */
+export default function AllTasksOverlay({ onClose, initialTaskId = null }: Props) {
   // Whether tasks closed more than 30 days ago are listed too.
   const [includeOld, setIncludeOld] = useState(false);
   // The task whose detail is open above the board, by number.
-  const [openId, setOpenId] = useState<number | null>(null);
+  const [openId, setOpenId] = useState<number | null>(initialTaskId);
   // The task being edited from its detail, if any.
   const [editing, setEditing] = useState<AgentTask | null>(null);
   const { tasks, loading, error, reload } = useAgentTasks(null, includeOld);

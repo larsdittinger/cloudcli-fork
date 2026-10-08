@@ -3,6 +3,7 @@ import path from 'node:path';
 
 import { appConfigDb, channelOutboxDb, taskEventsDb, tasksDb } from '@/modules/database/index.js';
 import type { TaskEventAuthor, TaskEventRow, TaskPatch, TaskRow, TaskStatus } from '@/modules/database/index.js';
+import { notifyTaskOwner } from '@/modules/tasks/owner-notify.service.js';
 import { broadcastTasksUpdated } from '@/modules/tasks/tasks-broadcast.js';
 import { abortTaskRun, queueWake } from '@/modules/tasks/wake-queue.js';
 import { AppError } from '@/shared/utils.js';
@@ -20,6 +21,11 @@ const MAX_CHECK_DAYS = 90;
 /** app_config key of the owner's "trust mandates written by agents" switch. */
 const TRUST_AGENT_MANDATES_KEY = 'tasks_trust_agent_mandates';
 const CLOSED_VISIBLE_DAYS = 30;
+/**
+ * The summary rides along in every wake prompt; past this it is a diary, not a
+ * summary, and a task running for weeks would grow its prompt without end.
+ */
+const SUMMARY_LIMIT = 4_000;
 
 /** One checklist item of a task's plan. */
 export type TaskChecklistItem = { text: string; done: boolean };
@@ -335,6 +341,17 @@ export const tasksService = {
       throw badRequest(`${projectPath} is not an existing project folder.`);
     }
     const nextCheck = readNextCheck(undefined, input.nextCheckInMinutes, new Date());
+    // A task's own run may not start further tasks: one task could otherwise spawn
+    // others without end, past the per-task loop guard. It proposes them instead.
+    const proposedBy = origin.by === 'agent' && origin.cwd ? tasksDb.listRunningIn(origin.cwd)[0] ?? null : null;
+    const proposal: TaskQuestion | null = proposedBy
+      ? {
+        text: `An agent created this task while task #${proposedBy.id} (${proposedBy.title}) was running in the same project, so it waits for you. Start it?`,
+        options: ['Start', 'Cancel task'],
+        by: 'system',
+        askedAt: new Date().toISOString(),
+      }
+      : null;
     const row = tasksDb.create({
       title,
       brief,
@@ -342,7 +359,7 @@ export const tasksService = {
       // An agent writes the mandate from what it understood; the owner confirms it before anything leaves on its own
       // — unless the owner chose to trust agents' mandates.
       mandate_confirmed: origin.by === 'owner' || this.trustAgentMandates() ? 1 : 0,
-      status: 'new',
+      status: proposal ? 'waiting_owner' : 'new',
       project_path: projectPath,
       provider: optionalName(input.provider, 'Provider') ?? 'claude',
       model: optionalName(input.model, 'Model'),
@@ -350,14 +367,20 @@ export const tasksService = {
       permission_mode: readPermissionMode(input.permissionMode),
       owner_user_id: origin.userId ?? null,
       created_by: origin.by,
-      next_check_at: nextCheck ?? null,
-      question: null,
+      next_check_at: proposal ? null : nextCheck ?? null,
+      question: proposal ? JSON.stringify(proposal) : null,
     });
     logEvent(row.id, origin.by, 'created', origin.by === 'owner'
       ? 'Task created.'
       : row.mandate_confirmed === 1 ? 'Task created by an agent (agents\' mandates are trusted).' : 'Task created by an agent; the mandate waits for your confirmation.');
+    if (proposal) {
+      logEvent(row.id, 'system', 'question', `${proposal.text}\nOptions: ${proposal.options.join(' / ')}`);
+      notifyTaskOwner(row, { message: `Proposed by task #${proposedBy?.id}: start it?`, needsAction: true, kind: 'proposal' });
+      return changed(row.id);
+    }
     // A delayed start (agent-created with a check time) just waits for that time.
     if (!nextCheck) queueWake(row.id, 'created');
+    if (row.mandate_confirmed !== 1) notifyTaskOwner(row, { message: 'An agent created this task — confirm its mandate.', needsAction: true, kind: 'mandate' });
     return changed(row.id);
   },
 
@@ -470,7 +493,13 @@ export const tasksService = {
     const row = requireTask(id);
     if (isClosed(row.status)) throw conflict(`Task #${id} is closed; only tasks_log still works.`);
     const patch: TaskPatch = {};
-    if (input.summary !== undefined) patch.summary = optionalText(input.summary, 'summary', 20_000);
+    if (input.summary !== undefined) {
+      const summary = optionalText(input.summary, 'summary', 20_000);
+      if (summary.length > SUMMARY_LIMIT) {
+        throw badRequest(`summary has ${summary.length} characters; the limit is ${SUMMARY_LIMIT}. Condense it to where things stand now — decisions, open points, next step — and move details to tasks_log.`);
+      }
+      patch.summary = summary;
+    }
     if (input.checklist !== undefined) patch.checklist = JSON.stringify(readChecklist(input.checklist));
     const nextCheck = readNextCheck(input.nextCheckAt, input.nextCheckInMinutes, new Date());
     if (nextCheck !== undefined) patch.next_check_at = nextCheck;
@@ -496,6 +525,9 @@ export const tasksService = {
     }
     tasksDb.update(id, patch);
     if (status && status !== row.status) logEvent(id, 'agent', 'status', `Moved to ${STATUS_LABELS[status]}.`);
+    if (status && isClosed(status) && status !== row.status) {
+      notifyTaskOwner(row, { message: status === 'done' ? 'The task is done.' : 'The agent cancelled the task.', needsAction: false, kind: status });
+    }
     return changed(id);
   },
 
@@ -515,6 +547,7 @@ export const tasksService = {
     const question: TaskQuestion = { text, options: cleaned, by, askedAt: new Date().toISOString() };
     tasksDb.update(id, { question: JSON.stringify(question), status: 'waiting_owner', next_check_at: null });
     logEvent(id, by, 'question', cleaned.length ? `${text}\nOptions: ${cleaned.join(' / ')}` : text);
+    notifyTaskOwner(row, { message: `Question: ${text.length > 160 ? `${text.slice(0, 157)}…` : text}`, needsAction: true, kind: 'question' });
     return changed(id);
   },
 

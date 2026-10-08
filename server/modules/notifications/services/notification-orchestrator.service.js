@@ -172,7 +172,9 @@ function buildNotificationPayload(event) {
       code: normalizedEvent.code,
       provider: normalizedEvent.provider || null,
       sessionName,
-      tag: `${normalizedEvent.provider || 'assistant'}:${normalizedEvent.sessionId || 'none'}:${normalizedEvent.code}`
+      // Where a click lands when it is not a chat (e.g. an agent task card: /?task=N).
+      url: typeof normalizedEvent.meta?.url === 'string' ? normalizedEvent.meta.url : null,
+      tag: typeof normalizedEvent.meta?.tag === 'string' ? normalizedEvent.meta.tag : `${normalizedEvent.provider || 'assistant'}:${normalizedEvent.sessionId || 'none'}:${normalizedEvent.code}`
     }
   };
 }

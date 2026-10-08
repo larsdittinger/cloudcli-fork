@@ -8,6 +8,7 @@ import type { WebhookAdapter } from '@/modules/channels/adapters/webhook.adapter
 import { broadcastInboxUpdated } from '@/modules/channels/channels-broadcast.js';
 import { dispatchMessage } from '@/modules/channels/dispatcher.service.js';
 import { findMatchingRule } from '@/modules/channels/rules.service.js';
+import { senderFailedAuth } from '@/modules/channels/sender-auth.js';
 import { getChannelTaskHooks } from '@/modules/channels/task-hooks.js';
 import { normalizeAddress } from '@/modules/channels/thread-key.js';
 import { parseJson } from '@/modules/channels/types.js';
@@ -520,8 +521,9 @@ export const channelsService = {
 
     const rule = findMatchingRule(channelRulesDb.listOrdered(), message, account);
     if (!rule) {
+      if (senderFailedAuth(message.raw)) channelMessagesDb.setStatus(row.id, 'unmatched', 'The sender failed SPF/DKIM: possibly forged, so no sender filter or task trusted it.');
       broadcastInboxUpdated({ messageId: row.id, status: 'unmatched' });
-      return row;
+      return channelMessagesDb.get(row.id);
     }
     if (!runtime) {
       channelMessagesDb.setStatus(row.id, 'queued', null);

@@ -137,7 +137,9 @@ router.post('/tools/:toolName', async (req, res) => {
         }, { by: 'agent', cwd });
         result = {
           task,
-          note: task.mandateConfirmed
+          note: task.question?.by === 'system'
+            ? `Task #${task.id} is only a proposal: a task is running in this project, and tasks do not start other tasks on their own. The owner decides in the Agent tasks tab whether it starts; mention it in your summary.`
+            : task.mandateConfirmed
             ? `Task #${task.id} created and starting in ${task.projectPath}; the owner trusts agents' mandates, so it works within the mandate right away. Tell them the task number.`
             : `Task #${task.id} created and starting in ${task.projectPath}. Its mandate waits for the owner: ask them to confirm it in the Agent tasks tab — until then messages are drafts.`,
         };
