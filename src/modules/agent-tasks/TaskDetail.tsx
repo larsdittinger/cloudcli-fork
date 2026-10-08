@@ -18,6 +18,10 @@ type Props = {
   taskId: number | null;
   onClose: () => void;
   onEdit: (task: AgentTask) => void;
+  /** Lifts the dialog above another one it opens from (the all-tasks overlay). */
+  wrapperClassName?: string;
+  /** Called when a chat link leaves for the chat, so a surrounding overlay can close too. */
+  onOpenChat?: () => void;
 };
 
 const FIELD_CLASS =
@@ -145,11 +149,11 @@ function MessageDraft({ message, onDone }: { message: AgentTaskMessage; onDone: 
 }
 
 /**
- * Used by AgentTasksPanel: everything about one task — the question waiting
+ * Used by AgentTasksPanel and AllTasksOverlay: everything about one task — the question waiting
  * for you, the mandate, drafts to approve, the agent's summary, the plan and
  * the diary — and the ways to steer it.
  */
-export default function TaskDetail({ taskId, onClose, onEdit }: Props) {
+export default function TaskDetail({ taskId, onClose, onEdit, wrapperClassName, onOpenChat }: Props) {
   const navigate = useNavigate();
   const { detail, error, reload } = useAgentTaskDetail(taskId);
   // Free-text answer to the open question, or a comment when there is none.
@@ -183,6 +187,7 @@ export default function TaskDetail({ taskId, onClose, onEdit }: Props) {
 
   const openChat = (sessionId: string) => {
     onClose();
+    onOpenChat?.();
     navigate(`/session/${sessionId}`);
   };
 
@@ -190,7 +195,7 @@ export default function TaskDetail({ taskId, onClose, onEdit }: Props) {
 
   return (
     <Dialog open={taskId !== null} onOpenChange={(open) => { if (!open) onClose(); }}>
-      <DialogContent className="max-h-[94vh] w-[min(100vw-1rem,52rem)] max-w-none overflow-y-auto p-0">
+      <DialogContent wrapperClassName={wrapperClassName} className="max-h-[94vh] w-[min(100vw-1rem,52rem)] max-w-none overflow-y-auto p-0">
         {!task ? (
           <div className="relative p-5">
             <CloseButton onClose={onClose} />

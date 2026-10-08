@@ -94,6 +94,12 @@ nasazuje — je v `../CLAUDE.md`.
   v projektu s běžícím úkolem → 409. Běhy jen `bypassPermissions`, bez AskUserQuestion/plan mode,
   watchdog `CLOUDCLI_TASKS_RUN_TIMEOUT_MIN` (výchozí 180). MCP `cloudcli-tasks` (`tasks-mcp.ts`, bridge `/api/tasks-mcp`). Úkol od agenta má
   `mandate_confirmed = 0`, dokud ho admin nepotvrdí.
+  UI (od 2026-10-08): záložka ukazuje jen úkoly svého projektu (badge = jen jeho čekající); všechny
+  projekty = ikona `AllTasksButton` v hlavičce sidebaru (overlay `AllTasksOverlay`, detail/editace nad
+  ním přes `wrapperClassName`), čekající úkoly i jako badge před názvem projektu v sidebaru. Počty
+  drží jeden sdílený store v `useAgentTasksAttention` (jeden fetch `/api/tasks/summary` pro celou
+  stránku). Esc dosáhne na všechny otevřené dialogy (`Dialog` poslouchá na `document`) — spodní
+  dialog se proto nezavírá, dokud je nad ním jiný.
 - **Přepínače autonomie agentů** (od 2026-10-06, výchozí vypnuto, `app_config`): Settings → Channels
   „Agents set up channels without approval" (`channels_agents_auto_approve` → návrh účtu/pravidla se hned
   schválí; validace pravidel platí dál), záložka Schedules „Agents' schedules run without approval"

@@ -8,6 +8,7 @@ import { useIsAdmin } from '@/shared/hooks/useIsAdmin';
 import type { SidebarSearchMode } from '@/shared/types';
 import GitHubStarBadge from '@/modules/sidebar/GitHubStarBadge';
 import { InboxButton } from '@/modules/channels';
+import { AllTasksButton } from '@/modules/agent-tasks';
 
 const MOD_KEY =
   typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl';
@@ -104,6 +105,7 @@ export default function SidebarHeader({
 
           <div className="flex flex-shrink-0 items-center gap-0.5">
             <InboxButton />
+            <AllTasksButton />
             <Button
               variant="ghost"
               size="sm"
@@ -268,6 +270,7 @@ export default function SidebarHeader({
           )}
 
           <div className="flex flex-shrink-0 gap-1.5">
+            <AllTasksButton className="rounded-lg bg-muted/50 text-muted-foreground active:scale-95" />
             <button
               className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted/50 transition-all active:scale-95"
               onClick={onRefresh}

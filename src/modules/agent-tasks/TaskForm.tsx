@@ -15,6 +15,8 @@ type Props = {
   onClose: () => void;
   /** New task: every field. Edit: only the fields that changed (a rename must not re-send the mandate). */
   onSubmit: (values: Partial<AgentTaskInput>) => Promise<void>;
+  /** Lifts the dialog above another one it opens from (the all-tasks overlay). */
+  wrapperClassName?: string;
 };
 
 const FIELD_CLASS =
@@ -34,7 +36,7 @@ function Field({ label, hint, children }: { label: string; hint?: ReactNode; chi
 }
 
 /** Used by AgentTasksPanel to create a task or edit its brief, mandate and agent. */
-export default function TaskForm({ task, projectPath, onClose, onSubmit }: Props) {
+export default function TaskForm({ task, projectPath, onClose, onSubmit, wrapperClassName }: Props) {
   // The form's values; starts from the edited task or sensible defaults.
   const [values, setValues] = useState<AgentTaskInput>({
     title: task?.title ?? '',
@@ -87,7 +89,7 @@ export default function TaskForm({ task, projectPath, onClose, onSubmit }: Props
 
   return (
     <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
-      <DialogContent className="max-h-[92vh] w-[min(100vw-1rem,42rem)] max-w-none overflow-y-auto p-4 md:p-5">
+      <DialogContent wrapperClassName={wrapperClassName} className="max-h-[92vh] w-[min(100vw-1rem,42rem)] max-w-none overflow-y-auto p-4 md:p-5">
         <DialogTitle className="not-sr-only mb-1 text-base font-semibold">{task ? `Edit task #${task.id}` : 'New agent task'}</DialogTitle>
         <p className="mb-4 text-sm text-muted-foreground">
           {task

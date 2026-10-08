@@ -11,6 +11,7 @@ import TaskIndicator from '@/modules/sidebar/TaskIndicator';
 import SidebarProjectSessions from '@/modules/sidebar/SidebarProjectSessions';
 import { useCompactSidebar } from '@/modules/sidebar/hooks/useCompactSidebar';
 import { useIsAdmin } from '@/shared/hooks/useIsAdmin';
+import { ProjectAttentionBadge } from '@/modules/agent-tasks';
 
 type SidebarProjectItemProps = {
   project: Project;
@@ -225,7 +226,10 @@ function SidebarProjectItem({
                   ) : (
                     <>
                       <div className="flex min-w-0 flex-1 items-center justify-between">
-                        <h3 className="truncate text-sm font-normal text-foreground">{project.displayName}</h3>
+                        <div className="flex min-w-0 items-center gap-1.5">
+                          {isAdmin && <ProjectAttentionBadge projectPath={project.fullPath} />}
+                          <h3 className="truncate text-sm font-normal text-foreground">{project.displayName}</h3>
+                        </div>
                         {tasksEnabled && (
                           <TaskIndicator
                             status={taskStatus}
@@ -376,8 +380,11 @@ function SidebarProjectItem({
                 </div>
               ) : (
                 <div>
-                  <div className="truncate text-sm font-normal text-foreground" title={project.displayName}>
-                    {project.displayName}
+                  <div className="flex min-w-0 items-center gap-1.5">
+                    {isAdmin && <ProjectAttentionBadge projectPath={project.fullPath} />}
+                    <div className="truncate text-sm font-normal text-foreground" title={project.displayName}>
+                      {project.displayName}
+                    </div>
                   </div>
                   <div className="text-xs text-muted-foreground">
                     {sessionCountDisplay}

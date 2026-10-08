@@ -54,7 +54,9 @@ vi.mock('@/shared/api', () => ({
 const stableSocket = { subscribe: () => () => {} };
 vi.mock('@/shared/context/WebSocketContext', () => ({ useWebSocket: () => stableSocket }));
 
-const { AgentTasksPanel, AgentTasksTabBadge } = await import('@/modules/agent-tasks');
+vi.mock('@/shared/hooks/useIsAdmin', () => ({ useIsAdmin: () => true }));
+
+const { AgentTasksPanel, AgentTasksTabBadge, AllTasksButton, ProjectAttentionBadge } = await import('@/modules/agent-tasks');
 const { default: TaskDetail } = await import('@/modules/agent-tasks/TaskDetail');
 const { default: TaskForm } = await import('@/modules/agent-tasks/TaskForm');
 
@@ -142,10 +144,55 @@ test('an empty board explains how tasks start', async () => {
   assert.ok(await screen.findByText(/No tasks in this project/));
 });
 
-test('the tab badge counts tasks that need the owner', async () => {
-  summaryData = { total: 3, byProject: { '/workspace/ceo_tasks': 3 } };
-  render(<AgentTasksTabBadge />);
+test('the tab badge counts only the open project\'s tasks that need the owner', async () => {
+  summaryData = { total: 5, byProject: { '/workspace/ceo_tasks': 2, '/workspace/other': 3 } };
+  render(<AgentTasksTabBadge projectPath="/workspace/ceo_tasks" />);
+  assert.ok(await screen.findByLabelText('2 tasks need you'));
+});
+
+test('the tab badge stays empty when only other projects need the owner', async () => {
+  summaryData = { total: 3, byProject: { '/workspace/other': 3 } };
+  render(<><AgentTasksTabBadge projectPath="/workspace/ceo_tasks" /><ProjectAttentionBadge projectPath="/workspace/other" /></>);
+  // The second badge proves the counts arrived before the first is judged empty.
   assert.ok(await screen.findByLabelText('3 tasks need you'));
+  assert.equal(screen.getAllByLabelText(/need/).length, 1);
+});
+
+test('the board shows only this project, with no all-projects switch', async () => {
+  summaryData = { total: 4, byProject: { '/workspace/other': 4 } };
+  render(<MemoryRouter><AgentTasksPanel selectedProject={project} /></MemoryRouter>);
+  await screen.findByText(/No tasks in this project/);
+  assert.equal(screen.queryByRole('button', { name: 'All projects' }), null);
+  assert.equal(screen.queryByText(/other projects? needs? you/), null);
+  assert.deepEqual(calls.find((call) => call.name === 'list')?.args, ['/workspace/ceo_tasks', false]);
+});
+
+test('the header button counts every project and opens the board of all tasks', async () => {
+  summaryData = { total: 4, byProject: { '/workspace/ceo_tasks': 1, '/workspace/other': 3 } };
+  listData = [
+    task({ id: 1, title: 'Printer quotes', projectPath: '/workspace/ceo_tasks' }),
+    task({ id: 2, title: 'Supplier audit', projectPath: '/workspace/other', status: 'waiting_owner' }),
+  ];
+  detailData = { task: task({ id: 2, title: 'Supplier audit', projectPath: '/workspace/other' }), events: [], eventCount: 0, messages: [] };
+  render(<MemoryRouter><AllTasksButton /></MemoryRouter>);
+  const button = await screen.findByRole('button', { name: /All agent tasks/ });
+  await waitFor(() => assert.ok(within(button).getByText('4')));
+  await act(async () => { fireEvent.click(button); });
+  const dialog = await screen.findByRole('dialog', { name: 'All agent tasks' });
+  await within(dialog).findByText('Supplier audit');
+  assert.deepEqual(calls.find((call) => call.name === 'list')?.args, [undefined, false]);
+  // Cards of several projects mix here, so each names its project.
+  assert.ok(within(dialog).getByText('other'));
+  assert.equal(within(dialog).queryByRole('button', { name: /New task/ }), null);
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Supplier audit' }));
+  assert.ok(await screen.findByText(/#2 · other · created/));
+});
+
+test('the sidebar badge sits on projects that need the owner', async () => {
+  summaryData = { total: 1, byProject: { '/workspace/ceo_tasks': 1 } };
+  render(<><ProjectAttentionBadge projectPath="/workspace/ceo_tasks" /><ProjectAttentionBadge projectPath="/workspace/other" /></>);
+  assert.ok(await screen.findByLabelText('1 task needs you'));
+  assert.equal(screen.getAllByLabelText(/need/).length, 1);
 });
 
 test('answering a question sends the chosen option with the note', async () => {
@@ -283,4 +330,16 @@ test('the owner can let agent mandates apply without confirmation', async () => 
   await act(async () => { fireEvent.click(toggle); });
   assert.deepEqual(calls.find((call) => call.name === 'saveSettings')?.args, [{ trustAgentMandates: true }]);
   await waitFor(() => assert.equal(toggle.getAttribute('aria-checked'), 'true'));
+});
+
+test('escape over the edit form closes the form, not the task under it', async () => {
+  listData = [task({ id: 12, title: 'Krabice' })];
+  detailData = { task: task({ id: 12, title: 'Krabice' }), events: [], eventCount: 0, messages: [] };
+  render(<MemoryRouter><AgentTasksPanel selectedProject={project} /></MemoryRouter>);
+  fireEvent.click(await screen.findByRole('button', { name: 'Krabice' }));
+  fireEvent.click(await screen.findByRole('button', { name: /^Edit$/ }));
+  await screen.findByText('Edit task #12');
+  await act(async () => { fireEvent.keyDown(document, { key: 'Escape' }); });
+  await waitFor(() => assert.equal(screen.queryByText('Edit task #12'), null));
+  assert.ok(screen.getByText(/#12 · ceo_tasks · created/));
 });

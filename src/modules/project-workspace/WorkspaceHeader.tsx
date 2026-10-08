@@ -125,6 +125,7 @@ export default function WorkspaceHeader({
                 shouldShowTasksTab={shouldShowTasksTab}
                 shouldShowBrowserTab={shouldShowBrowserTab}
                 restrictedMode={restrictedMode}
+                projectPath={selectedProject.fullPath || selectedProject.path || ''}
               />
             </div>
             {canScrollRight && (

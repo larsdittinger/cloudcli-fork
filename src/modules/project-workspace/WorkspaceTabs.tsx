@@ -15,6 +15,8 @@ type WorkspaceTabsProps = {
   shouldShowTasksTab: boolean;
   shouldShowBrowserTab: boolean;
   restrictedMode?: boolean;
+  /** The open project, whose agent tasks the Agent tasks badge counts. */
+  projectPath: string;
 };
 
 type BuiltInTab = {
@@ -81,6 +83,7 @@ export default function WorkspaceTabs({
   shouldShowTasksTab,
   shouldShowBrowserTab,
   restrictedMode = false,
+  projectPath,
 }: WorkspaceTabsProps) {
   const { t } = useTranslation();
   const { plugins } = usePlugins();
@@ -170,7 +173,7 @@ export default function WorkspaceTabs({
                   {displayLabel}
                 </span>
                 {tab.id === 'schedules' && <SchedulesTabBadge />}
-                {tab.id === 'agent-tasks' && <AgentTasksTabBadge />}
+                {tab.id === 'agent-tasks' && <AgentTasksTabBadge projectPath={projectPath} />}
               </Pill>
             </Tooltip>
           </Fragment>
