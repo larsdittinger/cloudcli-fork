@@ -17,6 +17,10 @@
     "upload": "Upload",
     "browse": "Browse"
   },
+  "workspace": {
+    "downloadProject": "Download project as ZIP",
+    "downloadProjectConfirm": "Download the whole project “{{name}}” as a ZIP? It can be large."
+  },
   "tabs": {
     "chat": "Chat",
     "shell": "Shell",

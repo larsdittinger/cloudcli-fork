@@ -27,6 +27,9 @@ nasazuje — je v `../CLAUDE.md`.
   width/height), `browser_console_messages`, `browser_network_requests`,
   `browser_evaluate`, `browser_get_html`. Emulace sedí i pro server-side detekci
   (`Sec-CH-UA`), kliky jdou jako tap, screenshot chodí z MCP jako obrázek.
+- **Stažení projektu jako ZIP** (jen admin): tlačítko na konci horní lišty s taby (za pluginy),
+  po potvrzení (`window.confirm`) stáhne `GET /api/file-tree/projects/:id/archive` (`requireAdmin`).
+  Od 2026-10-13 už není u názvu projektu v sidebaru. Kód: `project-workspace/utils/projectArchiveDownload.ts`.
 - **`VITE_HIDE_COMMUNITY_LINKS`** build flag — skryje GitHub badge, Report issue, Discord.
 - **Agenti na pozadí jsou vidět** — Claude runtime posílá klientovi `background_tasks`
   (celý seznam z `background_tasks_changed` + `tool_use_id`/činnost z `task_started`/

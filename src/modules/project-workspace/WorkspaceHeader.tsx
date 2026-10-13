@@ -7,6 +7,7 @@ import { cn } from '@/shared/utils';
 import MobileMenuButton from '@/modules/project-workspace/MobileMenuButton';
 import WorkspaceConnectionStatus from '@/modules/project-workspace/WorkspaceConnectionStatus';
 import WorkspaceTabs from '@/modules/project-workspace/WorkspaceTabs';
+import { downloadProjectArchive } from '@/modules/project-workspace/utils/projectArchiveDownload';
 import WorkspaceTitle from '@/modules/project-workspace/WorkspaceTitle';
 
 type WorkspaceHeaderProps = {
@@ -132,6 +133,12 @@ export default function WorkspaceHeader({
                 shouldShowBrowserTab={shouldShowBrowserTab}
                 restrictedMode={restrictedMode}
                 projectPath={selectedProject.fullPath || selectedProject.path || ''}
+                onDownloadProject={restrictedMode ? undefined : () => downloadProjectArchive(
+                  selectedProject.projectId,
+                  t('workspace.downloadProjectConfirm', {
+                    name: selectedProject.displayName || selectedProject.fullPath || selectedProject.projectId,
+                  }),
+                )}
               />
             </div>
             {canScrollRight && (

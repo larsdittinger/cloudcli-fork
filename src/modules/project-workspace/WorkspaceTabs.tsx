@@ -1,4 +1,4 @@
-import { MessageSquare, Terminal, Folder, GitBranch, ClipboardCheck, MonitorPlay, CalendarClock, KanbanSquare, type LucideIcon } from 'lucide-react';
+import { MessageSquare, Terminal, Folder, GitBranch, ClipboardCheck, MonitorPlay, CalendarClock, KanbanSquare, Download, type LucideIcon } from 'lucide-react';
 import { Fragment } from 'react';
 import type { Dispatch, KeyboardEvent, SetStateAction } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -17,6 +17,8 @@ type WorkspaceTabsProps = {
   restrictedMode?: boolean;
   /** The open project, whose agent tasks the Agent tasks badge counts. */
   projectPath: string;
+  /** Admin only: downloads the project as a ZIP (an action, not a tab). */
+  onDownloadProject?: () => void;
 };
 
 type BuiltInTab = {
@@ -84,6 +86,7 @@ export default function WorkspaceTabs({
   shouldShowBrowserTab,
   restrictedMode = false,
   projectPath,
+  onDownloadProject,
 }: WorkspaceTabsProps) {
   const { t } = useTranslation();
   const { plugins } = usePlugins();
@@ -179,6 +182,21 @@ export default function WorkspaceTabs({
           </Fragment>
         );
       })}
+      {onDownloadProject && (
+        <>
+          <span aria-hidden="true" className="mx-1 h-4 w-px shrink-0 bg-border" />
+          <Tooltip content={t('workspace.downloadProject')} position="bottom">
+            <Pill
+              aria-label={t('workspace.downloadProject')}
+              isActive={false}
+              onClick={onDownloadProject}
+              className="h-8 px-2.5 py-[5px]"
+            >
+              <Download className="h-3.5 w-3.5 shrink-0" strokeWidth={1.8} />
+            </Pill>
+          </Tooltip>
+        </>
+      )}
     </PillBar>
   );
 }

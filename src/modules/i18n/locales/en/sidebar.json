@@ -57,7 +57,6 @@
     "clearSearch": "Clear search",
     "openCommandPalette": "Open command palette",
     "attentionRequiredIndicator": "Session needs attention",
-    "downloadProject": "Download project as ZIP",
     "backgroundWorkIndicator": "Background work running"
   },
   "navigation": {
