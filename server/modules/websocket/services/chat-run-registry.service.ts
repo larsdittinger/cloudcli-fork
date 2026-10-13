@@ -64,14 +64,33 @@ const MAX_BUFFERED_EVENTS_PER_RUN = 5000;
  */
 const runs = new Map<string, ChatRun>();
 
-function evictRunLater(appSessionId: string): void {
+/**
+ * Answers whether a completed run must stay registered a while longer. Set by
+ * the composition root to the provider runtimes' background-work check: a
+ * session whose turn ended but whose agents, workflows or commands are still
+ * running keeps sending live events through this run's writer, and a tab that
+ * subscribes meanwhile needs the run to attach to.
+ */
+let retainCompletedRun: (appSessionId: string) => boolean = () => false;
+
+/**
+ * Schedules one run's eviction. The timer is bound to the run it was armed
+ * for: a later run can take the session's slot while this one's retention —
+ * re-armed for as long as the guard holds — is still pending, and firing on
+ * the slot alone would evict that newer run early.
+ */
+function evictRunLater(run: ChatRun): void {
   const timer = setTimeout(() => {
-    const run = runs.get(appSessionId);
-    // A run whose agents still work in the background stays subscribable;
-    // the empty list that ends them schedules the eviction again.
-    if (run && run.status === 'completed' && run.backgroundTasks.length === 0) {
-      runs.delete(appSessionId);
+    if (runs.get(run.appSessionId) !== run || run.status !== 'completed') {
+      return;
     }
+    // A run whose agents still work in the background stays subscribable;
+    // the empty `background_tasks` list that ends them schedules it again.
+    if (run.backgroundTasks.length > 0 || retainCompletedRun(run.appSessionId)) {
+      evictRunLater(run);
+      return;
+    }
+    runs.delete(run.appSessionId);
   }, COMPLETED_RUN_RETENTION_MS);
 
   // Never keep the process alive just to evict a buffered run.
@@ -103,7 +122,7 @@ function decorateAndRecordEvent(run: ChatRun, message: NormalizedMessage): Norma
     const hadTasks = run.backgroundTasks.length > 0;
     run.backgroundTasks = Array.isArray(message.backgroundTasks) ? message.backgroundTasks : [];
     if (hadTasks && run.backgroundTasks.length === 0 && run.status === 'completed') {
-      evictRunLater(run.appSessionId);
+      evictRunLater(run);
     }
     return { ...message, sessionId: run.appSessionId };
   }
@@ -122,7 +141,7 @@ function decorateAndRecordEvent(run: ChatRun, message: NormalizedMessage): Norma
     outbound.actualSessionId = run.appSessionId;
     run.status = 'completed';
     run.completedAt = Date.now();
-    evictRunLater(run.appSessionId);
+    evictRunLater(run);
   }
 
   run.events.push(outbound);
@@ -178,6 +197,11 @@ function recordProviderSessionId(run: ChatRun, providerSessionId: string): void 
  * regardless of which provider runtime produced them.
  */
 export const chatRunRegistry = {
+  /** Installs the check that keeps a completed run registered while its session still has background work. */
+  setRetentionGuard(guard: (appSessionId: string) => boolean): void {
+    retainCompletedRun = guard;
+  },
+
   /**
    * Starts tracking a run and returns it, or `null` when a run is already in
    * progress for the session (callers must reject the duplicate send).

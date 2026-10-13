@@ -48,6 +48,7 @@ const runtime = {
   abort: async () => true,
   resolveToolApproval: () => undefined,
   getPendingApprovalsForSession: () => [],
+  hasBackgroundWork: () => false,
 };
 
 async function withChatSocket(

@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { act, fireEvent, render, renderHook, screen } from '@testing-library/react';
 import { test } from 'vitest';
 
+// The assertions read the English labels.
+import '@/modules/i18n';
 import BackgroundTasksTab from '@/modules/chat/composer/BackgroundTasksTab';
 import { BackgroundTasksContext } from '@/modules/chat/context/BackgroundTasksContext';
 import { useBackgroundTasks } from '@/modules/chat/hooks/useBackgroundTasks';

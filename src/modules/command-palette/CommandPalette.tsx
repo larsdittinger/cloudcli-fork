@@ -37,7 +37,6 @@ import { useCommitsSource } from '@/modules/command-palette/hooks/useCommitsSour
 import { useSessionMessageSearch } from '@/modules/command-palette/hooks/useSessionMessageSearch';
 import { useBranchesSource } from '@/modules/command-palette/hooks/useBranchesSource';
 import { useGitActions } from '@/modules/command-palette/hooks/useGitActions';
-import { useIsAdmin } from '@/shared/hooks/useIsAdmin';
 
 type Page = 'actions' | 'files' | 'sessions' | 'commits' | 'branches';
 
@@ -46,6 +45,8 @@ type CommandPaletteProps = {
   onStartNewChat: (project: Project) => void;
   onOpenSettings: (tab?: string) => void;
   onShowTab?: (tab: AppTab) => void;
+  /** Restricted users get no settings, git or admin-only tabs. */
+  isAdmin?: boolean;
 };
 
 const NAV_TABS: Array<{ id: AppTab; labelKey: string; keywords: string }> = [
@@ -62,6 +63,7 @@ function CommandPalette({
   onStartNewChat,
   onOpenSettings,
   onShowTab,
+  isAdmin = true,
 }: CommandPaletteProps) {
   const { t } = useTranslation();
   const [open, setOpen] = React.useState(false);
@@ -70,7 +72,6 @@ function CommandPalette({
   const { toggleDarkMode } = useTheme();
   const navigate = useNavigate();
   const ops = usePaletteOps();
-  const isAdmin = useIsAdmin();
   const navTabs = isAdmin ? NAV_TABS : NAV_TABS.filter((tab) => tab.id === 'chat' || tab.id === 'files');
 
   const page = pages.at(-1);

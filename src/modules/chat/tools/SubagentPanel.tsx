@@ -1,12 +1,13 @@
 import { memo, useMemo, useState } from 'react';
-import { Bot, Brain, ChevronRight, CircleAlert, CircleCheck, MessageSquareText } from 'lucide-react';
+import { Bot, ChevronRight, CircleAlert, CircleCheck, CircleDashed } from 'lucide-react';
 
-import type { DiffLine, Project, SubagentActivity, SubagentInfo, ToolResult } from '@/shared/types';
+import type { DiffLine, LiveTaskStatus, Project, SubagentActivity, SubagentInfo, ToolResult } from '@/shared/types';
 import { cn } from '@/shared/utils';
-import { ToolRenderer } from '@/modules/chat/tools/ToolRenderer';
+import { SubagentTimeline } from '@/modules/chat/tools/SubagentTimeline';
 import { useIsExportingTranscript } from '@/modules/chat/context/TranscriptRenderContext';
 import { useViewedBackgroundTasks } from '@/modules/chat/context/BackgroundTasksContext';
 import { MarkdownContent } from '@/modules/chat/tools/ContentRenderers/MarkdownContent';
+import { resolveBackgroundTaskStatus } from '@/modules/chat/utils/backgroundTasks';
 
 type SubagentPanelProps = {
   /** Raw tool input of the call that spawned the agent, used for the prompt. */
@@ -15,18 +16,13 @@ type SubagentPanelProps = {
   toolId?: string;
   toolResult?: ToolResult | null;
   subagent?: SubagentInfo;
+  /** The latest live word on a background agent, from the run's task events. */
+  taskStatus?: LiveTaskStatus;
   activity?: SubagentActivity[];
   onFileOpen?: (filePath: string, diffInfo?: unknown) => void;
   createDiff: (oldStr: string, newStr: string) => DiffLine[];
   selectedProject?: Project | null;
 };
-
-/**
- * How many timeline entries are drawn before the "show more" step. A single
- * entry can expand into a diff viewer, so an agent with a long run would
- * otherwise mount hundreds of tool renderers the moment it is opened.
- */
-const INITIALLY_RENDERED_ACTIVITIES = 25;
 
 function parseToolInput(toolInput: unknown): Record<string, unknown> {
   if (typeof toolInput !== 'string') {
@@ -68,28 +64,8 @@ const STATUS_STYLES: Record<SubagentInfo['status'], string> = {
   running: 'text-purple-600 dark:text-purple-300',
   completed: 'text-muted-foreground',
   failed: 'text-red-600 dark:text-red-400',
+  stopped: 'text-muted-foreground/70',
 };
-
-/** One prose or reasoning entry from the agent's own narration. */
-const SubagentNote = memo(({ activity }: { activity: SubagentActivity }) => {
-  const isThinking = activity.kind === 'thinking';
-  const Icon = isThinking ? Brain : MessageSquareText;
-
-  return (
-    <div className="flex gap-2 py-1">
-      <Icon className={cn('mt-0.5 h-3 w-3 flex-shrink-0', isThinking ? 'text-muted-foreground/50' : 'text-muted-foreground/70')} />
-      <div
-        className={cn(
-          'min-w-0 flex-1 whitespace-pre-wrap break-words text-xs leading-relaxed',
-          isThinking ? 'italic text-muted-foreground/70' : 'text-muted-foreground',
-        )}
-      >
-        {activity.content}
-      </div>
-    </div>
-  );
-});
-SubagentNote.displayName = 'SubagentNote';
 
 /**
  * Rendered by chat's MessageComponent for any tool call that spawned a
@@ -105,6 +81,7 @@ export const SubagentPanel = memo(({
   toolId,
   toolResult,
   subagent,
+  taskStatus,
   activity,
   onFileOpen,
   createDiff,
@@ -115,25 +92,28 @@ export const SubagentPanel = memo(({
   const isExporting = useIsExportingTranscript();
   const [isOpen, setIsOpen] = useState(false);
   const showTimeline = isOpen || isExporting;
-  // Raised by the "show more" step so a long run can be inspected in full
-  // without paying for it up front.
-  const [renderLimit, setRenderLimit] = useState(INITIALLY_RENDERED_ACTIVITIES);
-  const effectiveRenderLimit = isExporting ? Number.POSITIVE_INFINITY : renderLimit;
 
   const parsedInput = useMemo(() => parseToolInput(toolInput), [toolInput]);
   const resultText = useMemo(() => readResultText(toolResult?.content), [toolResult?.content]);
 
   const entries = activity ?? [];
-  // A background agent's launch result arrives at once, so the result alone
-  // says "done" while it works on. The server's live task list is the truth:
-  // listed means running, and once the list is known an agent missing from it
-  // has stopped, whatever the transcript-based guess said.
+  // A background agent's tool result is only its launch acknowledgement — the
+  // real answer arrives later as a task notification — so its arrival says
+  // nothing about whether the agent finished. Until the server reports one on
+  // `subagent` or the live stream's task events say otherwise, an async launch
+  // is still outstanding.
+  const isAsyncAgentLaunch = Boolean(
+    (toolResult?.toolUseResult as { isAsync?: boolean } | undefined)?.isAsync,
+  );
+  const guessedStatus = resolveBackgroundTaskStatus(subagent?.status, taskStatus?.status)
+    ?? (toolResult && !isAsyncAgentLaunch ? 'completed' : 'running');
+  // The server's live task list is the truth when it is known: listed means
+  // running, and an agent missing from it has stopped, whatever the guess said.
   const backgroundTasks = useViewedBackgroundTasks();
   // Claude's task id is the agent's id, which covers a task whose start event was missed.
   const runsInBackground = Boolean(backgroundTasks?.some((task) => (
     (toolId && task.toolUseId === toolId) || (subagent?.id && task.taskId === subagent.id)
   )));
-  const guessedStatus = subagent?.status ?? (toolResult ? 'completed' : 'running');
   const status = runsInBackground
     ? 'running'
     : backgroundTasks && toolResult && guessedStatus === 'running'
@@ -146,11 +126,6 @@ export const SubagentPanel = memo(({
   const nickname = subagent?.name && subagent.name !== subagent.type ? subagent.name : '';
   const description = subagent?.description ?? String(parsedInput.description ?? '');
   const prompt = String(parsedInput.prompt ?? '');
-  // The backend truncates very long timelines for transport; say so rather
-  // than implying the agent stopped where the list does.
-  const untransmittedCount = Math.max(0, (subagent?.activityCount ?? entries.length) - entries.length);
-  const visibleEntries = entries.slice(0, effectiveRenderLimit);
-  const hiddenCount = entries.length - visibleEntries.length;
 
   return (
     <div className="my-1 border-l-2 border-l-purple-500 py-0.5 pl-3 dark:border-l-purple-400">
@@ -183,6 +158,13 @@ export const SubagentPanel = memo(({
               <CircleAlert className="h-3 w-3" />
               failed
             </>
+          ) : status === 'stopped' ? (
+            // Neither a spinner nor a check mark: the agent never reported and
+            // the process it ran in is gone, so there is no outcome to draw.
+            <span title="The run ended before this agent reported back" className="flex items-center gap-1">
+              <CircleDashed className="h-3 w-3" />
+              no result
+            </span>
           ) : (
             <>
               <CircleCheck className="h-3 w-3" />
@@ -205,46 +187,13 @@ export const SubagentPanel = memo(({
             </div>
           )}
 
-          {visibleEntries.length > 0 && (
-            <div className="border-l border-border/60 pl-2">
-              {visibleEntries.map((entry, index) => (
-                entry.kind === 'tool' ? (
-                  // Rendered through the same router the main thread uses, so a
-                  // subagent's shell command or diff looks exactly like one the
-                  // top-level agent ran.
-                  <ToolRenderer
-                    key={entry.toolId ?? `activity-${index}`}
-                    toolName={entry.toolName || 'UnknownTool'}
-                    toolInput={entry.toolInput}
-                    toolResult={entry.toolResult}
-                    toolId={entry.toolId}
-                    mode="input"
-                    onFileOpen={onFileOpen}
-                    createDiff={createDiff}
-                    selectedProject={selectedProject}
-                  />
-                ) : (
-                  <SubagentNote key={`activity-${index}`} activity={entry} />
-                )
-              ))}
-            </div>
-          )}
-
-          {hiddenCount > 0 && (
-            <button
-              type="button"
-              onClick={() => setRenderLimit((previous) => previous + INITIALLY_RENDERED_ACTIVITIES * 4)}
-              className="text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
-            >
-              Show {hiddenCount} more {hiddenCount === 1 ? 'step' : 'steps'}
-            </button>
-          )}
-
-          {untransmittedCount > 0 && hiddenCount === 0 && (
-            <div className="text-[11px] text-muted-foreground/60">
-              {untransmittedCount} earlier {untransmittedCount === 1 ? 'step is' : 'steps are'} not included
-            </div>
-          )}
+          <SubagentTimeline
+            activity={entries}
+            activityCount={subagent?.activityCount}
+            onFileOpen={onFileOpen}
+            createDiff={createDiff}
+            selectedProject={selectedProject}
+          />
 
           {resultText && (
             <div className="rounded border border-border/40 bg-muted/30 p-2">

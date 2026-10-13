@@ -19,7 +19,8 @@ test('a backgrounded subagent holds the process open', () => {
 });
 
 test('foreground tools do not hold the process open', () => {
-  assert.equal(startsBackgroundWork(toolUse('Agent', { prompt: 'x' })), false);
+  // Agents background by default; only an explicit `false` keeps one in the foreground.
+  assert.equal(startsBackgroundWork(toolUse('Agent', { prompt: 'x', run_in_background: false })), false);
   assert.equal(startsBackgroundWork(toolUse('Bash', { command: 'ls' })), false);
   assert.equal(startsBackgroundWork(toolUse('Read', { file_path: '/x' })), false);
 });

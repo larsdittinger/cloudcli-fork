@@ -6,8 +6,8 @@ import type {
   FileTreeServices,
   FileTreeUploadedFile,
 } from '@/shared/types.js';
-import { AppError } from '@/shared/utils.js';
-import { assertProjectIdAccess, requireAdmin } from '@/modules/auth/index.js';
+import { AppError, resolveReadOnlyRootPath } from '@/shared/utils.js';
+import { assertProjectIdAccess, requireAdmin, resolveSessionOwnerScope } from '@/modules/auth/index.js';
 
 type FileTreeUploadLimits = {
   maximumFileSizeMegabytes: number;
@@ -48,6 +48,21 @@ function readProjectId(request: Request): string {
   const projectId = readRequiredString(request.params.projectId, 'projectId');
   assertProjectIdAccess((request as Request & { user?: Parameters<typeof assertProjectIdAccess>[0] }).user, projectId);
   return projectId;
+}
+
+/**
+ * The read-only roots outside the project (temp directory, the Claude projects
+ * directory with every chat's transcript) are for admins only: a restricted
+ * user may read just the projects they were given.
+ */
+async function assertReadableByCaller(request: Request, filePath: string): Promise<void> {
+  const user = (request as Request & { user?: Parameters<typeof resolveSessionOwnerScope>[0] }).user;
+  if (resolveSessionOwnerScope(user) === null) {
+    return;
+  }
+  if (await resolveReadOnlyRootPath(filePath)) {
+    throw new AppError('Path is outside the project', { code: 'PATH_OUTSIDE_PROJECT', statusCode: 403 });
+  }
 }
 
 function readEntryType(value: unknown): 'file' | 'directory' {
@@ -136,12 +151,16 @@ export function createFileTreeRouter(
 
   router.get('/projects/:projectId/file', createRouteHandler(async (request, response) => {
     const filePath = readRequiredString(request.query.filePath, 'filePath', 'Invalid file path');
-    response.json(await services.readTextFile(readProjectId(request), filePath));
+    const projectId = readProjectId(request);
+    await assertReadableByCaller(request, filePath);
+    response.json(await services.readTextFile(projectId, filePath));
   }, logger));
 
   router.get('/projects/:projectId/files/content', createRouteHandler(async (request, response) => {
     const filePath = readRequiredString(request.query.path, 'path', 'Invalid file path');
-    const file = await services.openFile(readProjectId(request), filePath);
+    const projectId = readProjectId(request);
+    await assertReadableByCaller(request, filePath);
+    const file = await services.openFile(projectId, filePath);
     response.setHeader('Content-Type', file.contentType);
     file.stream.pipe(response);
     file.stream.on('error', (error) => {

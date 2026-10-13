@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, type Dispatch, type SetStateAction } from 'react';
+import React, { useCallback, useEffect, type Dispatch, type SetStateAction, useState } from 'react';
 
 import { ChatInterface } from '@/modules/chat';
 import { FileTree } from '@/modules/file-tree';
@@ -10,7 +10,7 @@ import { SchedulesPanel } from '@/modules/schedules';
 import { AgentTasksPanel } from '@/modules/agent-tasks';
 import { usePaletteOpsRegister } from '@/modules/command-palette';
 import { TaskMasterPanel, useTaskMasterProjectSync, useTasksSettings } from '@/modules/task-master';
-import type { AppTab, Project, ProjectSession, SessionEstablishedContext, SessionNavigationOptions, SettingsMainTab } from '@/shared/types';
+import type { AppTab, DirectoryRevealRequest, Project, ProjectSession, SessionEstablishedContext, SessionNavigationOptions, SettingsMainTab } from '@/shared/types';
 import { useUiPreferences } from '@/shared/context/UiPreferencesContext';
 import { useFileOpenResolver } from '@/modules/project-workspace/hooks/useFileOpenResolver';
 import { EditorSidebar, useEditorSidebar } from '@/modules/code-editor';
@@ -39,6 +39,8 @@ type WorkspaceMainProps = {
   onProjectSelect: (project: Project) => void;
   /** Silently re-syncs the sidebar project list after worktree projects change. */
   onProjectsRefresh: () => void;
+  /** Persists a new title for a session; resolves false when the backend refuses it. Used by the header's inline rename. */
+  onRenameSession: (sessionId: string, summary: string) => Promise<boolean>;
 };
 
 /** Rendered by ProjectMainRegion to show the selected project's active tab: chat, files, shell, git, agent tasks, schedules, TaskMaster tasks, browser or a plugin. */
@@ -59,6 +61,7 @@ function WorkspaceMain({
   newSessionTrigger,
   onProjectSelect,
   onProjectsRefresh,
+  onRenameSession,
 }: WorkspaceMainProps) {
   const preferences = useUiPreferences();
   const { showRawParameters, showThinking, sendByCtrlEnter } = preferences;
@@ -68,6 +71,9 @@ function WorkspaceMain({
   const isAdmin = useIsAdmin();
 
   useTaskMasterProjectSync(selectedProject);
+  // The folder an in-chat `path/` reference asked to reveal. Held as an object
+  // so that re-clicking the same folder is a new request the tree acts on.
+  const [revealDirectory, setRevealDirectory] = useState<DirectoryRevealRequest | null>(null);
 
   const shouldShowTasksTab = Boolean(tasksEnabled && isTaskMasterInstalled) && isAdmin;
   const shouldShowBrowserTab = browserUseEnabled;
@@ -82,6 +88,7 @@ function WorkspaceMain({
     handleCloseEditor,
     handleToggleEditorExpand,
     handleResizeStart,
+    handleUnsavedChangesChange,
   } = useEditorSidebar({
     selectedProject,
     isMobile,
@@ -119,18 +126,25 @@ function WorkspaceMain({
   }, [setActiveTab]);
 
   const openFile = useCallback((filePath: string) => {
-    setActiveTab('files');
-    handleFileOpen(filePath);
+    if (handleFileOpen(filePath)) {
+      setActiveTab('files');
+    }
   }, [handleFileOpen, setActiveTab]);
 
   // Opens the editor side panel in place, keeping the current tab (e.g. chat).
-  const openFileInEditor = useCallback((filePath: string) => {
-    resolvedFileOpen(filePath);
+  const openFileInEditor = useCallback((filePath: string, line?: number | null) => {
+    resolvedFileOpen(filePath, undefined, line);
   }, [resolvedFileOpen]);
+
+  // Directories cannot be read as text: reveal them in the file tree instead.
+  const openDirectory = useCallback((directoryPath: string) => {
+    setActiveTab('files');
+    setRevealDirectory({ path: directoryPath });
+  }, [setActiveTab]);
 
   // Stable arguments keep usePaletteOpsRegister's effect from tearing down and
   // rewriting the whole palette registry on every render.
-  usePaletteOpsRegister({ openFile, openFileInEditor, resolveFileRef });
+  usePaletteOpsRegister({ openFile, openFileInEditor, openDirectory, resolveFileRef });
 
   if (isLoading) {
     return <WorkspaceStateView mode="loading" isMobile={isMobile} onMenuClick={onMenuClick} />;
@@ -152,6 +166,7 @@ function WorkspaceMain({
         restrictedMode={!isAdmin}
         isMobile={isMobile}
         onMenuClick={onMenuClick}
+        onRenameSession={onRenameSession}
       />
 
       <div className="flex min-h-0 flex-1 overflow-hidden">
@@ -180,7 +195,12 @@ function WorkspaceMain({
 
           {activeTab === 'files' && (
             <div className="h-full overflow-hidden">
-              <FileTree selectedProject={selectedProject} onFileOpen={handleFileOpen} readOnly={!isAdmin} />
+              <FileTree
+                selectedProject={selectedProject}
+                onFileOpen={handleFileOpen}
+                readOnly={!isAdmin}
+                revealDirectory={revealDirectory}
+              />
             </div>
           )}
 
@@ -248,6 +268,7 @@ function WorkspaceMain({
           onResizeStart={handleResizeStart}
           onCloseEditor={handleCloseEditor}
           onToggleEditorExpand={handleToggleEditorExpand}
+          onUnsavedChangesChange={handleUnsavedChangesChange}
           projectPath={selectedProject.path}
           fillSpace={activeTab === 'files'}
           readOnly={!isAdmin}

@@ -14,7 +14,14 @@ type FileNode = {
 
 // `diffInfo` is intentionally `any` so this resolver can wrap editor handlers
 // that expect a concrete diff payload type as well as generic callers.
-type OnFileOpen = (filePath: string, diffInfo?: any) => void;
+type OnFileOpen = (filePath: string, diffInfo?: any, line?: number | null) => void;
+
+const normalize = (value: string): string => value.replace(/\\/g, '/');
+
+// Backslashes are already normalized above, so a Windows path arrives as
+// `C:/…`; counting it as absolute lets a Windows server resolve it as-is and a
+// POSIX one answer an honest 404 instead of opening some other file.
+const isAbsoluteRef = (value: string): boolean => /^(\/|[A-Za-z]:\/)/.test(value);
 
 const flatten = (nodes: FileNode[], out: FlatFile[]): void => {
   for (const node of nodes) {
@@ -61,10 +68,19 @@ export function useFileOpenResolver(
   );
 
   const openFile = useCallback(
-    (filePath: string, diffInfo?: any) => {
-      const ref = filePath.replace(/\\/g, '/').trim();
+    (filePath: string, diffInfo?: any, line?: number | null) => {
+      // Normalized once and used for every outcome: a reference picked up from
+      // link text can carry surrounding whitespace, which the API would take as
+      // part of the filename and answer with a 404.
+      const ref = normalize(filePath).trim();
+      // An absolute path already names one exact file: matching it against the
+      // tree can only send it somewhere else.
+      if (isAbsoluteRef(ref)) {
+        onFileOpen(ref, diffInfo, line);
+        return;
+      }
       void resolver.match(ref).then((match) => {
-        onFileOpen(match ?? filePath, diffInfo);
+        onFileOpen(match ?? ref, diffInfo, line);
       });
     },
     [resolver, onFileOpen],
