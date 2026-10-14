@@ -49,11 +49,13 @@ const runtime = {
   resolveToolApproval: () => undefined,
   getPendingApprovalsForSession: () => [],
   hasBackgroundWork: () => false,
+  ownsLiveProcess: () => false,
 };
 
 async function withChatSocket(
   user: AuthenticatedWebSocketUser,
   run: (socket: FakeSocket) => Promise<void>,
+  runtimeOverrides: Record<string, unknown> = {},
 ): Promise<void> {
   const previousDatabasePath = process.env.DATABASE_PATH;
   const tempDirectory = await mkdtemp(path.join(tmpdir(), 'chat-ws-access-'));
@@ -66,7 +68,7 @@ async function withChatSocket(
   handleChatConnection(
     socket as unknown as Parameters<typeof handleChatConnection>[0],
     { user } as AuthenticatedWebSocketRequest,
-    { runtime } as unknown as Parameters<typeof handleChatConnection>[2],
+    { runtime: { ...runtime, ...runtimeOverrides } } as unknown as Parameters<typeof handleChatConnection>[2],
   );
 
   try {
@@ -127,6 +129,37 @@ test('chat.abort on someone else\'s session is refused', async () => {
     assert.deepEqual(
       socket.sent.map((frame) => [frame.kind, frame.code]),
       [['protocol_error', 'SESSION_ACCESS_DENIED']],
+    );
+  });
+});
+
+test('chat.abort stops a turn the held process started on its own', async () => {
+  const aborted: string[] = [];
+  await withChatSocket(restricted, async (socket) => {
+    sessionsDb.createAppSession('held-1', 'claude', '/workspace/demo', 'Held', 7);
+
+    await socket.emit('message', JSON.stringify({ type: 'chat.abort', sessionId: 'held-1' }));
+
+    assert.deepEqual(aborted, ['held-1']);
+    assert.deepEqual(
+      socket.sent.map((frame) => [frame.kind, frame.sessionId, (frame as { aborted?: boolean }).aborted]),
+      [['complete', 'held-1', true]],
+    );
+  }, {
+    ownsLiveProcess: (_provider: string, sessionId: string) => sessionId === 'held-1',
+    abort: async (_provider: string, sessionId: string) => { aborted.push(sessionId); return true; },
+  });
+});
+
+test('chat.abort without a run or a live process reports no active run', async () => {
+  await withChatSocket(restricted, async (socket) => {
+    sessionsDb.createAppSession('idle-1', 'claude', '/workspace/demo', 'Idle', 7);
+
+    await socket.emit('message', JSON.stringify({ type: 'chat.abort', sessionId: 'idle-1' }));
+
+    assert.deepEqual(
+      socket.sent.map((frame) => [frame.kind, frame.code]),
+      [['protocol_error', 'NO_ACTIVE_RUN']],
     );
   });
 });

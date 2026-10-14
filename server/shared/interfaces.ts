@@ -51,6 +51,13 @@ export interface IProviderRuntime {
    * settled, or the id was never one of its own.
    */
   stopBackgroundTask?(sessionId: string, taskId: string): Promise<boolean>;
+  /**
+   * Whether this runtime still owns a live process for the session. True also
+   * after the turn's `complete`, while the process is held for background work
+   * — and when the CLI then pushes a follow-up turn on its own (a background
+   * task settled), which no chat run tracks but `abort` can still interrupt.
+   */
+  isLive?(sessionId: string): boolean;
 }
 
 /**

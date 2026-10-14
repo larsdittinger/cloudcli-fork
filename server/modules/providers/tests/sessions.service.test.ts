@@ -360,6 +360,69 @@ test('running sessions report a turn driven by the Claude CLI', { concurrency: f
   });
 });
 
+test('a follow-up turn in a process CloudCLI holds can be stopped', { concurrency: false }, async () => {
+  await withIsolatedDatabase(async () => {
+    sessionsDb.createAppSession('held-session', 'claude', '/tmp/running-project');
+    sessionsDb.assignProviderSessionId('held-session', 'claude-native-held');
+
+    // The turn's chat run completed; the process stayed open for background
+    // work and the CLI started the next turn by itself when a task settled.
+    await withClaudeCliRegistry(
+      [{ pid: process.pid, sessionId: 'claude-native-held', status: 'busy', entrypoint: 'sdk-ts', startedAt: 6_000 }],
+      async () => await withProviders(
+        {
+          claude: {
+            run: async () => undefined,
+            abort: () => true,
+            isLive: (sessionId: string) => sessionId === 'held-session',
+          },
+        },
+        async () => {
+          assert.deepEqual(await sessionsService.listRunningSessions(), [{
+            sessionId: 'held-session',
+            provider: 'claude',
+            startedAt: 6_000,
+            lastSeq: 0,
+            canInterrupt: true,
+          }]);
+        },
+      ),
+    );
+  });
+});
+
+test('a held process mid-turn with tasks left is one stoppable entry', { concurrency: false }, async () => {
+  await withIsolatedDatabase(async () => {
+    sessionsDb.createAppSession('held-tasks', 'claude', '/tmp/running-project');
+    sessionsDb.assignProviderSessionId('held-tasks', 'claude-native-held-tasks');
+    const tasks = [task('t1', 7_000)];
+
+    await withClaudeCliRegistry(
+      [{ pid: process.pid, sessionId: 'claude-native-held-tasks', status: 'busy', startedAt: 8_000 }],
+      async () => await withProviders(
+        {
+          claude: {
+            run: async () => undefined,
+            abort: () => true,
+            listBackgroundWork: () => [{ sessionId: 'held-tasks', tasks }],
+            isLive: () => true,
+          },
+        },
+        async () => {
+          assert.deepEqual(await sessionsService.listRunningSessions(), [{
+            sessionId: 'held-tasks',
+            provider: 'claude',
+            startedAt: 7_000,
+            lastSeq: 0,
+            canInterrupt: true,
+            tasks,
+          }]);
+        },
+      ),
+    );
+  });
+});
+
 test('running sessions ignore registry files a crash left behind', { concurrency: false }, async () => {
   await withIsolatedDatabase(async () => {
     sessionsDb.createAppSession('stale-session', 'claude', '/tmp/running-project');

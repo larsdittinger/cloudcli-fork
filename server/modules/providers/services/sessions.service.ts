@@ -38,7 +38,7 @@ type RunningSessionEntry = {
   startedAt: number;
   lastSeq: number;
   background?: true;
-  canInterrupt?: false;
+  canInterrupt?: boolean;
   statusText?: string;
   tasks?: BackgroundTaskSummary[];
 };
@@ -163,6 +163,7 @@ export const sessionsService = {
   async listRunningSessions(ownerUserId?: number | null): Promise<RunningSessionEntry[]> {
     const entries: RunningSessionEntry[] = chatRunRegistry.listRunningRuns();
     const runningById = new Map(entries.map((entry) => [entry.sessionId, entry]));
+    const backgroundById = new Map<string, RunningSessionEntry>();
 
     for (const provider of providerRegistry.listProviders()) {
       for (const { sessionId, tasks } of provider.runtime.listBackgroundWork?.() ?? []) {
@@ -171,7 +172,7 @@ export const sessionsService = {
           running.tasks = tasks;
           continue;
         }
-        entries.push({
+        const entry: RunningSessionEntry = {
           sessionId,
           provider: provider.id,
           startedAt: Math.min(...tasks.map((task) => task.startedAt)),
@@ -181,7 +182,9 @@ export const sessionsService = {
           background: true,
           canInterrupt: false,
           tasks,
-        });
+        };
+        entries.push(entry);
+        backgroundById.set(sessionId, entry);
       }
     }
 
@@ -195,15 +198,29 @@ export const sessionsService = {
         continue;
       }
 
+      // A process CloudCLI holds open for background work starts a follow-up
+      // turn on its own when a task settles. No chat run tracks that turn, but
+      // the process is ours, so `chat.abort` can interrupt it.
+      const provider = providerRegistry.listProviders().find((entry) => entry.id === session.provider);
+      const ownedByCloudCli = Boolean(provider?.runtime.isLive?.(session.session_id));
+      const held = backgroundById.get(session.session_id);
+      if (held) {
+        // Same process, now mid-turn: a response is in flight, not just tasks.
+        delete held.background;
+        held.canInterrupt = ownedByCloudCli;
+        runningById.set(session.session_id, held);
+        continue;
+      }
+
       entries.push({
         sessionId: session.session_id,
         provider: session.provider as LLMProvider,
         startedAt: live.startedAt,
         lastSeq: chatRunRegistry.getRun(session.session_id)?.lastSeq ?? 0,
-        // There is no run here to abort: the turn belongs to a CLI process
-        // CloudCLI does not own, so it can be reported but not interrupted.
-        canInterrupt: false,
-        statusText: 'Running in the Claude CLI',
+        canInterrupt: ownedByCloudCli,
+        // A turn in a CLI process CloudCLI does not own (a terminal) can be
+        // reported but not interrupted.
+        ...(ownedByCloudCli ? {} : { statusText: 'Running in the Claude CLI' }),
       });
       runningById.set(session.session_id, entries[entries.length - 1]);
     }

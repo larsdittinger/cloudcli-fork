@@ -97,6 +97,10 @@ export function createProviderRuntimeService(
       return Boolean(await runtime.stopBackgroundTask?.(sessionId, taskId));
     },
 
+    ownsLiveProcess(providerName: LLMProvider, sessionId: string): boolean {
+      return Boolean(dependencies.resolveProvider(providerName).runtime.isLive?.(sessionId));
+    },
+
     hasBackgroundWork(sessionId: string): boolean {
       return dependencies.listProviders().some((provider) =>
         (provider.runtime.listBackgroundWork?.() ?? []).some((entry) => entry.sessionId === sessionId));

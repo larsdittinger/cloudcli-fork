@@ -21,7 +21,7 @@ import type {
   ProviderPermissionDecision,
   ProviderRuntimeWriter,
 } from '@/shared/types.js';
-import { parseIncomingJsonObject } from '@/shared/utils.js';
+import { createCompleteMessage, parseIncomingJsonObject } from '@/shared/utils.js';
 
 /**
  * Trust boundary for client-supplied image attachments: chat.send options come
@@ -78,6 +78,8 @@ export type ProviderRuntimeGateway = {
   stopBackgroundTask(provider: LLMProvider, sessionId: string, taskId: string): Promise<boolean>;
   /** Whether a provider runtime still holds background work for the session after its turn ended. */
   hasBackgroundWork(sessionId: string): boolean;
+  /** Whether the provider runtime still owns a live process for the session, with or without a chat run. */
+  ownsLiveProcess(provider: LLMProvider, sessionId: string): boolean;
   resolveToolApproval(requestId: string, payload: ProviderPermissionDecision): void;
   getPendingApprovalsForSession(sessionId: string): unknown[];
 };
@@ -467,6 +469,18 @@ async function handleChatAbort(
 
   const run = chatRunRegistry.getRun(sessionId);
   if (!run || run.status !== 'running') {
+    // The process held open for background work can start a follow-up turn on
+    // its own once a task settles. No chat run tracks that turn (the run ended
+    // at its `complete`), yet it is ours to interrupt — the running-sessions
+    // list offers Stop for it. The registry would drop a second `complete` for
+    // the finished run, so the requesting client gets its terminal event here;
+    // the others see the session go idle on their next running-sessions poll.
+    const provider = sessionsDb.getSessionById(sessionId)?.provider as LLMProvider | undefined;
+    if (provider && dependencies.runtime.ownsLiveProcess(provider, sessionId)) {
+      const aborted = await dependencies.runtime.abort(provider, sessionId);
+      sendJson(ws, createCompleteMessage({ provider, sessionId, exitCode: aborted ? 0 : 1, aborted: true }));
+      return;
+    }
     sendProtocolError(ws, 'NO_ACTIVE_RUN', `Session "${sessionId}" has no active run.`, sessionId);
     return;
   }

@@ -1742,6 +1742,7 @@ export const claudeRuntime = {
   },
   listBackgroundWork: listClaudeSDKBackgroundWork,
   stopBackgroundTask: stopClaudeSDKTask,
+  isLive: isClaudeSDKSessionActive,
 };
 
 // Export public API
