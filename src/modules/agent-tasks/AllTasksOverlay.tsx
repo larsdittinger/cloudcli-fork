@@ -59,7 +59,7 @@ export default function AllTasksOverlay({ onClose, initialTaskId = null }: Props
           ) : tasks.length === 0 ? (
             <p className="rounded-lg border border-dashed border-border/70 p-6 text-sm text-muted-foreground">No agent tasks yet.</p>
           ) : (
-            <TaskBoard tasks={tasks} showProject onOpen={(task) => setOpenId(task.id)} />
+            <TaskBoard tasks={tasks} showProject projectPath={null} onChanged={reload} onOpen={(task) => setOpenId(task.id)} />
           )}
           <button type="button" className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground" onClick={() => setIncludeOld((value) => !value)}>
             {includeOld ? 'Hide tasks closed over 30 days ago' : 'Show older closed tasks'}

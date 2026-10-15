@@ -1,4 +1,5 @@
-import { AlertCircle, Clock, Loader2 } from 'lucide-react';
+import type { MouseEvent } from 'react';
+import { AlertCircle, Check, Clock, Loader2 } from 'lucide-react';
 
 import { cn, formatDateTime } from '@/shared/utils';
 import type { AgentTask } from '@/shared/types';
@@ -26,12 +27,18 @@ type Props = {
   task: AgentTask;
   /** Shown in the all-projects view, where tasks of several agent projects mix. */
   showProject: boolean;
-  onOpen: () => void;
+  /** Gets the click so the board can turn ⌘/Ctrl/Shift-clicks into selection. */
+  onOpen: (event: MouseEvent) => void;
+  /** Selection is on: the card shows a checkbox. */
+  isSelecting?: boolean;
+  isPicked?: boolean;
 };
 
 /** Used by TaskBoard: one task as a card — what it is, where it stands, and whether it needs you. */
-export default function TaskCard({ task, showProject, onOpen }: Props) {
+export default function TaskCard({ task, showProject, onOpen, isSelecting = false, isPicked = false }: Props) {
   const reasons = attentionReasons(task);
+  // Read: it still needs the owner, but they have seen it — no amber, no badge.
+  const isUnread = reasons.length > 0 && !task.attentionRead;
   const done = task.checklist.filter((item) => item.done).length;
   const closed = task.status === 'done' || task.status === 'cancelled';
   const preview = summaryPreview(task.summary);
@@ -41,15 +48,31 @@ export default function TaskCard({ task, showProject, onOpen }: Props) {
       aria-labelledby={`task-card-${task.id}`}
       className={cn(
         'group relative w-full rounded-lg border bg-card p-3 text-left shadow-sm transition-colors focus-within:ring-2 focus-within:ring-ring hover:border-foreground/30',
-        reasons.length ? 'border-amber-500/60' : 'border-border/70',
+        isUnread ? 'border-amber-500/60' : 'border-border/70',
         closed && 'opacity-75',
+        isPicked && 'border-primary ring-2 ring-primary/40',
       )}
     >
       <div className="flex items-start gap-2">
+        {isSelecting && (
+          <span
+            aria-hidden
+            className={cn('mt-px flex h-4 w-4 shrink-0 items-center justify-center rounded border', isPicked ? 'border-primary bg-primary text-primary-foreground' : 'border-muted-foreground/50')}
+          >
+            {isPicked && <Check className="h-3 w-3" />}
+          </span>
+        )}
         <span className="mt-px shrink-0 text-xs tabular-nums text-muted-foreground">#{task.id}</span>
         <h3 id={`task-card-${task.id}`} className="min-w-0 flex-1 hyphens-auto break-words text-sm font-medium leading-snug" lang="cs">
           {/* The whole card is clickable through this button's stretched hit area. */}
-          <button type="button" onClick={onOpen} className="text-left after:absolute after:inset-0 after:rounded-lg focus-visible:outline-none">
+          <button
+            type="button"
+            aria-pressed={isSelecting ? isPicked : undefined}
+            // Shift-click picks a range; without this the browser would select text too.
+            onMouseDown={(event) => { if (event.shiftKey) event.preventDefault(); }}
+            onClick={onOpen}
+            className="text-left after:absolute after:inset-0 after:rounded-lg focus-visible:outline-none"
+          >
             {task.title}
           </button>
         </h3>
@@ -70,7 +93,7 @@ export default function TaskCard({ task, showProject, onOpen }: Props) {
       {reasons.length > 0 && (
         <ul className="mt-2 space-y-0.5" aria-label="Needs you">
           {reasons.map((reason) => (
-            <li key={reason} className="flex items-center gap-1 text-xs font-medium text-amber-700 dark:text-amber-300">
+            <li key={reason} className={cn('flex items-center gap-1 text-xs font-medium', isUnread ? 'text-amber-700 dark:text-amber-300' : 'text-muted-foreground')}>
               <AlertCircle className="h-3 w-3 shrink-0" aria-hidden />
               {reason}
             </li>

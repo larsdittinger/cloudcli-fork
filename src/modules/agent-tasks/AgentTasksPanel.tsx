@@ -71,7 +71,7 @@ export default function AgentTasksPanel({ selectedProject }: Props) {
             </p>
           </div>
         ) : (
-          <TaskBoard tasks={tasks} showProject={false} onOpen={(task) => setOpenId(task.id)} />
+          <TaskBoard tasks={tasks} showProject={false} projectPath={projectPath} onChanged={reload} onOpen={(task) => setOpenId(task.id)} />
         )}
 
         <div>

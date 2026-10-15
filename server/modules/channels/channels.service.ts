@@ -5,7 +5,7 @@ import path from 'node:path';
 
 import type { AdapterDeps, AdapterFactory, ChannelAdapter } from '@/modules/channels/adapters/channel-adapter.js';
 import type { WebhookAdapter } from '@/modules/channels/adapters/webhook.adapter.js';
-import { broadcastInboxUpdated } from '@/modules/channels/channels-broadcast.js';
+import { broadcastInboxMessagesChanged, broadcastInboxUpdated } from '@/modules/channels/channels-broadcast.js';
 import { dispatchMessage, rowToInboundMessage } from '@/modules/channels/dispatcher.service.js';
 import { injectionGuard, isQuarantined } from '@/modules/channels/injection/injection-guard.service.js';
 import { findMatchingRule } from '@/modules/channels/rules.service.js';
@@ -21,6 +21,7 @@ import type {
   ChannelProposal,
   ChannelType,
   InboundMessage,
+  MessageStatus,
 } from '@/modules/channels/types.js';
 import { appConfigDb, channelAccountsDb, channelMessagesDb, channelRulesDb } from '@/modules/database/index.js';
 import { providerMcpService } from '@/modules/providers/index.js';
@@ -293,6 +294,9 @@ async function routeStored(row: ChannelMessageRow, account: ChannelAccountRow, o
   await dispatchMessage(row.id, rule.id, runtime, { manual: options.ownerReviewed });
   return channelMessagesDb.get(row.id);
 }
+
+/** Statuses Ignore leaves alone: the message already reached an agent or a task (or is on its way). */
+const IGNORE_KEEPS_STATUS = new Set<MessageStatus>(['queued', 'dispatched', 'manual', 'task']);
 
 export const channelsService = {
   registerAdapterFactory(type: ChannelType, factory: AdapterFactory): void {
@@ -620,6 +624,46 @@ export const channelsService = {
       throw new AppError('Message was not stored.', { code: 'WEBHOOK_STORE_FAILED', statusCode: 500 });
     }
     return stored;
+  },
+
+  // ---- Inbox upkeep (owner) ----
+
+  /**
+   * Marks messages read — `ids`, or every unread message when null. Read is
+   * only attention: a held or failed message stays where it is, it just stops
+   * counting in the Inbox badge until something new happens to it.
+   */
+  markMessagesRead(ids: string[] | null): { updated: number } {
+    const changed = channelMessagesDb.markRead(ids);
+    if (changed.length) broadcastInboxMessagesChanged({ messageIds: changed });
+    return { updated: changed.length };
+  },
+
+  /**
+   * Ignores messages the agents should never get (spam, bounces). A message
+   * already with an agent or a task keeps its status; it is only marked read.
+   */
+  ignoreMessages(ids: string[]): { ignored: number } {
+    let ignored = 0;
+    for (const id of ids) {
+      const row = channelMessagesDb.get(id);
+      if (!row || IGNORE_KEEPS_STATUS.has(row.status)) continue;
+      channelMessagesDb.setStatus(id, 'ignored', null);
+      ignored += 1;
+    }
+    channelMessagesDb.markRead(ids);
+    broadcastInboxMessagesChanged({ messageIds: ids });
+    return { ignored };
+  },
+
+  /** Deletes messages and their attachments; chats and drafts they started stay. */
+  deleteMessages(ids: string[]): { deleted: number } {
+    const deleted = channelMessagesDb.deleteMany(ids);
+    for (const id of deleted) {
+      fs.rmSync(path.join(CHANNELS_ROOT, 'attachments', id), { recursive: true, force: true });
+    }
+    if (deleted.length) broadcastInboxMessagesChanged({ messageIds: deleted });
+    return { deleted: deleted.length };
   },
 
   async startAll(): Promise<void> {

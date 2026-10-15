@@ -33,6 +33,8 @@ vi.mock('@/shared/api', () => ({
       create: (body: Record<string, unknown>) => { calls.push({ name: 'create', args: [body] }); return ok({ ...task(), id: 42, projectPath: body.projectPath }); },
       update: record('update'),
       remove: record('remove'),
+      markRead: record('markRead', { updated: 1 }),
+      removeMany: record('removeMany', { deleted: 1 }),
       setStatus: record('setStatus'),
       comment: record('comment'),
       answer: record('answer'),
@@ -359,4 +361,47 @@ test('a ?task=N link opens that task above the board and closing drops the link'
   // The board stays; closing it too leaves the URL clean.
   await act(async () => { fireEvent.click(within(screen.getByRole('dialog', { name: 'All agent tasks' })).getByRole('button', { name: 'Close' })); });
   await waitFor(() => assert.equal(screen.getByTestId('where').textContent, ''));
+});
+
+test('cards are picked with ⌘/Ctrl and Shift; the bar marks them read or deletes after asking', async () => {
+  listData = [
+    task({ id: 1, title: 'First', status: 'working' }),
+    task({ id: 2, title: 'Second', status: 'working' }),
+    task({ id: 3, title: 'Third', status: 'working' }),
+  ];
+  render(<MemoryRouter><AgentTasksPanel selectedProject={project} /></MemoryRouter>);
+  await screen.findByText('First');
+  const working = screen.getByRole('region', { name: 'Working' });
+  const order = within(working).getAllByRole('button').map((button) => button.textContent);
+
+  fireEvent.click(within(working).getByText(order[0] as string), { ctrlKey: true });
+  assert.equal(detailData, null);
+  assert.ok(screen.getByText('1 task selected'));
+  fireEvent.click(within(working).getByText(order[2] as string), { shiftKey: true });
+  assert.ok(screen.getByText('3 tasks selected'));
+
+  fireEvent.click(screen.getByRole('button', { name: /Mark as read/ }));
+  await waitFor(() => assert.deepEqual([...((calls.find((call) => call.name === 'markRead')?.args[0] ?? []) as number[])].sort(), [1, 2, 3]));
+  await waitFor(() => assert.equal(screen.queryByRole('toolbar', { name: 'Selected items' }), null));
+
+  fireEvent.click(within(working).getByText('Second'), { metaKey: true });
+  const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+  fireEvent.click(screen.getByRole('button', { name: /Delete/ }));
+  await waitFor(() => assert.deepEqual(calls.find((call) => call.name === 'removeMany')?.args[0], [2]));
+  assert.equal(confirm.mock.calls.length, 1);
+  confirm.mockRestore();
+});
+
+test('"Mark all as read" stays within the project and leaves read tasks un-flagged', async () => {
+  listData = [
+    task({ id: 2, title: 'Pick a printer', status: 'waiting_owner', attentionRead: true, question: { text: 'Which?', options: ['A'], by: 'agent', askedAt: '2026-10-07T07:00:00.000Z' } }),
+  ];
+  render(<MemoryRouter><AgentTasksPanel selectedProject={project} /></MemoryRouter>);
+  await screen.findByText('Pick a printer');
+  // Still listed as needing an answer, just not amber.
+  assert.ok(screen.getByText('Question for you').className.includes('text-muted-foreground'));
+
+  fireEvent.click(screen.getByRole('button', { name: 'Task actions' }));
+  fireEvent.click(screen.getByRole('menuitem', { name: /Mark all as read/ }));
+  await waitFor(() => assert.deepEqual(calls.find((call) => call.name === 'markRead')?.args, ['all', '/workspace/ceo_tasks']));
 });

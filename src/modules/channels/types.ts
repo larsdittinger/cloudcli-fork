@@ -97,6 +97,8 @@ export type ChannelMessage = {
   sessionId: string | null;
   status: MessageStatus;
   statusDetail: string | null;
+  /** The owner opened it or marked it read; unread no-rule, held and failed messages are the Inbox badge. */
+  read?: boolean;
   /** The prompt-injection filter's findings; null when it found nothing. */
   injection: InjectionScan | null;
 };

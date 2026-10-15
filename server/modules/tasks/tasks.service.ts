@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { appConfigDb, channelOutboxDb, taskEventsDb, tasksDb } from '@/modules/database/index.js';
+import { appConfigDb, channelOutboxDb, taskAttentionKey, taskEventsDb, tasksDb } from '@/modules/database/index.js';
 import type { TaskEventAuthor, TaskEventRow, TaskPatch, TaskRow, TaskStatus } from '@/modules/database/index.js';
 import { notifyTaskOwner } from '@/modules/tasks/owner-notify.service.js';
 import { broadcastTasksUpdated } from '@/modules/tasks/tasks-broadcast.js';
@@ -60,6 +60,8 @@ export type PublicTask = {
   closedAt: string | null;
   /** Outgoing messages of this task that wait for the owner (drafts and failed sends). */
   draftCount: number;
+  /** The owner marked what this task needs from them as read: it still needs them, but no badge counts it. */
+  attentionRead: boolean;
 };
 
 /** One diary entry as the API returns it. */
@@ -219,12 +221,15 @@ function parsePragueDateTime(value: string): number {
   return naive - pragueOffsetMs(first);
 }
 
-function draftCount(taskId: number): number {
-  return channelOutboxDb.listByTask(taskId).filter((row) => row.status === 'draft' || row.status === 'failed').length;
+/** Ids of the task's outgoing messages that wait for the owner (drafts and failed sends). */
+function waitingDraftIds(taskId: number): string[] {
+  return channelOutboxDb.listByTask(taskId).filter((row) => row.status === 'draft' || row.status === 'failed').map((row) => row.id);
 }
 
 // toPublicTask: used by the service, the engine and the MCP bridge to shape a row for callers.
 export function toPublicTask(row: TaskRow): PublicTask {
+  const draftIds = waitingDraftIds(row.id);
+  const attentionKey = taskAttentionKey(row, draftIds);
   return {
     id: row.id,
     title: row.title,
@@ -249,7 +254,8 @@ export function toPublicTask(row: TaskRow): PublicTask {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     closedAt: row.closed_at,
-    draftCount: draftCount(row.id),
+    draftCount: draftIds.length,
+    attentionRead: attentionKey !== null && attentionKey === row.attention_read_key,
   };
 }
 
@@ -485,6 +491,36 @@ export const tasksService = {
     tasksDb.delete(id);
     if (row.running_session_id) abortTaskRun(id, row.running_session_id);
     broadcastTasksUpdated({ taskId: id });
+  },
+
+  /**
+   * Marks what tasks need from the owner as read (`ids`, or every open task
+   * — of `projectPath` when given — when null). Nothing is answered,
+   * confirmed or sent; the badge just skips these tasks until a new question
+   * or draft arrives.
+   */
+  markRead(ids: number[] | null, filter: { projectPath?: string } = {}): { updated: number } {
+    const rows = tasksDb.listNeedingOwner({ ids: ids ?? undefined, projectPath: filter.projectPath });
+    let updated = 0;
+    for (const row of rows) {
+      const key = taskAttentionKey(row, row.draftIds);
+      if (key === row.attention_read_key) continue;
+      tasksDb.setAttentionRead(row.id, key);
+      updated += 1;
+    }
+    if (updated) broadcastTasksUpdated();
+    return { updated };
+  },
+
+  /** Deletes several tasks (see `remove`); numbers that do not exist are skipped. */
+  removeMany(ids: number[]): { deleted: number } {
+    let deleted = 0;
+    for (const id of ids) {
+      if (!tasksDb.get(id)) continue;
+      this.remove(id);
+      deleted += 1;
+    }
+    return { deleted };
   },
 
   // ---- Agent side (MCP) ----

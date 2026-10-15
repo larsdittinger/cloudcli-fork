@@ -639,6 +639,10 @@ export const api = {
     messageBySession: (sessionId: string) => get(`/api/channels/messages/by-session/${sessionId}`),
     dispatchMessage: (id: string, body: unknown) => post(`/api/channels/messages/${id}/dispatch`, body),
     ignoreMessage: (id: string) => post(`/api/channels/messages/${id}/ignore`),
+    // Bulk Inbox actions; `markMessagesRead('all')` reads every message.
+    markMessagesRead: (ids: string[] | 'all') => post('/api/channels/messages/mark-read', ids === 'all' ? { all: true } : { ids }),
+    ignoreMessages: (ids: string[]) => post('/api/channels/messages/ignore', { ids }),
+    deleteMessages: (ids: string[]) => post('/api/channels/messages/delete', { ids }),
     releaseMessage: (id: string) => post(`/api/channels/messages/${id}/release`),
     attachmentUrl: (messageId: string, index: number) => `/api/channels/attachments/${messageId}/${index}`,
     outbox: (query = '') => get(`/api/channels/outbox${query}`),
@@ -662,6 +666,10 @@ export const api = {
     create: (body: unknown) => post('/api/tasks', body),
     update: (id: number, body: unknown) => put(`/api/tasks/${id}`, body),
     remove: (id: number) => del(`/api/tasks/${id}`),
+    // Bulk task actions; `markRead('all', projectPath?)` reads every open task (of that project).
+    markRead: (ids: number[] | 'all', projectPath?: string) =>
+      post('/api/tasks/mark-read', ids === 'all' ? { all: true, ...(projectPath ? { projectPath } : {}) } : { ids }),
+    removeMany: (ids: number[]) => post('/api/tasks/delete', { ids }),
     setStatus: (id: number, status: string) => post(`/api/tasks/${id}/status`, { status }),
     comment: (id: number, text: string) => post(`/api/tasks/${id}/comment`, { text }),
     answer: (id: number, body: { option?: string; text?: string }) => post(`/api/tasks/${id}/answer`, body),

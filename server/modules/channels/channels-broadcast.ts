@@ -15,6 +15,11 @@ export function broadcastInboxUpdated(payload: { messageId: string; status: Mess
   sendToAll({ kind: 'channels_inbox_updated', ...payload });
 }
 
+/** Tells every open tab several inbound messages changed at once (bulk read, ignore or delete). */
+export function broadcastInboxMessagesChanged(payload: { messageIds: string[] }): void {
+  sendToAll({ kind: 'channels_inbox_updated', ...payload });
+}
+
 /** Tells every open tab an outgoing message moved, so the chat's draft card and the outbox refetch. */
 export function broadcastOutboxUpdated(payload: { outboxId: string; sessionId: string | null; status: OutboxStatus }): void {
   sendToAll({ kind: 'channels_outbox_updated', ...payload });

@@ -156,6 +156,8 @@ export type ChannelMessageRow = {
   created_at: string;
   /** JSON InjectionScan when the prompt-injection filter found anything; null otherwise. */
   injection_json: string | null;
+  /** When the owner read it in the Inbox; null = unread, which is what the Inbox badge counts. */
+  read_at: string | null;
 };
 
 export type ChannelOutboxRow = {

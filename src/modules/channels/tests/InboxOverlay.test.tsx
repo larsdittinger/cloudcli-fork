@@ -24,6 +24,9 @@ vi.mock('@/shared/api', () => ({
       outbox: () => ok(outbox),
       dispatchMessage: (...args: unknown[]) => { calls.push({ name: 'dispatch', args }); return ok({}); },
       ignoreMessage: () => ok({}),
+      markMessagesRead: (...args: unknown[]) => { calls.push({ name: 'markRead', args }); return ok({ updated: 1 }); },
+      ignoreMessages: (...args: unknown[]) => { calls.push({ name: 'ignoreMany', args }); return ok({ ignored: 1 }); },
+      deleteMessages: (...args: unknown[]) => { calls.push({ name: 'deleteMany', args }); return ok({ deleted: 1 }); },
       releaseMessage: (...args: unknown[]) => { calls.push({ name: 'release', args }); return ok({}); },
       approveOutbox: (...args: unknown[]) => { calls.push({ name: 'approve', args }); return ok({}); },
       discardOutbox: () => ok({}),
@@ -164,5 +167,59 @@ describe('InboxOverlay', () => {
     const inbox = screen.getByRole('heading', { name: 'Inbox' }).closest('[role="dialog"]') as HTMLElement;
     fireEvent.click(within(inbox).getAllByRole('button', { name: 'Close' })[0]);
     await waitFor(() => expect(screen.getByTestId('search').textContent).toBe(''));
+  });
+});
+
+describe('InboxOverlay bulk actions', () => {
+  const spam = () => [
+    message({ id: 'a', subject: 'You won', status: 'unmatched', ruleId: null, ruleName: null, sessionId: null, read: false }),
+    message({ id: 'b', subject: 'Cheap pills', status: 'unmatched', ruleId: null, ruleName: null, sessionId: null, read: false }),
+    message({ id: 'c', subject: 'Real order', status: 'dispatched', read: true }),
+  ];
+
+  it('⌘/Ctrl-click picks a message instead of opening it, Shift-click adds the range, the bar acts on them', async () => {
+    messages = spam();
+    outbox = [];
+    renderInbox();
+    fireEvent.click(await screen.findByText('You won'), { metaKey: true });
+    expect(screen.queryByRole('heading', { name: /Message from/ })).toBeNull();
+    expect(screen.getByText('1 message selected')).toBeTruthy();
+    fireEvent.click(screen.getByText('Real order'), { shiftKey: true });
+    expect(screen.getByText('3 messages selected')).toBeTruthy();
+    // While selecting, a plain click toggles too.
+    fireEvent.click(screen.getByText('Real order'));
+    expect(screen.getByText('2 messages selected')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: /Ignore/ }));
+    await waitFor(() => expect(calls.find((call) => call.name === 'ignoreMany')?.args[0]).toEqual(['a', 'b']));
+    await waitFor(() => expect(screen.queryByRole('toolbar', { name: 'Selected items' })).toBeNull());
+  });
+
+  it('delete asks first; the menu marks everything read and enters selection without a keyboard', async () => {
+    messages = spam();
+    outbox = [];
+    renderInbox();
+    await screen.findByText('You won');
+    fireEvent.click(screen.getByRole('button', { name: 'Inbox actions' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /Mark all as read/ }));
+    await waitFor(() => expect(calls.find((call) => call.name === 'markRead')?.args[0]).toBe('all'));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Inbox actions' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /Select messages/ }));
+    fireEvent.click(screen.getByText('Cheap pills'));
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValueOnce(true);
+    fireEvent.click(screen.getByRole('button', { name: /Delete/ }));
+    expect(calls.some((call) => call.name === 'deleteMany')).toBe(false);
+    fireEvent.click(screen.getByRole('button', { name: /Delete/ }));
+    await waitFor(() => expect(calls.find((call) => call.name === 'deleteMany')?.args[0]).toEqual(['b']));
+    confirm.mockRestore();
+  });
+
+  it('opening an unread message reads it', async () => {
+    messages = spam();
+    outbox = [];
+    renderInbox();
+    fireEvent.click(await screen.findByText('You won'));
+    await waitFor(() => expect(calls.find((call) => call.name === 'markRead')?.args[0]).toEqual(['a']));
   });
 });
