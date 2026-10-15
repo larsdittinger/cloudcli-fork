@@ -86,7 +86,9 @@ export default function ShareSessionDialog({ sessionId, sessionName, open, onOpe
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="w-[min(100vw-2rem,28rem)] max-w-none p-4">
-        <DialogTitle className="text-base font-semibold">{t('share.title', 'Share chat')}</DialogTitle>
+        <DialogTitle>{t('share.title', 'Share chat')}</DialogTitle>
+        {/* DialogTitle is screen-reader only, so the heading is drawn separately. */}
+        <p aria-hidden className="text-base font-semibold text-foreground">{t('share.title', 'Share chat')}</p>
         <p className="mt-1 truncate text-sm text-muted-foreground" title={sessionName}>{sessionName}</p>
         <p className="mt-3 flex items-start gap-2 rounded-md bg-muted/50 p-2 text-xs text-muted-foreground">
           <Eye className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
