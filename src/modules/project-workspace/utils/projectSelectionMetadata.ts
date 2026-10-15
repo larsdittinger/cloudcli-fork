@@ -2,7 +2,7 @@ import type { Project } from '@/shared/types';
 
 export type ProjectSelectionMetadata = Pick<
   Project,
-  'projectId' | 'displayName' | 'fullPath' | 'path' | 'isStarred' | 'taskmaster'
+  'projectId' | 'displayName' | 'fullPath' | 'path' | 'isStarred' | 'taskmaster' | 'sharedOnly'
 >;
 
 const valuesMatch = (left: unknown, right: unknown): boolean => (
@@ -25,6 +25,9 @@ export function mergeProjectSelectionMetadata(
   const nextPath = incoming.path ?? current.path;
   const nextIsStarred = incoming.isStarred ?? current.isStarred;
   const nextTaskmaster = incoming.taskmaster ?? current.taskmaster;
+  // Absent means "assigned" (or an admin): a project opened by URL before the
+  // list loaded starts without the flag and must pick it up from the list.
+  const nextSharedOnly = Boolean(incoming.sharedOnly);
 
   if (
     current.displayName === incoming.displayName
@@ -32,6 +35,7 @@ export function mergeProjectSelectionMetadata(
     && current.path === nextPath
     && current.isStarred === nextIsStarred
     && valuesMatch(current.taskmaster, nextTaskmaster)
+    && Boolean(current.sharedOnly) === nextSharedOnly
   ) {
     return current;
   }
@@ -43,5 +47,6 @@ export function mergeProjectSelectionMetadata(
     path: nextPath,
     isStarred: nextIsStarred,
     taskmaster: nextTaskmaster,
+    sharedOnly: nextSharedOnly,
   };
 }

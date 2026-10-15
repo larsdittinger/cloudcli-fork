@@ -53,3 +53,11 @@ test('keeps taskmaster metadata when a realtime project snapshot omits it', () =
   assert.equal(result, selectedProject);
   assert.equal(result.taskmaster, selectedProject.taskmaster);
 });
+
+test('picks up sharedOnly from the list for a project opened by URL, and drops it once assigned', () => {
+  const sharedOnly = mergeProjectSelectionMetadata(selectedProject, { ...selectedProject, sharedOnly: true });
+  assert.equal(sharedOnly.sharedOnly, true);
+
+  const assigned = mergeProjectSelectionMetadata(sharedOnly, { ...selectedProject });
+  assert.equal(Boolean(assigned.sharedOnly), false);
+});
