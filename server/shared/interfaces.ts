@@ -58,6 +58,15 @@ export interface IProviderRuntime {
    * task settled), which no chat run tracks but `abort` can still interrupt.
    */
   isLive?(sessionId: string): boolean;
+  /**
+   * Whether the live process is producing a response right now outside any
+   * chat run — a follow-up turn the CLI started on its own when a background
+   * task settled. False while it only waits on its background work.
+   *
+   * For a process the runtime owns this replaces the CLI's registry file,
+   * which an SDK process marks `busy` once at start and never updates.
+   */
+  isMidTurn?(sessionId: string): boolean;
 }
 
 /**

@@ -375,6 +375,7 @@ test('a follow-up turn in a process CloudCLI holds can be stopped', { concurrenc
             run: async () => undefined,
             abort: () => true,
             isLive: (sessionId: string) => sessionId === 'held-session',
+            isMidTurn: (sessionId: string) => sessionId === 'held-session',
           },
         },
         async () => {
@@ -406,6 +407,7 @@ test('a held process mid-turn with tasks left is one stoppable entry', { concurr
             abort: () => true,
             listBackgroundWork: () => [{ sessionId: 'held-tasks', tasks }],
             isLive: () => true,
+            isMidTurn: () => true,
           },
         },
         async () => {
@@ -415,6 +417,51 @@ test('a held process mid-turn with tasks left is one stoppable entry', { concurr
             startedAt: 7_000,
             lastSeq: 0,
             canInterrupt: true,
+            tasks,
+          }]);
+        },
+      ),
+    );
+  });
+});
+
+test('a held process between turns is background work, not a response', { concurrency: false }, async () => {
+  // The CLI an SDK process runs writes `busy` into its registry file when it
+  // starts and never updates it, so for the whole time CloudCLI holds the
+  // process for a background agent the file says busy. Taking that for a
+  // response kept the chat "thinking" and queued every new message until the
+  // agent was done; for its own process only the runtime knows.
+  await withIsolatedDatabase(async () => {
+    sessionsDb.createAppSession('held-idle', 'claude', '/tmp/running-project');
+    sessionsDb.assignProviderSessionId('held-idle', 'claude-native-held-idle');
+    sessionsDb.createAppSession('held-empty', 'claude', '/tmp/running-project');
+    sessionsDb.assignProviderSessionId('held-empty', 'claude-native-held-empty');
+    const tasks = [task('t1', 7_000)];
+
+    await withClaudeCliRegistry(
+      [
+        // The registry is keyed by pid; the parent is the other pid surely alive.
+        { pid: process.ppid, sessionId: 'claude-native-held-idle', status: 'busy', entrypoint: 'sdk-ts', startedAt: 8_000 },
+        { pid: process.pid, sessionId: 'claude-native-held-empty', status: 'busy', entrypoint: 'sdk-ts', startedAt: 9_000 },
+      ],
+      async () => await withProviders(
+        {
+          claude: {
+            run: async () => undefined,
+            abort: () => true,
+            listBackgroundWork: () => [{ sessionId: 'held-idle', tasks }],
+            isLive: () => true,
+            isMidTurn: () => false,
+          },
+        },
+        async () => {
+          assert.deepEqual(await sessionsService.listRunningSessions(), [{
+            sessionId: 'held-idle',
+            provider: 'claude',
+            startedAt: 7_000,
+            lastSeq: 0,
+            background: true,
+            canInterrupt: false,
             tasks,
           }]);
         },

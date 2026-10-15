@@ -1435,6 +1435,24 @@ async function queryClaudeSDK(command, options = {}, ws, context) {
         trackTaskEvent(message);
       }
 
+      // After the turn reported `complete` the process may sit for hours on its
+      // background agents, and the CLI's own registry says `busy` all along.
+      // Only model output from the session itself (an agent's is never
+      // streamed here) means the CLI is answering again — a follow-up turn
+      // for a settled task — until that turn's `result`.
+      const liveEntry = getSession(sessionKey());
+      if (liveEntry && liveEntry.instance === queryInstance) {
+        if (message.type === 'result') {
+          liveEntry.midTurn = false;
+        } else if (
+          turnCompleteSent
+          && (message.type === 'assistant' || message.type === 'stream_event' || message.type === 'user')
+          && !message.parent_tool_use_id
+        ) {
+          liveEntry.midTurn = true;
+        }
+      }
+
       if (message.type === 'result') {
         // The turn is done as far as the client is concerned.
         const abortPending = sessionKey() ? abortedSessionIds.has(sessionKey()) : false;
@@ -1682,6 +1700,18 @@ function isClaudeSDKSessionActive(sessionId) {
 }
 
 /**
+ * Whether a live session's process is producing a response outside any chat
+ * run: a follow-up turn the CLI started by itself when a background task
+ * settled. See `midTurn` in the message loop.
+ * @param {string} sessionId - Session identifier
+ * @returns {boolean} True while such a turn runs
+ */
+function isClaudeSDKSessionMidTurn(sessionId) {
+  const session = getSession(sessionId);
+  return Boolean(session && session.status === 'active' && session.midTurn);
+}
+
+/**
  * When the run behind a session started, or null when no run is up.
  *
  * The history reader uses this to tell a background agent launched by the
@@ -1751,6 +1781,7 @@ export const claudeRuntime = {
   listBackgroundWork: listClaudeSDKBackgroundWork,
   stopBackgroundTask: stopClaudeSDKTask,
   isLive: isClaudeSDKSessionActive,
+  isMidTurn: isClaudeSDKSessionMidTurn,
 };
 
 // Export public API
@@ -1761,6 +1792,7 @@ export {
   listClaudeSDKBackgroundWork,
   stopClaudeSDKTask,
   isClaudeSDKSessionActive,
+  isClaudeSDKSessionMidTurn,
   getClaudeSDKSessionStartTime,
   getActiveClaudeSDKSessions,
   resolveToolApproval,

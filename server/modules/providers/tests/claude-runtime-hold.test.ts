@@ -7,6 +7,7 @@ import test from 'node:test';
 import { ClaudeSessionsProvider } from '@/modules/providers/list/claude/claude-sessions.provider.js';
 import { CLAUDE_PREDEFINED_MODELS } from '@/modules/providers/list/claude/claude-models.provider.js';
 import {
+  isClaudeSDKSessionMidTurn,
   listClaudeSDKBackgroundWork,
   queryClaudeSDK,
   stopClaudeSDKTask,
@@ -155,6 +156,35 @@ test('stopping the last outstanding task releases the held process', async () =>
     assert.deepEqual(listClaudeSDKBackgroundWork(), []);
     assert.equal(script.released(), true, 'the process is let go once nothing is outstanding');
     void done;
+  });
+});
+
+test('a held process is mid-turn only while the CLI answers a settled task', async () => {
+  // The CLI's registry file says `busy` for an SDK process's whole life, so
+  // the running-sessions list asks the runtime instead. Waiting on an agent
+  // must not read as a response: the client would queue every new message.
+  await withRun(async ({ script }) => {
+    script.emit(init());
+    script.emit(toolUse('toolu_agent', 'Agent', { prompt: 'count', run_in_background: true }));
+    script.emit(taskStarted('a1', 'toolu_agent', 'local_agent'));
+    script.emit(ack('toolu_agent', 'Async agent launched successfully.', { status: 'async_launched', agentId: 'a1' }));
+    script.emit(result());
+    await settle();
+    assert.equal(isClaudeSDKSessionMidTurn(SESSION_ID), false, 'the turn is over; the process only waits on its agent');
+
+    script.emit({ type: 'system', subtype: 'task_progress', session_id: NATIVE_ID, task_id: 'a1', description: 'Running sleep', usage: { total_tokens: 1200, tool_uses: 1, duration_ms: 20_000 } });
+    await settle();
+    assert.equal(isClaudeSDKSessionMidTurn(SESSION_ID), false, 'the agent working is not the session answering');
+
+    // The agent settles and the CLI relays its result in a turn of its own.
+    script.emit(taskNotification('a1', 'toolu_agent', 'completed'));
+    script.emit({ type: 'assistant', session_id: NATIVE_ID, parent_tool_use_id: null, message: { role: 'assistant', content: [{ type: 'text', text: 'The agent is done.' }] } });
+    await settle();
+    assert.equal(isClaudeSDKSessionMidTurn(SESSION_ID), true);
+
+    script.emit(result());
+    await settle();
+    assert.equal(isClaudeSDKSessionMidTurn(SESSION_ID), false);
   });
 });
 

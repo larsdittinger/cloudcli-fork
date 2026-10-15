@@ -40,6 +40,13 @@ nasazuje — je v `../CLAUDE.md`.
   součet tokenů, řádek tokeny a „Poslední krok před…“ (po 5 min bez pokroku oranžově „Bez pokroku…“).
   Klik na agenta otevře dialog s jeho přepisem — `GET /api/providers/sessions/:id/agents/:agentId`
   čte `subagents/agent-<taskId>.jsonl` (taskId agenta = agentId), dialog ho čte znovu co 3 s.
+  **Esc nad chatem:** globální zkratka Esc = Zastavit (`ChatInterface`) se nespustí, když je otevřený
+  modální dialog (`aria-modal`) nebo popover s `data-claims-escape` (`utils/escapeOwnership.ts`) — jinak
+  Esc zavírající okno přerušil CLI a zabil všechny agenty na pozadí.
+  **Držený proces není „odpovídá":** SDK proces má v `~/.claude/sessions/<pid>.json` `status: busy` po celý
+  život. U vlastního procesu proto `listRunningSessions` věří `runtime.isMidTurn` (navazující tah, který CLI
+  spustilo samo, od výstupu modelu do `result`), ne souboru — jinak chat „přemýšlel“ a každou novou zprávu
+  odložil do fronty, dokud agent nedoběhl (2026-10-15).
 - **Channels** (`server/modules/channels`, `src/modules/channels`, Settings tab
   `tabs/channels-settings`): příchozí e-mail (imapflow) / WhatsApp (baileys) / webhook
   → pravidla → chat přes `createAppSession` + `runDetachedChatTurn`; odpovědi přes

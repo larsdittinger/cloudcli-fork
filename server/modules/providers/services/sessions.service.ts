@@ -203,6 +203,13 @@ export const sessionsService = {
       // the process is ours, so `chat.abort` can interrupt it.
       const provider = providerRegistry.listProviders().find((entry) => entry.id === session.provider);
       const ownedByCloudCli = Boolean(provider?.runtime.isLive?.(session.session_id));
+      // An SDK process's registry file says `busy` for its whole life, so for a
+      // process CloudCLI owns it is no evidence of a response: between turns the
+      // process only waits on its agents, and reporting a response there kept
+      // the chat "thinking" and queued every new message until they finished.
+      if (ownedByCloudCli && provider?.runtime.isMidTurn && !provider.runtime.isMidTurn(session.session_id)) {
+        continue;
+      }
       const held = backgroundById.get(session.session_id);
       if (held) {
         // Same process, now mid-turn: a response is in flight, not just tasks.
