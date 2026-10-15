@@ -15,6 +15,8 @@ type WorkspaceTabsProps = {
   shouldShowTasksTab: boolean;
   shouldShowBrowserTab: boolean;
   restrictedMode?: boolean;
+  /** Only the Chat tab: a project the user reaches through shared chats alone. */
+  chatOnly?: boolean;
   /** The open project, whose agent tasks the Agent tasks badge counts. */
   projectPath: string;
   /** Admin only: downloads the project as a ZIP (an action, not a tab). */
@@ -85,6 +87,7 @@ export default function WorkspaceTabs({
   shouldShowTasksTab,
   shouldShowBrowserTab,
   restrictedMode = false,
+  chatOnly = false,
   projectPath,
   onDownloadProject,
 }: WorkspaceTabsProps) {
@@ -92,7 +95,9 @@ export default function WorkspaceTabs({
   const { plugins } = usePlugins();
 
   // Restricted users get chat, read-only files and the browser sessions of their projects.
-  const builtInTabs: BuiltInTab[] = restrictedMode
+  const builtInTabs: BuiltInTab[] = chatOnly
+    ? BASE_TABS.filter((tab) => tab.id === 'chat')
+    : restrictedMode
     ? [
         ...BASE_TABS.filter((tab) => RESTRICTED_TAB_IDS.has(tab.id)),
         ...(shouldShowBrowserTab ? [BROWSER_TAB] : []),
@@ -107,7 +112,7 @@ export default function WorkspaceTabs({
 
   // The server lists only the plugins a restricted user may open.
   const pluginTabs: PluginTab[] = plugins
-    .filter((p) => p.enabled)
+    .filter((p) => p.enabled && !chatOnly)
     .map((p) => ({
       kind: 'plugin',
       id: `plugin:${p.name}` as AppTab,

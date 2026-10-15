@@ -76,6 +76,9 @@ function WorkspaceMain({
   const [revealDirectory, setRevealDirectory] = useState<DirectoryRevealRequest | null>(null);
 
   const shouldShowTasksTab = Boolean(tasksEnabled && isTaskMasterInstalled) && isAdmin;
+  // A project a restricted user reaches only through chats shared with them:
+  // its files, browser and plugins stay closed, so only Chat is offered.
+  const isSharedOnlyProject = !isAdmin && Boolean(selectedProject?.sharedOnly);
   const shouldShowBrowserTab = browserUseEnabled;
 
   const {
@@ -111,6 +114,12 @@ function WorkspaceMain({
       setActiveTab('chat');
     }
   }, [isAdmin, activeTab, setActiveTab]);
+
+  useEffect(() => {
+    if (isSharedOnlyProject && activeTab !== 'chat') {
+      setActiveTab('chat');
+    }
+  }, [isSharedOnlyProject, activeTab, setActiveTab]);
 
   useEffect(() => {
     if (!shouldShowBrowserTab && activeTab === 'browser') {
@@ -164,6 +173,7 @@ function WorkspaceMain({
         shouldShowTasksTab={shouldShowTasksTab}
         shouldShowBrowserTab={shouldShowBrowserTab}
         restrictedMode={!isAdmin}
+        chatOnly={isSharedOnlyProject}
         isMobile={isMobile}
         onMenuClick={onMenuClick}
         onRenameSession={onRenameSession}

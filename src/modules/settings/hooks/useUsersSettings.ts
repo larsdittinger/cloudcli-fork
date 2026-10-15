@@ -8,6 +8,10 @@ export type AdminUser = {
   created_at: string;
   last_login: string | null;
   projectIds: string[];
+  /** Reads every chat of the assigned projects (read-only), not only their own. */
+  seesAllSessions?: boolean;
+  /** Chats an admin shared with this user one by one (read-only). */
+  sharedSessions?: Array<{ sessionId: string; title: string | null; projectPath: string | null; sharedAt: string | null }>;
 };
 
 export type AdminProjectOption = {
@@ -123,9 +127,41 @@ export function useUsersSettings() {
     []
   );
 
+  const setUserSeesAllSessions = useCallback(
+    async (userId: number, enabled: boolean): Promise<string | null> => {
+      const response = await api.admin.setUserSeesAllSessions(userId, enabled);
+      if (!response.ok) {
+        return readErrorMessage(response, 'Failed to update chat visibility');
+      }
+      setUsers((current) =>
+        current.map((user) => (user.id === userId ? { ...user, seesAllSessions: enabled } : user))
+      );
+      return null;
+    },
+    []
+  );
+
+  const stopSharingSession = useCallback(
+    async (userId: number, sessionId: string): Promise<string | null> => {
+      const response = await api.admin.removeSessionShare(sessionId, userId);
+      if (!response.ok) {
+        return readErrorMessage(response, 'Failed to stop sharing');
+      }
+      setUsers((current) =>
+        current.map((user) => (user.id === userId
+          ? { ...user, sharedSessions: (user.sharedSessions ?? []).filter((shared) => shared.sessionId !== sessionId) }
+          : user))
+      );
+      return null;
+    },
+    []
+  );
+
   return {
     users,
     projects,
+    setUserSeesAllSessions,
+    stopSharingSession,
     isLoading,
     error,
     refresh,

@@ -10,7 +10,7 @@ import type {
   RefObject,
   TouchEvent,
 } from 'react';
-import { PaperclipIcon, MessageSquareIcon, XIcon, Loader2, ArrowUpIcon, PencilIcon } from 'lucide-react';
+import { PaperclipIcon, MessageSquareIcon, XIcon, Loader2, ArrowUpIcon, PencilIcon, EyeIcon } from 'lucide-react';
 
 import { useVoiceInput } from '@/modules/chat/hooks/useVoiceInput';
 import { useVoiceAvailable } from '@/modules/chat/hooks/useVoiceAvailable';
@@ -45,6 +45,8 @@ type MentionableFile = {
 };
 
 type ChatComposerProps = {
+  /** A chat the user may only watch (shared with a restricted user): the activity shows, the input does not. */
+  readOnly?: boolean;
   pendingPermissionRequests: PendingPermissionRequest[];
   handlePermissionDecision: (
     requestIds: string | string[],
@@ -125,6 +127,7 @@ type ChatComposerProps = {
  * model/permission popovers that drive the next turn.
  */
 export default function ChatComposer({
+  readOnly = false,
   pendingPermissionRequests,
   handlePermissionDecision,
   handleGrantToolPermission,
@@ -275,6 +278,41 @@ export default function ChatComposer({
     : isLoading
       ? t('input.stop')
       : t('input.send');
+
+  if (readOnly) {
+    return (
+      <div className="chat-composer-shell relative flex-shrink-0 px-2 pb-2 pt-0 sm:px-4 sm:pb-4 md:px-4 md:pb-6">
+        <div className="pointer-events-none absolute bottom-full left-1/2 z-10 w-[calc(100%-1rem)] max-w-[54.25rem] -translate-x-1/2 translate-y-px bg-transparent sm:w-[calc(100%-2rem)]">
+          {/* No onAbort: a viewer watches the run, they cannot stop it. */}
+          <ActivityIndicator
+            activity={activity}
+            isInputFocused={false}
+            accessory={activity && hasBackgroundTasks
+              ? <BackgroundTasksTab tasks={backgroundTasks} isInputFocused={false} />
+              : undefined}
+          />
+          {!activity && hasBackgroundTasks && (
+            <div className="absolute bottom-0 left-0">
+              <BackgroundTasksTab tasks={backgroundTasks} isInputFocused={false} />
+            </div>
+          )}
+        </div>
+        <div
+          role="note"
+          className={`mx-auto flex max-w-[54.25rem] items-center gap-2 rounded-xl border border-border/60 bg-muted/40 px-3 py-3 text-sm text-muted-foreground ${
+            activity || hasBackgroundTasks ? 'rounded-t-none' : ''
+          }`}
+        >
+          <EyeIcon className="h-4 w-4 shrink-0" aria-hidden />
+          <span>
+            {t('composer.readOnly', {
+              defaultValue: 'Read only — this chat was shared with you. You can follow it live, but not write into it.',
+            })}
+          </span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="chat-composer-shell relative flex-shrink-0 px-2 pb-2 pt-0 sm:px-4 sm:pb-4 md:px-4 md:pb-6">

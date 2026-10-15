@@ -25,6 +25,7 @@ import { useChatRealtimeHandlers } from '@/modules/chat/hooks/useChatRealtimeHan
 import { useChatComposerState } from '@/modules/chat/hooks/useChatComposerState';
 import { useSessionStore } from '@/modules/chat/hooks/useSessionStore';
 import { useBackgroundTasks } from '@/modules/chat/hooks/useBackgroundTasks';
+import { useSessionReadOnly } from '@/modules/chat/hooks/useSessionReadOnly';
 import {
   useProcessingSessions,
   useSessionProtectionActions,
@@ -289,6 +290,15 @@ function ChatInterface({
     sessionId: currentSessionId || selectedSession?.id || null,
   });
 
+  // A chat shared with a restricted user is watched, not written: no composer,
+  // no edit/fork, no stopping (the server refuses all of it anyway).
+  const isReadOnly = useSessionReadOnly({
+    subscribe,
+    sessionId: currentSessionId || selectedSession?.id || null,
+    selectedSession,
+    selectedProject,
+  });
+
   useChatRealtimeHandlers({
     isActive,
     subscribe,
@@ -333,7 +343,7 @@ function ChatInterface({
   usePaletteOpsRegister({ insertComposerText });
 
   useEffect(() => {
-    if (!canAbortSession) {
+    if (!canAbortSession || isReadOnly) {
       return;
     }
 
@@ -350,7 +360,7 @@ function ChatInterface({
     return () => {
       document.removeEventListener('keydown', handleGlobalEscape, { capture: true });
     };
-  }, [canAbortSession, handleAbortSession]);
+  }, [canAbortSession, handleAbortSession, isReadOnly]);
 
   useEffect(() => {
     return () => {
@@ -523,8 +533,9 @@ function ChatInterface({
               // Editing replaces the turn and everything after it, so it is only
               // offered when the session is idle — a half-truncated transcript with
               // a live stream writing into it is not recoverable.
-              onEditMessage={supportsMessageEditing && !isProcessing ? beginEditMessage : undefined}
-              onForkFromMessage={supportsSessionForking ? handleForkFromMessage : undefined}
+              onEditMessage={supportsMessageEditing && !isProcessing && !isReadOnly ? beginEditMessage : undefined}
+              onForkFromMessage={supportsSessionForking && !isReadOnly ? handleForkFromMessage : undefined}
+              readOnly={isReadOnly}
               onLoadFullTranscript={loadFullTranscript}
             />
           </TranscriptSessionContext.Provider>
@@ -550,6 +561,7 @@ function ChatInterface({
           {/* The composer's background-agents list opens an agent's transcript, which is addressed by session. */}
           <TranscriptSessionContext.Provider value={transcriptSessionValue}>
           <ChatComposer
+          readOnly={isReadOnly}
           pendingPermissionRequests={pendingPermissionRequests}
           handlePermissionDecision={handlePermissionDecision}
           handleGrantToolPermission={handleGrantToolPermission}

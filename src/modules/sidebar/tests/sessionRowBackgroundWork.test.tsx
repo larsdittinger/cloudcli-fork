@@ -17,6 +17,11 @@ import type { Project, SessionWithProvider, SidebarProjectListProps } from '@/sh
 
 const recordedOptionsProps: Record<string, unknown>[] = [];
 
+// Rows offer an admin's Share action, which reads the role from the auth context.
+vi.mock('@/shared/hooks/useIsAdmin', () => ({
+  useIsAdmin: () => true,
+}));
+
 vi.mock('@/modules/sidebar/SessionOptions', () => ({
   default: (props: Record<string, unknown>) => {
     recordedOptionsProps.push(props);
@@ -84,4 +89,34 @@ test('a response in flight still spins and shows no dot', () => {
   assert.equal(container.querySelector('[role="status"]'), null);
   assert.equal(container.querySelectorAll('.animate-spin').length, 1);
   assert.equal(recordedOptionsProps[0].isProcessing, true);
+});
+
+test('a chat shared with a restricted user is marked read-only and offers no rename, fork or delete', () => {
+  const { container } = render(
+    React.createElement(SidebarSessionItem, {
+      project: PROJECT,
+      session: { ...SESSION, readOnly: true },
+      selectedSession: null,
+      needsAttention: false,
+      currentTime: NOW,
+      isEditing: false,
+      renameDraft: '',
+      onRenameDraftChange: noop,
+      onStartEditingSession: noop,
+      onCancelEditingSession: noop,
+      onSaveEditingSession: noop,
+      onProjectSelect: noop,
+      onSessionSelect: noop,
+      onDeleteSession: noop,
+      isSelecting: false,
+      isChecked: false,
+      onToggleSessionSelected: noop,
+      t,
+      isProcessing: false,
+      hasBackgroundWork: false,
+    }),
+  );
+
+  assert.ok(container.querySelector('[aria-label="share.readOnlyRow"]'), 'the row shows the read-only eye');
+  assert.equal(recordedOptionsProps.at(-1)?.readOnly, true);
 });

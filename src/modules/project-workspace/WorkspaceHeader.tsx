@@ -18,6 +18,8 @@ type WorkspaceHeaderProps = {
   shouldShowTasksTab: boolean;
   shouldShowBrowserTab: boolean;
   restrictedMode?: boolean;
+  /** Only the Chat tab: a project the user reaches through shared chats alone. */
+  chatOnly?: boolean;
   isMobile: boolean;
   onMenuClick: () => void;
   /** Persists a new title for a session; resolves false when the backend refuses it. */
@@ -33,6 +35,7 @@ export default function WorkspaceHeader({
   shouldShowTasksTab,
   shouldShowBrowserTab,
   restrictedMode,
+  chatOnly = false,
   isMobile,
   onMenuClick,
   onRenameSession,
@@ -132,6 +135,7 @@ export default function WorkspaceHeader({
                 shouldShowTasksTab={shouldShowTasksTab}
                 shouldShowBrowserTab={shouldShowBrowserTab}
                 restrictedMode={restrictedMode}
+                chatOnly={chatOnly}
                 projectPath={selectedProject.fullPath || selectedProject.path || ''}
                 onDownloadProject={restrictedMode ? undefined : () => downloadProjectArchive(
                   selectedProject.projectId,

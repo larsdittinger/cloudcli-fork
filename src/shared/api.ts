@@ -207,6 +207,15 @@ export const api = {
       put(`/api/admin/users/${userId}/password`, { password }),
     setUserProjects: (userId: number, projectIds: string[]) =>
       put(`/api/admin/users/${userId}/projects`, { projectIds }),
+    // Read-only viewing for restricted users: every chat of their projects, or chats shared one by one.
+    setUserSeesAllSessions: (userId: number, enabled: boolean) =>
+      put(`/api/admin/users/${userId}/sees-all-sessions`, { enabled }),
+    getSessionShares: (sessionId: string) =>
+      get(`/api/admin/sessions/${encodeURIComponent(sessionId)}/shares`),
+    setSessionShares: (sessionId: string, userIds: number[]) =>
+      put(`/api/admin/sessions/${encodeURIComponent(sessionId)}/shares`, { userIds }),
+    removeSessionShare: (sessionId: string, userId: number) =>
+      del(`/api/admin/sessions/${encodeURIComponent(sessionId)}/shares/${userId}`),
   },
 
   auth: {

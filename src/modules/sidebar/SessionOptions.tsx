@@ -1,5 +1,5 @@
-import { useEffect, useRef } from 'react';
-import { Check, Edit2, GitBranch, MoreHorizontal, Trash2, X } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Check, Edit2, GitBranch, MoreHorizontal, Trash2, Users, X } from 'lucide-react';
 import type { TFunction } from 'i18next';
 
 import { ActionMenu } from '@/shared/ui';
@@ -8,6 +8,8 @@ import type { LLMProvider } from '@/shared/types';
 import { useSessionForkingProviders } from '@/shared/hooks/useProviderCapabilities';
 import { useProviderSessionIdCopy } from '@/modules/sidebar/hooks/useProviderSessionIdCopy';
 import { PROVIDER_LABELS } from '@/modules/sidebar/utils/sidebarProjectFormatting';
+import ShareSessionDialog from '@/modules/sidebar/ShareSessionDialog';
+import { useIsAdmin } from '@/shared/hooks/useIsAdmin';
 
 type SessionOptionsProps = {
   sessionId: string;
@@ -31,6 +33,8 @@ type SessionOptionsProps = {
   onFork?: () => void;
   /** Withheld where the row has nowhere to send a delete. */
   canDelete?: boolean;
+  /** Somebody else's chat shared with a restricted user: only copying the id is offered. */
+  readOnly?: boolean;
   className?: string;
   t: TFunction;
 };
@@ -59,10 +63,13 @@ export default function SessionOptions({
   onDeleteSession,
   onFork,
   canDelete = true,
+  readOnly = false,
   className,
   t,
 }: SessionOptionsProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const isAdmin = useIsAdmin();
+  const [isShareOpen, setIsShareOpen] = useState(false);
   const providerLabel = PROVIDER_LABELS[provider];
   const { copyState, copyLabel, setOptionsOpen, handleCopyAction, isCopyPending, CopyStateIcon } =
     useProviderSessionIdCopy(sessionId, providerLabel);
@@ -70,7 +77,7 @@ export default function SessionOptions({
   // Read from the backend capability matrix rather than branching on the
   // provider id here; the request is cached module-side, so every row shares one.
   const forkableProviders = useSessionForkingProviders();
-  const canFork = Boolean(onFork) && forkableProviders.has(provider) && !isProcessing;
+  const canFork = !readOnly && Boolean(onFork) && forkableProviders.has(provider) && !isProcessing;
 
   // While editing, dismiss only when the click lands outside the rename panel,
   // matching Escape and the cancel button.
@@ -160,7 +167,7 @@ export default function SessionOptions({
             </div>
           )}
           items={[
-            ...(projectId !== null ? [{
+            ...(projectId !== null && !readOnly ? [{
               key: 'rename',
               label: 'Rename session',
               icon: Edit2,
@@ -175,6 +182,13 @@ export default function SessionOptions({
               closeOnSelect: false,
               onSelect: handleCopyAction,
             },
+            ...(isAdmin ? [{
+              key: 'share',
+              label: t('share.menuItem', 'Share with users…'),
+              description: t('share.menuDescription', 'Restricted users can read it, not write.'),
+              icon: Users,
+              onSelect: () => setIsShareOpen(true),
+            }] : []),
             ...(canFork && onFork ? [{
               key: 'fork',
               label: 'Fork session',
@@ -182,7 +196,7 @@ export default function SessionOptions({
               icon: GitBranch,
               onSelect: onFork,
             }] : []),
-            ...(canDelete && !isProcessing ? [{
+            ...(canDelete && !readOnly && !isProcessing ? [{
               key: 'delete',
               label: 'Archive or delete session',
               icon: Trash2,
@@ -191,6 +205,14 @@ export default function SessionOptions({
               onSelect: () => onDeleteSession(sessionId, sessionName),
             }] : []),
           ]}
+        />
+      )}
+      {isAdmin && (
+        <ShareSessionDialog
+          sessionId={sessionId}
+          sessionName={sessionName}
+          open={isShareOpen}
+          onOpenChange={setIsShareOpen}
         />
       )}
     </div>

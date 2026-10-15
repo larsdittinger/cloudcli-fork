@@ -63,6 +63,8 @@ type ChatMessagesPaneProps = {
   backgroundTasks?: BackgroundTaskSummary[];
   /** The chat websocket's send, which the background-tasks strip stops a task over. */
   sendMessage: (message: unknown) => void;
+  /** A chat the user may only watch: background agents are listed without Stop. */
+  readOnly?: boolean;
   loadAllMessages: () => void;
   allMessagesLoaded: boolean;
   isLoadingAllMessages: boolean;
@@ -130,6 +132,7 @@ function ChatMessagesPane({
   revealMessage,
   backgroundTasks,
   sendMessage,
+  readOnly = false,
   loadAllMessages,
   allMessagesLoaded,
   isLoadingAllMessages,
@@ -201,7 +204,8 @@ function ChatMessagesPane({
             <BackgroundTasksStrip
               messages={chatMessages}
               tasks={backgroundTasks}
-              sessionId={selectedSession?.id || currentSessionId}
+              // Without a session id the strip offers no Stop; a viewer cannot stop agents.
+              sessionId={readOnly ? null : selectedSession?.id || currentSessionId}
               sendMessage={sendMessage}
               onReveal={revealMessage}
               onLoadAll={loadAllMessages}

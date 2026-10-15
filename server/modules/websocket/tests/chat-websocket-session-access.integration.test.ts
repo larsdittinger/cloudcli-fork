@@ -225,8 +225,13 @@ test('a shared chat can be subscribed to, without its pending approvals', async 
     await socket.emit('message', JSON.stringify({ type: 'chat.subscribe', sessions: [{ sessionId: 'ceo-1' }] }));
 
     assert.deepEqual(
-      socket.sent.map((frame) => [frame.kind, frame.sessionId, (frame as { pendingPermissions?: unknown[] }).pendingPermissions]),
-      [['chat_subscribed', 'ceo-1', []]],
+      socket.sent.map((frame) => [
+        frame.kind,
+        frame.sessionId,
+        (frame as { pendingPermissions?: unknown[] }).pendingPermissions,
+        (frame as { readOnly?: boolean }).readOnly,
+      ]),
+      [['chat_subscribed', 'ceo-1', [], true]],
     );
   }, pendingCeoApproval);
 });

@@ -46,6 +46,11 @@ vi.mock('@/modules/sidebar/hooks/useCompactSidebar', () => ({
   useCompactSidebar: () => isCompactLayout,
 }));
 
+// Rows offer an admin's Share action, which reads the role from the auth context.
+vi.mock('@/shared/hooks/useIsAdmin', () => ({
+  useIsAdmin: () => true,
+}));
+
 const { default: SidebarProjectSessions } = await import('@/modules/sidebar/SidebarProjectSessions');
 const { useSidebarController } = await import('@/modules/sidebar/hooks/useSidebarController');
 

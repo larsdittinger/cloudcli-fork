@@ -1,6 +1,6 @@
 import { memo, useState } from 'react';
 import type { KeyboardEvent } from 'react';
-import { Check, CheckSquare, Edit2, Loader2, MoreHorizontal, Square, Trash2, X } from 'lucide-react';
+import { Check, CheckSquare, Edit2, Eye, Loader2, MoreHorizontal, Square, Trash2, Users, X } from 'lucide-react';
 import type { TFunction } from 'i18next';
 
 import { Badge, Dialog, DialogContent, DialogTitle, LLMProviderLogo, Tooltip, buttonVariants } from '@/shared/ui';
@@ -10,6 +10,8 @@ import { PROVIDER_LABELS, createSessionViewModel, formatCompactAge } from '@/mod
 import { useCompactSidebar } from '@/modules/sidebar/hooks/useCompactSidebar';
 import { useProviderSessionIdCopy } from '@/modules/sidebar/hooks/useProviderSessionIdCopy';
 import SessionOptions from '@/modules/sidebar/SessionOptions';
+import ShareSessionDialog from '@/modules/sidebar/ShareSessionDialog';
+import { useIsAdmin } from '@/shared/hooks/useIsAdmin';
 
 type SidebarSessionItemProps = {
   project: Project;
@@ -66,7 +68,24 @@ function SidebarSessionItem({
   t,
 }: SidebarSessionItemProps) {
   const isCompact = useCompactSidebar();
+  const isAdmin = useIsAdmin();
+  const [isMobileShareOpen, setIsMobileShareOpen] = useState(false);
   const sessionView = createSessionViewModel(session, currentTime, t);
+  // Somebody else's chat shared with this restricted user: they read it, nothing else.
+  const isReadOnly = Boolean(session.readOnly);
+  const sharedWithCount = typeof session.sharedWith === 'number' ? session.sharedWith : 0;
+  const accessIcon = isReadOnly ? (
+    <Tooltip content={t('share.readOnlyRow', 'Shared with you — read only')} position="top">
+      <Eye className="h-3 w-3 flex-shrink-0 text-muted-foreground" aria-label={t('share.readOnlyRow', 'Shared with you — read only')} />
+    </Tooltip>
+  ) : sharedWithCount > 0 ? (
+    <Tooltip content={t('share.sharedRow', { count: sharedWithCount, defaultValue: 'Shared with {{count}} user(s)' })} position="top">
+      <Users
+        className="h-3 w-3 flex-shrink-0 text-muted-foreground"
+        aria-label={t('share.sharedRow', { count: sharedWithCount, defaultValue: 'Shared with {{count}} user(s)' })}
+      />
+    </Tooltip>
+  ) : null;
   const isSelected = selectedSession?.id === session.id;
   const compactSessionAge = formatCompactAge(sessionView.sessionTime, currentTime);
   const [isMobileOptionsOpen, setIsMobileOptionsOpen] = useState(false);
@@ -105,7 +124,7 @@ function SidebarSessionItem({
 
   // A running session cannot be deleted, so it cannot be ticked either; the row
   // still renders, locked, instead of disappearing from the list mid-selection.
-  const isSelectable = isSelecting && !isProcessing;
+  const isSelectable = isSelecting && !isProcessing && !isReadOnly;
   const toggleSelected = () => {
     onToggleSessionSelected(project.projectId, session.id);
   };
@@ -207,6 +226,7 @@ function SidebarSessionItem({
                 >
                   {sessionView.sessionName}
                 </div>
+                {accessIcon}
                 {isProcessing ? (
                   <span className="ml-auto flex-shrink-0">
                     <Tooltip content={t('tooltips.processingSessionIndicator', 'Processing session')} position="top">
@@ -312,6 +332,7 @@ function SidebarSessionItem({
               </div>
             ) : (
               <div className="space-y-2">
+                {!isReadOnly && (
                 <button
                   type="button"
                   onClick={startMobileRename}
@@ -320,6 +341,21 @@ function SidebarSessionItem({
                   <Edit2 className="h-5 w-5 flex-shrink-0" />
                   <span className="text-sm font-medium">Rename session</span>
                 </button>
+                )}
+
+                {isAdmin && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMobileOptionsOpen(false);
+                      setIsMobileShareOpen(true);
+                    }}
+                    className="flex min-h-12 w-full items-center gap-3 rounded-xl border border-border bg-muted/35 px-4 py-3 text-left text-foreground transition-colors active:bg-muted"
+                  >
+                    <Users className="h-5 w-5 flex-shrink-0" />
+                    <span className="text-sm font-medium">{t('share.menuItem', 'Share with users…')}</span>
+                  </button>
+                )}
 
                 <button
                   type="button"
@@ -347,7 +383,7 @@ function SidebarSessionItem({
                   </span>
                 </button>
 
-                {!isProcessing && (
+                {!isProcessing && !isReadOnly && (
                   <button
                     type="button"
                     onClick={() => {
@@ -374,6 +410,14 @@ function SidebarSessionItem({
             )}
           </DialogContent>
         </Dialog>
+        {isAdmin && (
+          <ShareSessionDialog
+            sessionId={session.id}
+            sessionName={sessionView.sessionName}
+            open={isMobileShareOpen}
+            onOpenChange={setIsMobileShareOpen}
+          />
+        )}
       </div>
       )}
 
@@ -431,6 +475,7 @@ function SidebarSessionItem({
                 >
                   {sessionView.sessionName}
                 </div>
+                {accessIcon}
                 {isProcessing ? (
                   <span
                     className={cn(
@@ -478,6 +523,7 @@ function SidebarSessionItem({
             onSaveEditingSession={onSaveEditingSession}
             onDeleteSession={onDeleteSession}
             onFork={onForkSession ? () => onForkSession(session) : undefined}
+            readOnly={isReadOnly}
             t={t}
           />
         )}

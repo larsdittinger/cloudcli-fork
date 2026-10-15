@@ -103,7 +103,10 @@ export default function SidebarProjectSessions({
   // row's options menu applies — so it is not selectable either.
   const isSessionRunning = (session: SessionWithProvider) =>
     activeSessions.has(session.id) && !backgroundSessionIds.has(session.id);
-  const selectableSessionIds = sessions.filter((session) => !isSessionRunning(session)).map((session) => session.id);
+  // A chat the user only reads (shared with them) cannot be deleted by them, so it is never ticked.
+  const selectableSessionIds = sessions
+    .filter((session) => !isSessionRunning(session) && !session.readOnly)
+    .map((session) => session.id);
   // Re-derived from the selectable rows rather than read straight off the
   // selection, so a row that started running after it was ticked drops out of
   // the count, the button and the ids the confirmation is opened with.
@@ -124,7 +127,8 @@ export default function SidebarProjectSessions({
 
   return (
     <div className="ml-3 space-y-1 border-l border-border pl-3">
-      {isCompact ? (
+      {/* A project reached only through shared chats is read-only: no new chat there. */}
+      {project.sharedOnly ? null : isCompact ? (
         <div className="px-3 pb-1 pt-1">
           <button
             className="flex h-8 w-full items-center justify-center gap-2 rounded-md bg-primary text-xs font-medium text-primary-foreground transition-all duration-150 hover:bg-primary/90 active:scale-[0.98]"

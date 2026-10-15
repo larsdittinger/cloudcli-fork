@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { KeyRound, Plus, Trash2 } from 'lucide-react';
+import { KeyRound, Plus, Trash2, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import { Badge, Button, Input } from '@/shared/ui';
@@ -14,9 +14,19 @@ type UserRowProps = {
   onDelete: (userId: number) => Promise<string | null>;
   onSetPassword: (userId: number, password: string) => Promise<string | null>;
   onSetProjects: (userId: number, projectIds: string[]) => Promise<string | null>;
+  onSetSeesAllSessions: (userId: number, enabled: boolean) => Promise<string | null>;
+  onStopSharing: (userId: number, sessionId: string) => Promise<string | null>;
 };
 
-function UserRow({ user, projects, onDelete, onSetPassword, onSetProjects }: UserRowProps) {
+function UserRow({
+  user,
+  projects,
+  onDelete,
+  onSetPassword,
+  onSetProjects,
+  onSetSeesAllSessions,
+  onStopSharing,
+}: UserRowProps) {
   const { t } = useTranslation('settings');
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [showPasswordInput, setShowPasswordInput] = useState(false);
@@ -154,6 +164,67 @@ function UserRow({ user, projects, onDelete, onSetPassword, onSetProjects }: Use
         </div>
       )}
 
+      {isRestricted && (
+        <div className="space-y-1.5">
+          <label className="flex cursor-pointer items-start gap-2 text-sm text-foreground">
+            <input
+              type="checkbox"
+              checked={Boolean(user.seesAllSessions)}
+              onChange={async (event) => {
+                setRowError(null);
+                const errorMessage = await onSetSeesAllSessions(user.id, event.target.checked);
+                if (errorMessage) setRowError(errorMessage);
+              }}
+              className="mt-0.5 h-3.5 w-3.5 rounded border-border"
+            />
+            <span>
+              {t('users.seesAllSessions', 'Sees all chats in allowed projects')}
+              <span className="block text-xs text-muted-foreground">
+                {t(
+                  'users.seesAllSessionsHint',
+                  'Read only, including your chats and the ones agents start (Channels, Schedules, Tasks). They still write only into their own chats.',
+                )}
+              </span>
+            </span>
+          </label>
+
+          {(user.sharedSessions?.length ?? 0) > 0 && (
+            <div>
+              <p className="mb-1 text-xs font-medium text-muted-foreground">
+                {t('users.sharedSessions', 'Chats shared with this user (read only)')}
+              </p>
+              <div className="flex flex-col gap-0.5">
+                {user.sharedSessions!.map((shared) => (
+                  <div key={shared.sessionId} className="flex items-center gap-2 text-sm text-foreground">
+                    <span className="min-w-0 flex-1 truncate" title={shared.projectPath ?? undefined}>
+                      {shared.title || shared.sessionId}
+                      {shared.projectPath && (
+                        <span className="ml-1.5 text-xs text-muted-foreground">
+                          {shared.projectPath.split('/').filter(Boolean).pop()}
+                        </span>
+                      )}
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 px-1.5 text-muted-foreground"
+                      title={t('users.stopSharing', 'Stop sharing')}
+                      onClick={async () => {
+                        setRowError(null);
+                        const errorMessage = await onStopSharing(user.id, shared.sessionId);
+                        if (errorMessage) setRowError(errorMessage);
+                      }}
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {rowError && <p className="text-xs text-red-500">{rowError}</p>}
       {rowNotice && <p className="text-xs text-emerald-500">{rowNotice}</p>}
     </div>
@@ -171,6 +242,8 @@ export default function UsersSettingsTab() {
     deleteUser,
     setUserPassword,
     setUserProjects,
+    setUserSeesAllSessions,
+    stopSharingSession,
   } = useUsersSettings();
 
   const [newUsername, setNewUsername] = useState('');
@@ -202,7 +275,7 @@ export default function UsersSettingsTab() {
         title={t('users.title', 'Users')}
         description={t(
           'users.description',
-          'Manage accounts. Restricted users only see the projects you assign to them and can only use the chat.'
+          'Manage accounts. Restricted users only see the projects you assign to them and can only use the chat. To show them one of your chats, use “Share with users…” in the chat’s menu.'
         )}
       >
         <SettingsCard divided>
@@ -220,6 +293,8 @@ export default function UsersSettingsTab() {
               onDelete={deleteUser}
               onSetPassword={setUserPassword}
               onSetProjects={setUserProjects}
+              onSetSeesAllSessions={setUserSeesAllSessions}
+              onStopSharing={stopSharingSession}
             />
           ))}
         </SettingsCard>

@@ -96,6 +96,10 @@ export type ProjectSession = {
   // Tags the session with the owning project's DB `projectId` so UI handlers
   // (session switching, sidebar focus, etc.) can match against selectedProject.
   __projectId?: string;
+  /** Restricted users: somebody else's chat they may only read (shared, or "sees all chats"). */
+  readOnly?: boolean;
+  /** Admins: how many restricted users the chat is shared with. */
+  sharedWith?: number;
   [key: string]: unknown;
 };
 
@@ -128,6 +132,8 @@ export type Project = {
   sessions?: ProjectSession[];
   sessionMeta?: ProjectSessionMeta;
   taskmaster?: ProjectTaskmasterInfo;
+  /** Restricted users: a project they were not assigned and only see because a chat in it was shared with them. */
+  sharedOnly?: boolean;
   [key: string]: unknown;
 };
 
@@ -1616,7 +1622,10 @@ export type ArchivedSessionListItem = {
 export type RecentConversationListItem = Pick<
   ArchivedSessionListItem,
   'sessionId' | 'provider' | 'projectId' | 'projectDisplayName' | 'sessionTitle' | 'lastActivity'
->;
+> & {
+  /** Restricted users: somebody else's chat they may only read. */
+  readOnly?: boolean;
+};
 
 /**
  * The rename the sidebar currently has open, if any.

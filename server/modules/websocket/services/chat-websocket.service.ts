@@ -613,6 +613,8 @@ function handleChatSubscribe(
       lastSeq: run?.lastSeq ?? 0,
       pendingPermissions,
       backgroundTasks,
+      // Tells the client to show the chat without a composer: it may watch, not write.
+      ...(canWrite ? {} : { readOnly: true }),
       timestamp: new Date().toISOString(),
     });
 

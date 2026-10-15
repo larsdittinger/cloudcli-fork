@@ -1317,9 +1317,13 @@ export function useChatComposerState({
         return;
       }
 
+      // The server only takes a restricted user's answer for a request pending
+      // in a chat they own, so every answer names its chat.
+      const sessionId = currentSessionId || selectedSession?.id || null;
       validIds.forEach((requestId) => {
         sendMessage({
           type: 'chat.permission-response',
+          sessionId,
           requestId,
           allow: Boolean(decision?.allow),
           updatedInput: decision?.updatedInput,
@@ -1332,7 +1336,7 @@ export function useChatComposerState({
         previous.filter((request) => !validIds.includes(request.requestId)),
       );
     },
-    [sendMessage, setPendingPermissionRequests],
+    [currentSessionId, selectedSession?.id, sendMessage, setPendingPermissionRequests],
   );
 
   const [isInputFocused, setIsInputFocused] = useState(false);
