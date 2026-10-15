@@ -23,6 +23,7 @@ import { AppError, asyncHandler, createApiSuccessResponse } from '@/shared/utils
 import {
   assertProjectPathAccess,
   assertSessionAccess,
+  assertSessionRead,
   requireAdmin,
   resolveSessionOwnerScope,
 } from '@/modules/auth/index.js';
@@ -47,10 +48,19 @@ function readSessionOwnerScope(request: Request): number | null {
  * this guard, so a restricted user cannot read, rename, delete, or reconfigure
  * a chat that belongs to somebody else. Registering it as a router param keeps
  * new `:sessionId` routes covered by default instead of by remembering.
+ *
+ * GET routes only read, so a chat shared with the user (or visible through
+ * "sees all chats") passes them; every other method changes the chat or its
+ * settings and stays with the owner.
  */
 router.param('sessionId', (request, _response, next, value) => {
   try {
-    assertSessionAccess(readAuthenticatedUser(request), String(value));
+    const user = readAuthenticatedUser(request);
+    if (request.method === 'GET' || request.method === 'HEAD') {
+      assertSessionRead(user, String(value));
+    } else {
+      assertSessionAccess(user, String(value));
+    }
     next();
   } catch (error) {
     next(error);

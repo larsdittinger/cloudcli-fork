@@ -2,11 +2,11 @@ import path from 'node:path';
 
 import type { WebSocket } from 'ws';
 
-import { canAccessSession } from '@/modules/auth/index.js';
+import { canAccessSession, canReadSession, resolveSessionOwnerScope } from '@/modules/auth/index.js';
 import { sessionsDb } from '@/modules/database/index.js';
 import { providerModelsService, sessionsService } from '@/modules/providers/index.js';
 import { chatRunRegistry } from '@/modules/websocket/services/chat-run-registry.service.js';
-import { connectedClients, WS_OPEN_STATE } from '@/modules/websocket/services/websocket-state.service.js';
+import { connectedClients, connectionUsers, WS_OPEN_STATE } from '@/modules/websocket/services/websocket-state.service.js';
 import {
   getGlobalImageAssetsDir,
   isImageAttachmentDescriptor,
@@ -503,12 +503,18 @@ async function handleChatAbort(
  */
 async function handleChatStopTask(
   ws: WebSocket,
+  user: AuthenticatedWebSocketUser | undefined,
   data: AnyRecord,
   dependencies: ChatWebSocketDependencies
 ): Promise<void> {
   const sessionId = readRequiredSessionId(data);
   if (!sessionId) {
     sendProtocolError(ws, 'SESSION_ID_REQUIRED', 'chat.stop-task requires a sessionId.');
+    return;
+  }
+
+  // Stopping an agent is writing to the chat: a viewer of a shared chat may watch it, not end it.
+  if (denySessionAccess(ws, user, sessionId)) {
     return;
   }
 
@@ -569,10 +575,12 @@ function handleChatSubscribe(
 
     // Subscribing to a session the user cannot see is dropped without an
     // error frame: the client subscribes in batches and an unknown id is not
-    // worth telling it apart from one that belongs to somebody else.
-    if (!canAccessSession(user, sessionId)) {
+    // worth telling it apart from one that belongs to somebody else. A chat
+    // shared with the user is watched live, read-only.
+    if (!canReadSession(user, sessionId)) {
       continue;
     }
+    const canWrite = canAccessSession(user, sessionId);
 
     const lastSeqRaw = (target as AnyRecord).lastSeq;
     const lastSeq = typeof lastSeqRaw === 'number' && Number.isFinite(lastSeqRaw)
@@ -595,7 +603,8 @@ function handleChatSubscribe(
 
     // Pending approvals are tracked under the app session id inside the
     // Claude runtime, so they can be looked up directly.
-    const pendingPermissions = dependencies.runtime.getPendingApprovalsForSession(sessionId);
+    // Only the chat's owner answers them, so a read-only viewer is not handed the request ids.
+    const pendingPermissions = canWrite ? dependencies.runtime.getPendingApprovalsForSession(sessionId) : [];
 
     sendJson(ws, {
       kind: 'chat_subscribed',
@@ -624,9 +633,32 @@ function handleChatSubscribe(
  * pending approval resolver (Claude is the only provider with interactive
  * approvals today, but the message is intentionally provider-neutral).
  */
-function handlePermissionResponse(data: AnyRecord, dependencies: ChatWebSocketDependencies): void {
+function handlePermissionResponse(
+  ws: WebSocket,
+  user: AuthenticatedWebSocketUser | undefined,
+  data: AnyRecord,
+  dependencies: ChatWebSocketDependencies,
+): void {
   if (typeof data.requestId !== 'string' || data.requestId.length === 0) {
     return;
+  }
+
+  // A restricted user watching a shared chat sees its live permission requests
+  // on the stream, request ids included. They may only answer requests of a
+  // chat they own, so the frame must name it and the id must be pending there.
+  if (resolveSessionOwnerScope(user) !== null) {
+    const sessionId = readRequiredSessionId(data);
+    if (!sessionId || denySessionAccess(ws, user, sessionId)) {
+      if (!sessionId) {
+        sendProtocolError(ws, 'SESSION_ACCESS_DENIED', 'Session access denied');
+      }
+      return;
+    }
+    const pending = dependencies.runtime.getPendingApprovalsForSession(sessionId) as Array<{ requestId?: unknown }>;
+    if (!pending.some((request) => request.requestId === data.requestId)) {
+      sendProtocolError(ws, 'SESSION_ACCESS_DENIED', 'Session access denied', sessionId);
+      return;
+    }
   }
 
   dependencies.runtime.resolveToolApproval(data.requestId, {
@@ -726,6 +758,7 @@ export function handleChatConnection(
   connectedClients.add(ws);
 
   const user = request?.user;
+  connectionUsers.set(ws, user);
   const userId = readRequestUserId(request);
 
   ws.on('message', async (rawMessage) => {
@@ -749,13 +782,13 @@ export function handleChatConnection(
           await handleChatAbort(ws, user, data, dependencies);
           return;
         case 'chat.stop-task':
-          await handleChatStopTask(ws, data, dependencies);
+          await handleChatStopTask(ws, user, data, dependencies);
           return;
         case 'chat.subscribe':
           handleChatSubscribe(ws, user, data, dependencies);
           return;
         case 'chat.permission-response':
-          handlePermissionResponse(data, dependencies);
+          handlePermissionResponse(ws, user, data, dependencies);
           return;
         default:
           sendProtocolError(ws, 'UNKNOWN_MESSAGE_TYPE', `Unknown message type "${messageType}".`);

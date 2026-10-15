@@ -9,7 +9,7 @@ import { AppError, asyncHandler, createApiSuccessResponse } from '@/shared/utils
 import { getArchivedProjectsWithSessions, getProjectSessionsPage, getProjectsWithSessions } from '@/modules/projects/services/projects-with-sessions-fetch.service.js';
 import { deleteOrArchiveProject, restoreArchivedProject } from '@/modules/projects/services/project-delete.service.js';
 import { applyLegacyStarredProjectIds, toggleProjectStar } from '@/modules/projects/services/project-star.service.js';
-import { userProjectAccessDb } from '@/modules/database/index.js';
+import { projectsDb, sessionSharesDb, userProjectAccessDb } from '@/modules/database/index.js';
 import { resolveSessionOwnerScope } from '@/modules/auth/index.js';
 
 /**
@@ -55,8 +55,35 @@ function assertProjectAccess(req: express.Request, projectId: string): void {
 }
 
 /**
- * Owner id the listed sessions must belong to, or `null` when the caller sees
- * every chat in the project (admins).
+ * Projects a restricted user was not assigned but where an admin shared a chat
+ * with them. The sidebar shows such a project with just the shared chats
+ * (`sharedOnly`), and its session pages may be read; files, new chats and
+ * everything else stay closed because those check the grant itself.
+ */
+function listSharedOnlyProjectIds(userId: number): Set<string> {
+  const ids = new Set<string>();
+  for (const projectPath of sessionSharesDb.listProjectPathsSharedWithUser(userId)) {
+    const project = projectsDb.getProjectPath(projectPath);
+    if (project && !userProjectAccessDb.canAccess(userId, project.project_id)) {
+      ids.add(project.project_id);
+    }
+  }
+  return ids;
+}
+
+/** Like `assertProjectAccess`, but also lets in a project that only holds chats shared with the user. */
+function assertProjectSessionsAccess(req: express.Request, projectId: string): void {
+  const user = readAuthenticatedUser(req);
+  if (isRestrictedUser(user) && listSharedOnlyProjectIds(Number(user.id)).has(projectId)) {
+    return;
+  }
+  assertProjectAccess(req, projectId);
+}
+
+/**
+ * Viewer id the listed sessions are scoped to, or `null` when the caller sees
+ * every chat in the project (admins). A restricted viewer gets their own chats
+ * plus the ones they may read (see `sessions.db.ts`).
  */
 function readSessionOwnerScope(req: express.Request): number | null {
   return resolveSessionOwnerScope(readAuthenticatedUser(req));
@@ -121,7 +148,12 @@ router.get(
       const allowedProjectIds = new Set(
         userProjectAccessDb.listProjectIdsForUser(Number(user.id))
       );
-      res.json(projects.filter((project) => allowedProjectIds.has(project.projectId)));
+      const sharedOnlyProjectIds = listSharedOnlyProjectIds(Number(user.id));
+      res.json(
+        projects
+          .filter((project) => allowedProjectIds.has(project.projectId) || sharedOnlyProjectIds.has(project.projectId))
+          .map((project) => (sharedOnlyProjectIds.has(project.projectId) ? { ...project, sharedOnly: true } : project)),
+      );
       return;
     }
 
@@ -145,7 +177,7 @@ router.get(
   '/:projectId/sessions',
   asyncHandler(async (req, res) => {
     const projectId = typeof req.params.projectId === 'string' ? req.params.projectId : '';
-    assertProjectAccess(req, projectId);
+    assertProjectSessionsAccess(req, projectId);
     const limit = parseNonNegativeIntQuery(req.query.limit, 'limit', 20);
     const offset = parseNonNegativeIntQuery(req.query.offset, 'offset', 0);
     const sessionsPage = await getProjectSessionsPage(projectId, {

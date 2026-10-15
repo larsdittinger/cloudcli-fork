@@ -31,21 +31,44 @@ const SESSION_ROW_COLUMNS =
   'session_id, provider, provider_session_id, project_path, jsonl_path, custom_name, model, effort, owner_user_id, forked_from_session_id, isArchived, created_at, updated_at';
 
 /**
- * Owner scope for session queries.
+ * Viewer scope for session queries.
  *
  * `null`/`undefined` means "no filter" — the caller sees every session, which
- * is what an admin gets. A user id restricts the result to that user's own
- * sessions; rows with a NULL owner never match, so sessions created before
- * multi-user or outside the web app stay admin-only.
+ * is what an admin gets. A user id restricts the result to what that
+ * restricted user may read (`viewerScopeClause`); rows with a NULL owner only
+ * match through a share or the "sees all chats" flag, so sessions created
+ * before multi-user or outside the web app stay admin-only by default.
  */
 export type SessionOwnerScope = number | null | undefined;
 
-function ownerScopeClause(ownerUserId: SessionOwnerScope, column = 'owner_user_id'): string {
-  return typeof ownerUserId === 'number' ? ` AND ${column} = ?` : '';
+/**
+ * The read rule for a restricted user, as one SQL condition: their own chats,
+ * chats an admin shared with them, and — when their `sees_all_sessions` flag
+ * is on — every chat of a project they were assigned. Reading is not writing:
+ * only the owner may continue a chat (`canAccessSession` in the auth module).
+ *
+ * `table` qualifies the columns for queries that join another table.
+ */
+function viewerScopeClause(ownerUserId: SessionOwnerScope, table?: string): string {
+  if (typeof ownerUserId !== 'number') {
+    return '';
+  }
+  const column = (name: string) => (table ? `${table}.${name}` : name);
+  return ` AND (
+    ${column('owner_user_id')} = ?
+    OR ${column('session_id')} IN (SELECT share.session_id FROM session_shares share WHERE share.user_id = ?)
+    OR ${column('project_path')} IN (
+      SELECT granted.project_path
+      FROM user_project_access grant_row
+      JOIN projects granted ON granted.project_id = grant_row.project_id
+      JOIN users viewer ON viewer.id = grant_row.user_id
+      WHERE grant_row.user_id = ? AND viewer.sees_all_sessions = 1
+    )
+  )`;
 }
 
-function ownerScopeParams(ownerUserId: SessionOwnerScope): number[] {
-  return typeof ownerUserId === 'number' ? [ownerUserId] : [];
+function viewerScopeParams(ownerUserId: SessionOwnerScope): number[] {
+  return typeof ownerUserId === 'number' ? [ownerUserId, ownerUserId, ownerUserId] : [];
 }
 
 const SQLITE_UTC_TIMESTAMP_REGEX = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/;
@@ -493,6 +516,20 @@ export const sessionsDb = {
     return row.owner_user_id ?? null;
   },
 
+  /**
+   * Whether the restricted user may read the session (own, shared with them,
+   * or in an assigned project while their "sees all chats" flag is on).
+   * Missing rows read as false; callers decide what an unknown id means.
+   */
+  isSessionReadableBy(sessionId: string, userId: number): boolean {
+    const db = getConnection();
+    const row = db
+      .prepare(`SELECT 1 FROM sessions WHERE session_id = ?${viewerScopeClause(userId)}`)
+      .get(sessionId, ...viewerScopeParams(userId));
+    return row !== undefined;
+  },
+
+
   getSessionById(sessionId: string): SessionRow | null {
     const db = getConnection();
     const row = db
@@ -597,9 +634,9 @@ export const sessionsDb = {
     const visibilityClause = `
       sessions.isArchived = 0
       AND (projects.isArchived IS NULL OR projects.isArchived = 0)
-      ${ownerScopeClause(ownerUserId, 'sessions.owner_user_id')}
+      ${viewerScopeClause(ownerUserId, 'sessions')}
     `;
-    const ownerParams = ownerScopeParams(ownerUserId);
+    const ownerParams = viewerScopeParams(ownerUserId);
     const rows = db
       .prepare(
         `SELECT sessions.*
@@ -636,10 +673,10 @@ export const sessionsDb = {
       .prepare(
         `SELECT ${SESSION_ROW_COLUMNS}
          FROM sessions
-         WHERE isArchived = 1${ownerScopeClause(ownerUserId)}
+         WHERE isArchived = 1${viewerScopeClause(ownerUserId)}
          ORDER BY datetime(COALESCE(updated_at, created_at)) DESC, session_id DESC`
       )
-      .all(...ownerScopeParams(ownerUserId)) as SessionRow[];
+      .all(...viewerScopeParams(ownerUserId)) as SessionRow[];
 
     return normalizeSessionRows(rows);
   },
@@ -652,9 +689,9 @@ export const sessionsDb = {
         `SELECT ${SESSION_ROW_COLUMNS}
          FROM sessions
          WHERE project_path = ?
-           AND isArchived = 0${ownerScopeClause(ownerUserId)}`
+           AND isArchived = 0${viewerScopeClause(ownerUserId)}`
       )
-      .all(normalizedProjectPath, ...ownerScopeParams(ownerUserId)) as SessionRow[];
+      .all(normalizedProjectPath, ...viewerScopeParams(ownerUserId)) as SessionRow[];
 
     return normalizeSessionRows(rows);
   },
@@ -690,11 +727,11 @@ export const sessionsDb = {
         `SELECT ${SESSION_ROW_COLUMNS}
          FROM sessions
          WHERE project_path = ?
-           AND isArchived = 0${ownerScopeClause(ownerUserId)}
+           AND isArchived = 0${viewerScopeClause(ownerUserId)}
          ORDER BY datetime(COALESCE(updated_at, created_at)) DESC, session_id DESC
          LIMIT ? OFFSET ?`
       )
-      .all(normalizedProjectPath, ...ownerScopeParams(ownerUserId), limit, offset) as SessionRow[];
+      .all(normalizedProjectPath, ...viewerScopeParams(ownerUserId), limit, offset) as SessionRow[];
 
     return normalizeSessionRows(rows);
   },
@@ -707,9 +744,9 @@ export const sessionsDb = {
         `SELECT COUNT(*) AS count
          FROM sessions
          WHERE project_path = ?
-           AND isArchived = 0${ownerScopeClause(ownerUserId)}`
+           AND isArchived = 0${viewerScopeClause(ownerUserId)}`
       )
-      .get(normalizedProjectPath, ...ownerScopeParams(ownerUserId)) as { count: number } | undefined;
+      .get(normalizedProjectPath, ...viewerScopeParams(ownerUserId)) as { count: number } | undefined;
 
     return Number(row?.count ?? 0);
   },
@@ -748,6 +785,8 @@ export const sessionsDb = {
 
   deleteSessionById(sessionId: string): boolean {
     const db = getConnection();
+    // A share outliving its chat would hand the id to whoever reuses it.
+    db.prepare('DELETE FROM session_shares WHERE session_id = ?').run(sessionId);
     return db.prepare('DELETE FROM sessions WHERE session_id = ?').run(sessionId).changes > 0;
   },
 

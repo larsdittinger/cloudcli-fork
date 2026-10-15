@@ -19,6 +19,8 @@ export type {
   SessionDraftRecord,
 } from '@/modules/database/repositories/session-drafts.db.js';
 export { sessionsDb } from '@/modules/database/repositories/sessions.db.js';
+// sessionSharesDb: used by Admin (share a chat with restricted users) and Projects (list projects that hold a shared chat).
+export { sessionSharesDb } from '@/modules/database/repositories/session-shares.db.js';
 export { userDb } from '@/modules/database/repositories/users.js';
 export type { UserRole } from '@/modules/database/repositories/users.js';
 // userProjectAccessDb: used by Admin and Projects modules for restricted-user project grants.

@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { closeConnection, initializeDatabase, sessionsDb } from '@/modules/database/index.js';
+import { closeConnection, initializeDatabase, sessionSharesDb, sessionsDb, userDb } from '@/modules/database/index.js';
 import { handleChatConnection } from '@/modules/websocket/services/chat-websocket.service.js';
 import type { AuthenticatedWebSocketRequest, AuthenticatedWebSocketUser } from '@/shared/types.js';
 
@@ -194,5 +194,93 @@ test('an admin socket reaches every session', async () => {
       socket.sent.map((frame) => [frame.kind, frame.sessionId]),
       [['chat_subscribed', 'theirs-1']],
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A chat an admin shared with a restricted user: watched live, never written.
+// ---------------------------------------------------------------------------
+
+// In a fresh database the admin gets id 1 and the first restricted user id 2.
+const viewer: AuthenticatedWebSocketUser = { id: 2, role: 'restricted' };
+
+function seedSharedChat(): void {
+  userDb.createUser('admin', 'hash');
+  const viewerId = Number(userDb.createUserWithRole('viewer', 'hash', 'restricted').id);
+  assert.equal(viewerId, 2);
+  sessionsDb.createAppSession('ceo-1', 'claude', '/workspace/ceo', 'CEO chat', null);
+  sessionSharesDb.setUsersForSession('ceo-1', [viewerId]);
+}
+
+const pendingCeoApproval = {
+  getPendingApprovalsForSession: (sessionId: string) => (
+    sessionId === 'ceo-1' ? [{ requestId: 'req-1', toolName: 'Bash', sessionId }] : []
+  ),
+};
+
+test('a shared chat can be subscribed to, without its pending approvals', async () => {
+  await withChatSocket(viewer, async (socket) => {
+    seedSharedChat();
+
+    await socket.emit('message', JSON.stringify({ type: 'chat.subscribe', sessions: [{ sessionId: 'ceo-1' }] }));
+
+    assert.deepEqual(
+      socket.sent.map((frame) => [frame.kind, frame.sessionId, (frame as { pendingPermissions?: unknown[] }).pendingPermissions]),
+      [['chat_subscribed', 'ceo-1', []]],
+    );
+  }, pendingCeoApproval);
+});
+
+test('a shared chat refuses send, abort and stopping an agent', async () => {
+  await withChatSocket(viewer, async (socket) => {
+    seedSharedChat();
+
+    await socket.emit('message', JSON.stringify({ type: 'chat.send', sessionId: 'ceo-1', content: 'hi' }));
+    await socket.emit('message', JSON.stringify({ type: 'chat.abort', sessionId: 'ceo-1' }));
+    await socket.emit('message', JSON.stringify({ type: 'chat.stop-task', sessionId: 'ceo-1', taskId: 'agent-1' }));
+
+    assert.deepEqual(
+      socket.sent.map((frame) => [frame.kind, frame.code]),
+      [
+        ['protocol_error', 'SESSION_ACCESS_DENIED'],
+        ['protocol_error', 'SESSION_ACCESS_DENIED'],
+        ['protocol_error', 'SESSION_ACCESS_DENIED'],
+      ],
+    );
+  }, { stopBackgroundTask: async () => assert.fail('a viewer must not stop an agent') });
+});
+
+test('a viewer cannot answer a permission request of a shared chat', async () => {
+  const resolved: string[] = [];
+  await withChatSocket(viewer, async (socket) => {
+    seedSharedChat();
+
+    // With and without naming the chat: both are refused.
+    await socket.emit('message', JSON.stringify({ type: 'chat.permission-response', requestId: 'req-1', allow: true }));
+    await socket.emit('message', JSON.stringify({
+      type: 'chat.permission-response', sessionId: 'ceo-1', requestId: 'req-1', allow: true,
+    }));
+
+    assert.deepEqual(resolved, []);
+  }, { ...pendingCeoApproval, resolveToolApproval: (requestId: string) => { resolved.push(requestId); } });
+});
+
+test('a restricted owner answers a permission request of their own chat', async () => {
+  const resolved: string[] = [];
+  await withChatSocket(restricted, async (socket) => {
+    sessionsDb.createAppSession('mine-1', 'claude', '/workspace/demo', 'Mine', 7);
+
+    await socket.emit('message', JSON.stringify({
+      type: 'chat.permission-response', sessionId: 'mine-1', requestId: 'req-9', allow: true,
+    }));
+    // An id pending in another chat is not theirs to answer.
+    await socket.emit('message', JSON.stringify({
+      type: 'chat.permission-response', sessionId: 'mine-1', requestId: 'req-other', allow: true,
+    }));
+
+    assert.deepEqual(resolved, ['req-9']);
+  }, {
+    getPendingApprovalsForSession: (sessionId: string) => (sessionId === 'mine-1' ? [{ requestId: 'req-9' }] : []),
+    resolveToolApproval: (requestId: string) => { resolved.push(requestId); },
   });
 });

@@ -4,12 +4,20 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { closeConnection, initializeDatabase, sessionsDb } from '@/modules/database/index.js';
+import {
+  closeConnection,
+  initializeDatabase,
+  projectsDb,
+  sessionSharesDb,
+  sessionsDb,
+  userDb,
+  userProjectAccessDb,
+} from '@/modules/database/index.js';
 import {
   broadcastSessionUpserted,
   broadcastSessionUpsertedBatch,
 } from '@/modules/websocket/services/session-upsert-broadcast.service.js';
-import { connectedClients } from '@/modules/websocket/services/websocket-state.service.js';
+import { connectedClients, connectionUsers } from '@/modules/websocket/services/websocket-state.service.js';
 
 class FakeConnection {
   readyState = 1; // WS_OPEN_STATE
@@ -134,5 +142,35 @@ test('a closed socket is skipped', async () => {
 
     assert.equal(open.frames.length, 1);
     assert.deepEqual(closing.frames, []);
+  });
+});
+
+test('restricted sockets only hear about chats they may read, flagged read-only', async () => {
+  await withIsolatedDatabase(async () => {
+    userDb.createUser('admin', 'hash');
+    const viewerId = Number(userDb.createUserWithRole('viewer', 'hash', 'restricted').id);
+    const marketing = projectsDb.createProjectPath('/workspace/marketing');
+    userProjectAccessDb.setProjectsForUser(viewerId, [marketing.project!.project_id]);
+    sessionsDb.createAppSession('own', 'claude', '/workspace/marketing', 'Own', viewerId);
+    sessionsDb.createAppSession('ceo-shared', 'claude', '/workspace/ceo', 'Shared', null);
+    sessionsDb.createAppSession('ceo-private', 'claude', '/workspace/ceo', 'Private', null);
+    sessionSharesDb.setUsersForSession('ceo-shared', [viewerId]);
+
+    const admin = new FakeConnection();
+    const viewer = new FakeConnection();
+    connectedClients.add(admin as never);
+    connectedClients.add(viewer as never);
+    connectionUsers.set(admin as never, { id: 1, role: 'admin' });
+    connectionUsers.set(viewer as never, { userId: viewerId, role: 'restricted' });
+
+    await broadcastSessionUpsertedBatch(['own', 'ceo-shared', 'ceo-private']);
+
+    assert.deepEqual(admin.frames.map((frame) => frame.sessionId), ['own', 'ceo-shared', 'ceo-private']);
+    assert.equal((admin.frames[1].session as { sharedWith?: number }).sharedWith, 1);
+    assert.deepEqual(viewer.frames.map((frame) => frame.sessionId), ['own', 'ceo-shared']);
+    assert.equal((viewer.frames[0].session as { readOnly?: boolean }).readOnly, undefined);
+    assert.equal((viewer.frames[1].session as { readOnly?: boolean }).readOnly, true);
+    assert.equal((viewer.frames[0].project as { sharedOnly?: boolean }).sharedOnly, undefined);
+    assert.equal((viewer.frames[1].project as { sharedOnly?: boolean }).sharedOnly, true);
   });
 });

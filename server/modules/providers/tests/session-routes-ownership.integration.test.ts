@@ -14,7 +14,7 @@ import test from 'node:test';
 
 import express from 'express';
 
-import { closeConnection, initializeDatabase, projectsDb, sessionsDb, userDb, userProjectAccessDb } from '@/modules/database/index.js';
+import { closeConnection, initializeDatabase, projectsDb, sessionsDb, sessionSharesDb, userDb, userProjectAccessDb } from '@/modules/database/index.js';
 
 type TestUser = { id: number; role: 'admin' | 'restricted' };
 
@@ -231,5 +231,41 @@ test('an admin can start a chat anywhere', async () => {
     });
 
     assert.equal(response.status, 201);
+  });
+});
+
+test('a chat shared with a restricted user is readable over GET and nothing else', async () => {
+  let viewerId = 0;
+  await withProviderServer(() => ({ id: viewerId, role: 'restricted' }), async (baseUrl) => {
+    userDb.createUser('admin', 'hash');
+    viewerId = Number(userDb.createUserWithRole('viewer', 'hash', 'restricted').id);
+    sessionsDb.createAppSession('ceo-1', 'claude', '/workspace/ceo', 'CEO chat', null);
+    sessionSharesDb.setUsersForSession('ceo-1', [viewerId]);
+
+    for (const routePath of ['/api/providers/sessions/ceo-1', '/api/providers/sessions/ceo-1/token-usage']) {
+      const response = await fetch(`${baseUrl}${routePath}`);
+      assert.notEqual(response.status, 403, `expected read access for ${routePath}`);
+    }
+
+    const writes: Array<[string, string, unknown]> = [
+      ['DELETE', '/api/providers/sessions/ceo-1', undefined],
+      ['PUT', '/api/providers/sessions/ceo-1', { summary: 'renamed' }],
+      ['POST', '/api/providers/sessions/ceo-1/fork', {}],
+      ['POST', '/api/providers/claude/sessions/ceo-1/active-model', { model: 'opus' }],
+    ];
+    for (const [method, routePath, body] of writes) {
+      const response = await fetch(`${baseUrl}${routePath}`, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+      assert.equal(response.status, 403, `expected 403 for ${method} ${routePath}`);
+    }
+    assert.equal(sessionsDb.getSessionById('ceo-1')?.custom_name, 'CEO chat');
+
+    const recent = await (await fetch(`${baseUrl}/api/providers/sessions/recent`)).json() as {
+      data: { conversations: Array<{ sessionId: string; readOnly?: boolean }> };
+    };
+    assert.deepEqual(recent.data.conversations.map((row) => [row.sessionId, row.readOnly]), [['ceo-1', true]]);
   });
 });

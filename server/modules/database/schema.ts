@@ -181,6 +181,21 @@ CREATE TABLE IF NOT EXISTS user_project_access (
 `;
 
 /**
+ * Chats an admin shared read-only with restricted users. A share lets the
+ * user read the chat even outside their assigned projects; it never lets them
+ * write into it (see `modules/auth/session-access.ts`).
+ */
+export const SESSION_SHARES_TABLE_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS session_shares (
+    session_id TEXT NOT NULL,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    shared_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (session_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_session_shares_user ON session_shares(user_id);
+`;
+
+/**
  * Persistent custom-model library used by the Providers module.
  *
  * Only user-created models are stored here. Predefined models remain source-
@@ -422,6 +437,7 @@ ${LAST_SCANNED_AT_SQL}
 ${APP_CONFIG_TABLE_SCHEMA_SQL}
 
 ${USER_PROJECT_ACCESS_TABLE_SCHEMA_SQL}
+${SESSION_SHARES_TABLE_SCHEMA_SQL}
 
 ${PROVIDER_MODELS_TABLE_SCHEMA_SQL}
 CREATE INDEX IF NOT EXISTS idx_provider_models_provider_order

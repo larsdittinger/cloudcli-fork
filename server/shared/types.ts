@@ -259,6 +259,8 @@ export type SessionUpsertedProject = {
   fullPath: string;
   displayName: string;
   isStarred: boolean;
+  /** Restricted view only: the project is reached through shared chats alone, not an assignment. */
+  sharedOnly?: true;
 };
 
 /**
@@ -283,6 +285,10 @@ export type SessionUpsertedEvent = {
     summary: string;
     messageCount: number;
     lastActivity: string;
+    /** Admin view only: how many restricted users the chat is shared with. */
+    sharedWith?: number;
+    /** Restricted view only: somebody else's chat this viewer can only read. */
+    readOnly?: true;
   };
   project: SessionUpsertedProject | null;
   timestamp: string;

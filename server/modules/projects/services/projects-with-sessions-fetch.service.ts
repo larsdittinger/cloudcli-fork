@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { projectsDb, sessionsDb } from '@/modules/database/index.js';
+import { projectsDb, sessionSharesDb, sessionsDb } from '@/modules/database/index.js';
 import { sessionSynchronizerService } from '@/modules/providers/index.js';
 import { WS_OPEN_STATE, connectedClients } from '@/modules/websocket/index.js';
 import type { RealtimeClientConnection } from '@/shared/types.js';
@@ -13,6 +13,10 @@ type SessionSummary = {
   summary: string;
   messageCount: number;
   lastActivity: string;
+  /** Somebody else's chat the restricted viewer can only read (shared, or "sees all chats"). */
+  readOnly?: true;
+  /** For admins: how many restricted users the chat is shared with. */
+  sharedWith?: number;
 };
 
 type SessionRepositoryRow = {
@@ -21,6 +25,7 @@ type SessionRepositoryRow = {
   custom_name?: string | null;
   updated_at?: string | null;
   created_at?: string | null;
+  owner_user_id?: number | null;
 };
 
 export type ProjectListItem = {
@@ -129,6 +134,27 @@ function mapSessionRowToSummary(row: SessionRepositoryRow): SessionSummary {
   };
 }
 
+/**
+ * Maps one listing page and adds the per-viewer access flags: a restricted
+ * viewer (`ownerUserId` set) gets `readOnly` on chats that are not theirs, an
+ * admin gets `sharedWith` on chats shared with restricted users.
+ */
+function mapSessionRowsForViewer(rows: SessionRepositoryRow[], ownerUserId?: number | null): SessionSummary[] {
+  if (typeof ownerUserId === 'number') {
+    return rows.map((row) => {
+      const summary = mapSessionRowToSummary(row);
+      return row.owner_user_id === ownerUserId ? summary : { ...summary, readOnly: true };
+    });
+  }
+
+  const shareCounts = sessionSharesDb.countSharesBySession(rows.map((row) => row.session_id));
+  return rows.map((row) => {
+    const summary = mapSessionRowToSummary(row);
+    const sharedWith = shareCounts.get(row.session_id);
+    return sharedWith ? { ...summary, sharedWith } : summary;
+  });
+}
+
 function readProjectSessionsIncludingArchived(projectPath: string): ProjectSessionsPageResult {
   const rows = sessionsDb.getSessionsByProjectPathIncludingArchived(projectPath) as SessionRepositoryRow[];
 
@@ -157,7 +183,7 @@ function readProjectSessionsPageByPath(
   const total = sessionsDb.countSessionsByProjectPath(projectPath, ownerUserId);
 
   return {
-    sessions: rows.map(mapSessionRowToSummary),
+    sessions: mapSessionRowsForViewer(rows, ownerUserId),
     total,
     hasMore: pagination.offset + rows.length < total,
   };

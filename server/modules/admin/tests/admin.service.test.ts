@@ -16,6 +16,10 @@ type StoredUser = {
 function createFakeDependencies() {
   const usersById = new Map<number, StoredUser>();
   const grants = new Map<number, string[]>();
+  const seesAll = new Set<number>();
+  const shares = new Map<string, number[]>();
+  const sessions = new Map<string, { title: string; projectPath: string }>();
+  const announced: string[] = [];
   let nextId = 1;
 
   const dependencies = {
@@ -65,10 +69,33 @@ function createFakeDependencies() {
         grants.set(userId, [...projectIds]);
       },
     },
+    viewing: {
+      getSeesAllSessions: (userId: number) => seesAll.has(userId),
+      setSeesAllSessions: (userId: number, enabled: boolean) => {
+        if (enabled) seesAll.add(userId); else seesAll.delete(userId);
+      },
+      sessionExists: (sessionId: string) => sessions.has(sessionId),
+      listUserIdsForSession: (sessionId: string) => shares.get(sessionId) ?? [],
+      setUsersForSession: (sessionId: string, userIds: number[]) => {
+        shares.set(sessionId, [...userIds]);
+      },
+      listSessionsSharedWithUser: (userId: number) =>
+        [...shares.entries()]
+          .filter(([, userIds]) => userIds.includes(userId))
+          .map(([sessionId]) => ({
+            session_id: sessionId,
+            custom_name: sessions.get(sessionId)?.title ?? null,
+            project_path: sessions.get(sessionId)?.projectPath ?? null,
+            shared_at: '2026-10-15 10:00:00',
+          })),
+      announceSession: (sessionId: string) => {
+        announced.push(sessionId);
+      },
+    },
     hashPassword: async (password: string) => `hashed:${password}`,
   };
 
-  return { dependencies, usersById, grants };
+  return { dependencies, usersById, grants, seesAll, shares, sessions, announced };
 }
 
 test('createUser creates a restricted user with hashed password', async () => {
@@ -151,4 +178,57 @@ test('updatePassword validates and stores a new hash', async () => {
   const result = await service.updatePassword(viewerId, 'newsecret');
   assert.equal(result.success, true);
   assert.equal(usersById.get(viewerId)?.passwordHash, 'hashed:newsecret');
+});
+
+test('setSessionShares shares a chat with restricted users only and announces it', async () => {
+  const { dependencies, sessions, shares, announced } = createFakeDependencies();
+  const service = createAdminService(dependencies);
+  const admin = dependencies.users.createUserWithRole('lars', 'hash', 'admin');
+  const viewer = Number((await service.createUser('viewer', 'secret123')).user.id);
+  sessions.set('ceo-1', { title: 'CEO chat', projectPath: '/workspace/ceo' });
+
+  assert.throws(() => service.setSessionShares('missing', [viewer]), (error: AppError) => {
+    assert.equal(error.statusCode, 404);
+    return true;
+  });
+  assert.throws(() => service.setSessionShares('ceo-1', 'nope'), (error: AppError) => {
+    assert.equal(error.code, 'ADMIN_INVALID_USER_IDS');
+    return true;
+  });
+  assert.throws(() => service.setSessionShares('ceo-1', [Number(admin.id)]), (error: AppError) => {
+    assert.equal(error.code, 'ADMIN_INVALID_USER_IDS');
+    return true;
+  });
+  assert.throws(() => service.setSessionShares('ceo-1', [12345]), (error: AppError) => {
+    assert.equal(error.code, 'ADMIN_INVALID_USER_IDS');
+    return true;
+  });
+
+  assert.deepEqual(service.setSessionShares('ceo-1', [viewer, viewer]), { success: true, userIds: [viewer] });
+  assert.deepEqual(shares.get('ceo-1'), [viewer]);
+  assert.deepEqual(service.getSessionShares('ceo-1'), { userIds: [viewer] });
+  assert.deepEqual(announced, ['ceo-1']);
+});
+
+test('setSeesAllSessions toggles the flag for restricted users and listUsers shows access', async () => {
+  const { dependencies, sessions, shares } = createFakeDependencies();
+  const service = createAdminService(dependencies);
+  const viewer = Number((await service.createUser('viewer', 'secret123')).user.id);
+  sessions.set('ceo-1', { title: 'CEO chat', projectPath: '/workspace/ceo' });
+  shares.set('ceo-1', [viewer]);
+
+  assert.throws(() => service.setSeesAllSessions(viewer, 'yes'), (error: AppError) => {
+    assert.equal(error.statusCode, 400);
+    return true;
+  });
+  assert.deepEqual(service.setSeesAllSessions(viewer, true), { success: true, enabled: true });
+
+  const [listed] = service.listUsers().users;
+  assert.equal(listed.seesAllSessions, true);
+  assert.deepEqual(listed.sharedSessions, [{
+    sessionId: 'ceo-1',
+    title: 'CEO chat',
+    projectPath: '/workspace/ceo',
+    sharedAt: '2026-10-15 10:00:00',
+  }]);
 });

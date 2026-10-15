@@ -1,9 +1,16 @@
 import path from 'node:path';
 
-import { projectsDb, sessionsDb } from '@/modules/database/index.js';
+import { canReadSession, isSessionReadOnlyFor, resolveSessionOwnerScope } from '@/modules/auth/index.js';
+import { projectsDb, sessionSharesDb, sessionsDb, userProjectAccessDb } from '@/modules/database/index.js';
 import { generateDisplayName } from '@/modules/projects/index.js';
-import { connectedClients, WS_OPEN_STATE } from '@/modules/websocket/services/websocket-state.service.js';
-import type { SessionUpsertedEvent } from '@/shared/types.js';
+import { connectedClients, connectionUsers, WS_OPEN_STATE } from '@/modules/websocket/services/websocket-state.service.js';
+import type { AuthenticatedWebSocketUser, SessionUpsertedEvent } from '@/shared/types.js';
+
+/** One built event plus what the per-viewer variants are derived from. */
+type BuiltSessionUpsert = {
+  event: SessionUpsertedEvent;
+  ownerUserId: number | null;
+};
 
 /**
  * The single producer of the `session_upserted` delta.
@@ -18,9 +25,9 @@ import type { SessionUpsertedEvent } from '@/shared/types.js';
  * into its canonical app-session row, so a merge announced by any other path
  * left a stale duplicate in the sidebar. One builder, one shape.
  */
-async function buildSessionUpsertedEvent(
+async function buildSessionUpsert(
   sessionIdOrProviderSessionId: string,
-): Promise<SessionUpsertedEvent | null> {
+): Promise<BuiltSessionUpsert | null> {
   // Resolving by provider id first covers the watcher, which only ever sees
   // the id written in the transcript. For a row where the two ids are equal
   // — legacy rows, and any session indexed from disk before its mapping
@@ -37,7 +44,8 @@ async function buildSessionUpsertedEvent(
     ? project.custom_project_name
     : await generateDisplayName(path.basename(projectPath ?? '') || (projectPath ?? ''), projectPath);
 
-  return {
+  const sharedWith = sessionSharesDb.countSharesBySession([row.session_id]).get(row.session_id);
+  const event: SessionUpsertedEvent = {
     kind: 'session_upserted',
     sessionId: row.session_id,
     providerSessionId: row.provider_session_id ?? null,
@@ -49,6 +57,9 @@ async function buildSessionUpsertedEvent(
       summary: row.custom_name || '',
       messageCount: 0,
       lastActivity: row.updated_at ?? row.created_at ?? new Date().toISOString(),
+      // Always a number for admins: the client merges upserts into the row it
+      // has, so an absent field would leave a stale count after unsharing.
+      sharedWith: sharedWith ?? 0,
     },
     project: project
       ? {
@@ -61,27 +72,72 @@ async function buildSessionUpsertedEvent(
       : null,
     timestamp: new Date().toISOString(),
   };
+  return { event, ownerUserId: row.owner_user_id ?? null };
 }
 
-function sendToConnectedClients(payloads: string[]): void {
-  if (payloads.length === 0) {
+/** The admin view of an event: the session as is, with its share count. */
+async function buildSessionUpsertedEvent(
+  sessionIdOrProviderSessionId: string,
+): Promise<SessionUpsertedEvent | null> {
+  return (await buildSessionUpsert(sessionIdOrProviderSessionId))?.event ?? null;
+}
+
+/**
+ * The payload one connection receives, or `null` when it must not hear about
+ * the session. Admins get the event as built; a restricted user only gets
+ * chats they may read, marked `readOnly` when not theirs, with the project
+ * marked `sharedOnly` when they reach it through a share alone. The share
+ * count is admin information and is dropped for them.
+ */
+function payloadForViewer(built: BuiltSessionUpsert, user: AuthenticatedWebSocketUser | undefined, adminPayload: string): string | null {
+  let viewerId: number | null;
+  try {
+    viewerId = resolveSessionOwnerScope(user);
+  } catch {
+    return null;
+  }
+  if (viewerId === null) {
+    return adminPayload;
+  }
+  if (!canReadSession(user, built.event.sessionId)) {
+    return null;
+  }
+
+  const { sharedWith: _sharedWith, ...session } = built.event.session;
+  const project = built.event.project;
+  const sharedOnly = Boolean(project) && !userProjectAccessDb.canAccess(viewerId, project!.projectId);
+  return JSON.stringify({
+    ...built.event,
+    session: isSessionReadOnlyFor(user, built.ownerUserId) ? { ...session, readOnly: true } : session,
+    project: project && sharedOnly ? { ...project, sharedOnly: true } : project,
+  });
+}
+
+function sendToConnectedClients(builtEvents: BuiltSessionUpsert[]): void {
+  if (builtEvents.length === 0) {
     return;
   }
 
+  const adminPayloads = builtEvents.map((built) => JSON.stringify(built.event));
   connectedClients.forEach((client) => {
-    if (client.readyState === WS_OPEN_STATE) {
-      for (const payload of payloads) {
+    if (client.readyState !== WS_OPEN_STATE) {
+      return;
+    }
+    const user = connectionUsers.get(client);
+    builtEvents.forEach((built, index) => {
+      const payload = payloadForViewer(built, user, adminPayloads[index]);
+      if (payload) {
         client.send(payload);
       }
-    }
+    });
   });
 }
 
 /** Announces one session. Used by the chat run registry when a run reports its provider-native id. */
 export async function broadcastSessionUpserted(sessionIdOrProviderSessionId: string): Promise<void> {
-  const event = await buildSessionUpsertedEvent(sessionIdOrProviderSessionId);
-  if (event) {
-    sendToConnectedClients([JSON.stringify(event)]);
+  const built = await buildSessionUpsert(sessionIdOrProviderSessionId);
+  if (built) {
+    sendToConnectedClients([built]);
   }
 }
 
@@ -93,15 +149,15 @@ export async function broadcastSessionUpserted(sessionIdOrProviderSessionId: str
 export async function broadcastSessionUpsertedBatch(
   sessionIds: Iterable<string>,
 ): Promise<void> {
-  const payloads: string[] = [];
+  const builtEvents: BuiltSessionUpsert[] = [];
   for (const sessionId of sessionIds) {
-    const event = await buildSessionUpsertedEvent(sessionId);
-    if (event) {
-      payloads.push(JSON.stringify(event));
+    const built = await buildSessionUpsert(sessionId);
+    if (built) {
+      builtEvents.push(built);
     }
   }
 
-  sendToConnectedClients(payloads);
+  sendToConnectedClients(builtEvents);
 }
 
 /** @internal Exported for the broadcast tests, which assert the payload shape directly. */

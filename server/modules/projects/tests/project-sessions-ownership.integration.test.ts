@@ -13,7 +13,15 @@ import test from 'node:test';
 
 import express from 'express';
 
-import { closeConnection, initializeDatabase, projectsDb, sessionsDb, userDb, userProjectAccessDb } from '@/modules/database/index.js';
+import {
+  closeConnection,
+  initializeDatabase,
+  projectsDb,
+  sessionSharesDb,
+  sessionsDb,
+  userDb,
+  userProjectAccessDb,
+} from '@/modules/database/index.js';
 
 type TestUser = { id: number; role: 'admin' | 'restricted' };
 
@@ -129,5 +137,60 @@ test('an admin keeps seeing every chat in the project', async () => {
 
     assert.equal(projects[0].sessions.length, 3);
     assert.equal(projects[0].sessionMeta.total, 3);
+  });
+});
+
+test('a chat shared from an unassigned project shows that project as sharedOnly, read-only', async () => {
+  let viewer: TestUser = { id: 0, role: 'restricted' };
+  await withProjectsServer(() => viewer, async (baseUrl) => {
+    const seeded = seedSharedProject();
+    viewer = { id: seeded.viewerUserId, role: 'restricted' };
+    sessionsDb.createAppSession('ceo-shared', 'claude', '/workspace/ceo', 'Shared', null);
+    sessionsDb.createAppSession('ceo-private', 'claude', '/workspace/ceo', 'Private', null);
+    sessionSharesDb.setUsersForSession('ceo-shared', [seeded.viewerUserId]);
+    const ceoProjectId = projectsDb.getProjectPath('/workspace/ceo')?.project_id ?? '';
+
+    const projects = await (await fetch(`${baseUrl}/api/projects?skipSynchronization=1`)).json() as Array<{
+      projectId: string;
+      sharedOnly?: boolean;
+      sessions: Array<{ id: string; readOnly?: boolean }>;
+    }>;
+    const ceo = projects.find((project) => project.projectId === ceoProjectId);
+    const demo = projects.find((project) => project.projectId === seeded.projectId);
+
+    assert.equal(projects.length, 2);
+    assert.equal(ceo?.sharedOnly, true);
+    assert.deepEqual(ceo?.sessions.map((session) => [session.id, session.readOnly]), [['ceo-shared', true]]);
+    assert.equal(demo?.sharedOnly, undefined);
+    assert.deepEqual(demo?.sessions.map((session) => [session.id, session.readOnly]), [['mine-1', undefined]]);
+
+    const page = await fetch(`${baseUrl}/api/projects/${ceoProjectId}/sessions`);
+    assert.equal(page.status, 200);
+    assert.equal((await fetch(`${baseUrl}/api/projects/${ceoProjectId}/taskmaster`)).status, 403);
+  });
+});
+
+test('"sees all chats" lists every chat of an assigned project read-only; admins see share counts', async () => {
+  let user: TestUser = { id: 0, role: 'restricted' };
+  await withProjectsServer(() => user, async (baseUrl) => {
+    const seeded = seedSharedProject();
+    userDb.setSeesAllSessions(seeded.viewerUserId, true);
+    user = { id: seeded.viewerUserId, role: 'restricted' };
+
+    const [project] = await (await fetch(`${baseUrl}/api/projects?skipSynchronization=1`)).json() as Array<{
+      sessions: Array<{ id: string; readOnly?: boolean }>;
+    }>;
+    assert.deepEqual(
+      project.sessions.map((session) => [session.id, session.readOnly]).sort(),
+      [['mine-1', undefined], ['orphan-1', true], ['theirs-1', true]],
+    );
+
+    sessionSharesDb.setUsersForSession('orphan-1', [seeded.viewerUserId]);
+    user = { id: 1, role: 'admin' };
+    const [adminProject] = await (await fetch(`${baseUrl}/api/projects?skipSynchronization=1`)).json() as Array<{
+      sessions: Array<{ id: string; sharedWith?: number }>;
+    }>;
+    assert.equal(adminProject.sessions.find((session) => session.id === 'orphan-1')?.sharedWith, 1);
+    assert.equal(adminProject.sessions.find((session) => session.id === 'mine-1')?.sharedWith, undefined);
   });
 });

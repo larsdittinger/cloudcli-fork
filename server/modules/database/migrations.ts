@@ -11,6 +11,7 @@ import {
   PROVIDER_MODELS_TABLE_SCHEMA_SQL,
   PUSH_SUBSCRIPTIONS_TABLE_SCHEMA_SQL,
   SESSION_DRAFTS_TABLE_SCHEMA_SQL,
+  SESSION_SHARES_TABLE_SCHEMA_SQL,
   SUPERSEDED_PROVIDER_SESSIONS_TABLE_SCHEMA_SQL,
   SCHEDULED_MESSAGES_TABLE_SCHEMA_SQL,
   SESSIONS_TABLE_SCHEMA_SQL,
@@ -535,9 +536,12 @@ export const runMigrations = (db: Database) => {
     // Multi-user support: existing installs get 'admin' so the original
     // single user keeps full access; restricted users are created explicitly.
     addColumnToTableIfNotExists(db, 'users', userColumnNames, 'role', "TEXT DEFAULT 'admin'");
+    // Restricted users who read every chat of their assigned projects (read-only).
+    addColumnToTableIfNotExists(db, 'users', userColumnNames, 'sees_all_sessions', 'INTEGER NOT NULL DEFAULT 0');
 
     db.exec(APP_CONFIG_TABLE_SCHEMA_SQL);
     db.exec(USER_PROJECT_ACCESS_TABLE_SCHEMA_SQL);
+    db.exec(SESSION_SHARES_TABLE_SCHEMA_SQL);
     db.exec(USER_NOTIFICATION_PREFERENCES_TABLE_SCHEMA_SQL);
     db.exec(VAPID_KEYS_TABLE_SCHEMA_SQL);
     db.exec(PUSH_SUBSCRIPTIONS_TABLE_SCHEMA_SQL);

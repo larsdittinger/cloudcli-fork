@@ -21,6 +21,7 @@ type UserRow = {
   git_email: string | null;
   has_completed_onboarding: number;
   role: UserRole;
+  sees_all_sessions: number;
 };
 
 type UserPublicRow = Pick<UserRow, 'id' | 'username' | 'created_at' | 'last_login' | 'role'>;
@@ -110,6 +111,24 @@ export const userDb = {
         'SELECT id, username, created_at, last_login, role FROM users WHERE is_active = 1 ORDER BY id'
       )
       .all() as UserPublicRow[];
+  },
+
+  /**
+   * Whether a restricted user reads every chat of their assigned projects
+   * (read-only), not just their own. Used by the admin Users tab.
+   */
+  getSeesAllSessions(userId: number): boolean {
+    const db = getConnection();
+    const row = db
+      .prepare('SELECT sees_all_sessions FROM users WHERE id = ?')
+      .get(userId) as { sees_all_sessions: number } | undefined;
+    return Boolean(row?.sees_all_sessions);
+  },
+
+  /** Turns "sees all chats in assigned projects" on or off for a user. */
+  setSeesAllSessions(userId: number, enabled: boolean): void {
+    const db = getConnection();
+    db.prepare('UPDATE users SET sees_all_sessions = ? WHERE id = ?').run(enabled ? 1 : 0, userId);
   },
 
   /** Inserts a new user with an explicit role. Used by admin user management. */

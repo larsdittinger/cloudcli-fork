@@ -11,8 +11,24 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { assertSessionAccess, canAccessProjectPath, canAccessSession, resolveSessionOwnerScope } from '@/modules/auth/index.js';
-import { closeConnection, initializeDatabase, projectsDb, sessionsDb, userDb, userProjectAccessDb } from '@/modules/database/index.js';
+import {
+  assertSessionAccess,
+  assertSessionRead,
+  canAccessProjectPath,
+  canAccessSession,
+  canReadSession,
+  isSessionReadOnlyFor,
+  resolveSessionOwnerScope,
+} from '@/modules/auth/index.js';
+import {
+  closeConnection,
+  initializeDatabase,
+  projectsDb,
+  sessionSharesDb,
+  sessionsDb,
+  userDb,
+  userProjectAccessDb,
+} from '@/modules/database/index.js';
 import { AppError } from '@/shared/utils.js';
 
 async function withIsolatedDatabase(runTest: () => void | Promise<void>): Promise<void> {
@@ -123,5 +139,102 @@ test('canAccessProjectPath follows project grants, also below the project root',
     assert.equal(canAccessProjectPath(viewer, null), false);
     assert.equal(canAccessProjectPath(admin, null), true);
     assert.equal(canAccessProjectPath(admin, '/workspace/other'), true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Read-only viewing: chats an admin shared, and "sees all chats" users.
+// ---------------------------------------------------------------------------
+
+function createViewer(username: string): { id: number; role: 'restricted' } {
+  return { id: Number(userDb.createUserWithRole(username, 'hash', 'restricted').id), role: 'restricted' };
+}
+
+test('a shared chat is readable but not writable for the user it was shared with', async () => {
+  await withIsolatedDatabase(() => {
+    userDb.createUser('admin', 'hash');
+    const viewer = createViewer('viewer');
+    const outsider = createViewer('outsider');
+    projectsDb.createProjectPath('/workspace/ceo');
+    sessionsDb.createAppSession('ceo-1', 'claude', '/workspace/ceo', 'CEO chat', null);
+    sessionSharesDb.setUsersForSession('ceo-1', [viewer.id]);
+
+    assert.equal(canReadSession(viewer, 'ceo-1'), true);
+    assert.equal(canAccessSession(viewer, 'ceo-1'), false);
+    assert.equal(canReadSession(outsider, 'ceo-1'), false);
+    assert.doesNotThrow(() => assertSessionRead(viewer, 'ceo-1'));
+    assert.throws(
+      () => assertSessionRead(outsider, 'ceo-1'),
+      (error: unknown) => error instanceof AppError && error.statusCode === 403,
+    );
+  });
+});
+
+test('a "sees all chats" user reads every chat of an assigned project, and only there', async () => {
+  await withIsolatedDatabase(() => {
+    userDb.createUser('admin', 'hash');
+    const viewer = createViewer('viewer');
+    const granted = projectsDb.createProjectPath('/workspace/marketing');
+    projectsDb.createProjectPath('/workspace/finance');
+    userProjectAccessDb.setProjectsForUser(viewer.id, [granted.project!.project_id]);
+    sessionsDb.createAppSession('mkt-admin', 'claude', '/workspace/marketing', 'Admin chat', null);
+    sessionsDb.createAppSession('fin-admin', 'claude', '/workspace/finance', 'Finance chat', null);
+
+    assert.equal(canReadSession(viewer, 'mkt-admin'), false, 'the flag is off by default');
+
+    userDb.setSeesAllSessions(viewer.id, true);
+    assert.equal(canReadSession(viewer, 'mkt-admin'), true);
+    assert.equal(canAccessSession(viewer, 'mkt-admin'), false, 'seeing is not writing');
+    assert.equal(canReadSession(viewer, 'fin-admin'), false, 'not an assigned project');
+  });
+});
+
+test('restricted listings include shared chats and, with the flag, all chats of assigned projects', async () => {
+  await withIsolatedDatabase(() => {
+    userDb.createUser('admin', 'hash');
+    const viewer = createViewer('viewer');
+    const granted = projectsDb.createProjectPath('/workspace/marketing');
+    projectsDb.createProjectPath('/workspace/ceo');
+    userProjectAccessDb.setProjectsForUser(viewer.id, [granted.project!.project_id]);
+    sessionsDb.createAppSession('own', 'claude', '/workspace/marketing', 'Own', viewer.id);
+    sessionsDb.createAppSession('mkt-admin', 'claude', '/workspace/marketing', 'Admin', null);
+    sessionsDb.createAppSession('ceo-shared', 'claude', '/workspace/ceo', 'Shared', null);
+    sessionsDb.createAppSession('ceo-private', 'claude', '/workspace/ceo', 'Private', null);
+    sessionSharesDb.setUsersForSession('ceo-shared', [viewer.id]);
+
+    const ids = (rows: Array<{ session_id: string }>) => rows.map((row) => row.session_id).sort();
+    assert.deepEqual(ids(sessionsDb.getSessionsByProjectPath('/workspace/marketing', viewer.id)), ['own']);
+    assert.deepEqual(ids(sessionsDb.getSessionsByProjectPath('/workspace/ceo', viewer.id)), ['ceo-shared']);
+    assert.equal(sessionsDb.countSessionsByProjectPath('/workspace/ceo', viewer.id), 1);
+    assert.deepEqual(ids(sessionsDb.getRecentSessionsPage(10, 0, viewer.id).sessions), ['ceo-shared', 'own']);
+
+    userDb.setSeesAllSessions(viewer.id, true);
+    assert.deepEqual(ids(sessionsDb.getSessionsByProjectPath('/workspace/marketing', viewer.id)), ['mkt-admin', 'own']);
+    assert.deepEqual(ids(sessionsDb.getSessionsByProjectPath('/workspace/ceo', viewer.id)), ['ceo-shared']);
+  });
+});
+
+test('isSessionReadOnlyFor marks only other people\'s chats for restricted users', () => {
+  assert.equal(isSessionReadOnlyFor(restricted, 7), false);
+  assert.equal(isSessionReadOnlyFor(restricted, null), true);
+  assert.equal(isSessionReadOnlyFor(restricted, 9), true);
+  assert.equal(isSessionReadOnlyFor(admin, 9), false);
+});
+
+test('sharing is replaced as a set and disappears with the user', async () => {
+  await withIsolatedDatabase(() => {
+    userDb.createUser('admin', 'hash');
+    const first = createViewer('first');
+    const second = createViewer('second');
+    sessionsDb.createAppSession('ceo-1', 'claude', '/workspace/ceo', 'CEO chat', null);
+
+    sessionSharesDb.setUsersForSession('ceo-1', [first.id, second.id]);
+    assert.deepEqual(sessionSharesDb.listUserIdsForSession('ceo-1'), [first.id, second.id]);
+    sessionSharesDb.setUsersForSession('ceo-1', [second.id]);
+    assert.deepEqual(sessionSharesDb.listUserIdsForSession('ceo-1'), [second.id]);
+    assert.deepEqual(sessionSharesDb.countSharesBySession(['ceo-1', 'other']), new Map([['ceo-1', 1]]));
+
+    userDb.deleteUser(second.id);
+    assert.deepEqual(sessionSharesDb.listUserIdsForSession('ceo-1'), []);
   });
 });

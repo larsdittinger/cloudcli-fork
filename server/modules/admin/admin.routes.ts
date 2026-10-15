@@ -56,5 +56,39 @@ export function createAdminRouter(service: ReturnType<typeof createAdminService>
     }
   });
 
+  router.put('/users/:userId/sees-all-sessions', (req, res, next) => {
+    try {
+      const body = req.body as { enabled?: unknown };
+      res.json(service.setSeesAllSessions(req.params.userId, body.enabled));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.get('/sessions/:sessionId/shares', (req, res, next) => {
+    try {
+      res.json(service.getSessionShares(String(req.params.sessionId)));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.put('/sessions/:sessionId/shares', (req, res, next) => {
+    try {
+      const body = req.body as { userIds?: unknown };
+      res.json(service.setSessionShares(String(req.params.sessionId), body.userIds));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.delete('/sessions/:sessionId/shares/:userId', (req, res, next) => {
+    try {
+      res.json(service.removeSessionShare(String(req.params.sessionId), req.params.userId));
+    } catch (error) {
+      next(error);
+    }
+  });
+
   return router;
 }

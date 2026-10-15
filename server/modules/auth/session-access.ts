@@ -73,6 +73,47 @@ export function canAccessSession(user: SessionAccessUser, sessionId: string): bo
   return owner === ownerScope;
 }
 
+/**
+ * Tells whether the user may read one session: their own, one an admin shared
+ * with them, or any chat of an assigned project while their "sees all chats"
+ * flag is on. Reading covers history, the live stream and listings — never
+ * sending, editing, stopping or approving; those stay with `canAccessSession`.
+ *
+ * Like `canAccessSession`, an id with no row yet is let through.
+ */
+export function canReadSession(user: SessionAccessUser, sessionId: string): boolean {
+  const ownerScope = resolveSessionOwnerScope(user);
+  if (ownerScope === null) {
+    return true;
+  }
+
+  if (sessionsDb.getSessionOwnerId(sessionId) === undefined) {
+    return true;
+  }
+
+  return sessionsDb.isSessionReadableBy(sessionId, ownerScope);
+}
+
+/** Throws 403 when the user may not even read the session. */
+export function assertSessionRead(user: SessionAccessUser, sessionId: string): void {
+  if (!canReadSession(user, sessionId)) {
+    throw new AppError('Session access denied', {
+      code: 'SESSION_ACCESS_DENIED',
+      statusCode: 403,
+    });
+  }
+}
+
+/**
+ * Whether a listed session is somebody else's chat the user can only read.
+ * Session listings and the sidebar broadcast mark such rows `readOnly` so the
+ * client swaps the composer for a notice instead of failing on send.
+ */
+export function isSessionReadOnlyFor(user: SessionAccessUser, ownerUserId: number | null | undefined): boolean {
+  const ownerScope = resolveSessionOwnerScope(user);
+  return ownerScope !== null && ownerUserId !== ownerScope;
+}
+
 /** Throws 403 when the user may not touch the session. */
 export function assertSessionAccess(user: SessionAccessUser, sessionId: string): void {
   if (!canAccessSession(user, sessionId)) {

@@ -66,7 +66,10 @@ type ArchivedSessionListItem = {
 type RecentSessionListItem = Pick<
   ArchivedSessionListItem,
   'sessionId' | 'provider' | 'projectId' | 'projectDisplayName' | 'sessionTitle' | 'lastActivity'
->;
+> & {
+  /** Somebody else's chat a restricted viewer can only read. */
+  readOnly?: true;
+};
 
 type RecentSessionsPage = {
   conversations: RecentSessionListItem[];
@@ -232,9 +235,14 @@ export const sessionsService = {
       runningById.set(session.session_id, entries[entries.length - 1]);
     }
 
-    // Restricted users only see their own chats running.
+    // Restricted users see the chats they may read running; only their own
+    // can be interrupted from their side.
     if (typeof ownerUserId === 'number') {
-      return entries.filter((run) => sessionsDb.getSessionOwnerId(run.sessionId) === ownerUserId);
+      return entries
+        .filter((run) => sessionsDb.isSessionReadableBy(run.sessionId, ownerUserId))
+        .map((run) => (
+          sessionsDb.getSessionOwnerId(run.sessionId) === ownerUserId ? run : { ...run, canInterrupt: false }
+        ));
     }
     return entries;
   },
@@ -267,6 +275,8 @@ export const sessionsService = {
         projectDisplayName: resolveProjectDisplayName(projectPath, project?.custom_project_name),
         sessionTitle: session.custom_name?.trim() || session.session_id,
         lastActivity: session.updated_at ?? session.created_at ?? null,
+        // Somebody else's chat a restricted viewer can only read.
+        ...(typeof ownerUserId === 'number' && session.owner_user_id !== ownerUserId ? { readOnly: true as const } : {}),
       };
     });
 

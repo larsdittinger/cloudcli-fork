@@ -24,6 +24,22 @@ type AdminDependencies = {
     listProjectIdsForUser(userId: number): string[];
     setProjectsForUser(userId: number, projectIds: string[]): void;
   };
+  /** Read-only viewing of other people's chats: shares and the "sees all chats" flag. */
+  viewing: {
+    getSeesAllSessions(userId: number): boolean;
+    setSeesAllSessions(userId: number, enabled: boolean): void;
+    sessionExists(sessionId: string): boolean;
+    listUserIdsForSession(sessionId: string): number[];
+    setUsersForSession(sessionId: string, userIds: number[]): void;
+    listSessionsSharedWithUser(userId: number): Array<{
+      session_id: string;
+      custom_name: string | null;
+      project_path: string | null;
+      shared_at: string | null;
+    }>;
+    /** Pushes the chat to sidebars, so a new viewer sees it without reloading. */
+    announceSession(sessionId: string): void;
+  };
   hashPassword(password: string): Promise<string>;
 };
 
@@ -32,6 +48,20 @@ function isUniqueConstraintError(error: unknown): boolean {
     && error !== null
     && 'code' in error
     && error.code === 'SQLITE_CONSTRAINT_UNIQUE';
+}
+
+function parseUserId(value: unknown): number {
+  const userId = Number(value);
+  if (!Number.isInteger(userId)) {
+    throw new AppError('Invalid user id', { code: 'ADMIN_INVALID_USER_ID', statusCode: 400 });
+  }
+  return userId;
+}
+
+function requireExistingSession(dependencies: AdminDependencies, sessionId: string): void {
+  if (!sessionId || !dependencies.viewing.sessionExists(sessionId)) {
+    throw new AppError('Session not found', { code: 'ADMIN_SESSION_NOT_FOUND', statusCode: 404 });
+  }
 }
 
 function requireExistingUser(
@@ -55,6 +85,13 @@ export function createAdminService(dependencies: AdminDependencies) {
       const users = dependencies.users.listUsers().map((user) => ({
         ...user,
         projectIds: dependencies.access.listProjectIdsForUser(user.id),
+        seesAllSessions: dependencies.viewing.getSeesAllSessions(user.id),
+        sharedSessions: dependencies.viewing.listSessionsSharedWithUser(user.id).map((row) => ({
+          sessionId: row.session_id,
+          title: row.custom_name,
+          projectPath: row.project_path,
+          sharedAt: row.shared_at,
+        })),
       }));
       return { users };
     },
@@ -141,6 +178,55 @@ export function createAdminService(dependencies: AdminDependencies) {
       requireExistingUser(dependencies, targetUserId);
       dependencies.access.setProjectsForUser(targetUserId, projectIdsInput);
       return { success: true, projectIds: projectIdsInput };
+    },
+
+    /** Lets a restricted user read every chat of their assigned projects (read-only), or stops it. */
+    setSeesAllSessions(targetUserIdInput: unknown, enabledInput: unknown) {
+      const targetUserId = parseUserId(targetUserIdInput);
+      if (typeof enabledInput !== 'boolean') {
+        throw new AppError('enabled must be a boolean', { code: 'ADMIN_INVALID_FLAG', statusCode: 400 });
+      }
+      requireExistingUser(dependencies, targetUserId);
+      dependencies.viewing.setSeesAllSessions(targetUserId, enabledInput);
+      return { success: true, enabled: enabledInput };
+    },
+
+    getSessionShares(sessionId: string) {
+      requireExistingSession(dependencies, sessionId);
+      return { userIds: dependencies.viewing.listUserIdsForSession(sessionId) };
+    },
+
+    /**
+     * Replaces who a chat is shared with. Only restricted users can be named:
+     * admins see every chat anyway, and an unknown id is a client bug.
+     */
+    setSessionShares(sessionId: string, userIdsInput: unknown) {
+      requireExistingSession(dependencies, sessionId);
+      if (!Array.isArray(userIdsInput) || userIdsInput.some((userId) => !Number.isInteger(userId))) {
+        throw new AppError('userIds must be an array of user ids', { code: 'ADMIN_INVALID_USER_IDS', statusCode: 400 });
+      }
+      const userIds = [...new Set(userIdsInput as number[])];
+      for (const userId of userIds) {
+        if (dependencies.users.getUserById(userId)?.role !== 'restricted') {
+          throw new AppError('Chats can only be shared with restricted users', {
+            code: 'ADMIN_INVALID_USER_IDS',
+            statusCode: 400,
+          });
+        }
+      }
+      dependencies.viewing.setUsersForSession(sessionId, userIds);
+      dependencies.viewing.announceSession(sessionId);
+      return { success: true, userIds };
+    },
+
+    /** Stops sharing one chat with one user (the Users tab's per-chat button). */
+    removeSessionShare(sessionId: string, targetUserIdInput: unknown) {
+      const targetUserId = parseUserId(targetUserIdInput);
+      requireExistingSession(dependencies, sessionId);
+      const remaining = dependencies.viewing.listUserIdsForSession(sessionId).filter((userId) => userId !== targetUserId);
+      dependencies.viewing.setUsersForSession(sessionId, remaining);
+      dependencies.viewing.announceSession(sessionId);
+      return { success: true, userIds: remaining };
     },
   };
 }
