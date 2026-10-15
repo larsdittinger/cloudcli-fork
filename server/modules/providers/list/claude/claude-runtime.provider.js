@@ -54,7 +54,13 @@ const abortedSessionIds = new Set();
 // entry, the abort flag, and all client-facing events belong to the new run.
 const supersededInstances = new WeakSet();
 
+// Stop clicks waiting on the CLI's answer to interrupt(), keyed like activeSessions.
+const pendingAborts = new Map();
+
 const TOOL_APPROVAL_TIMEOUT_MS = parseInt(process.env.CLAUDE_TOOL_APPROVAL_TIMEOUT_MS, 10) || 55000;
+// How long a Stop waits for the CLI to acknowledge interrupt() before it ends
+// the process instead (see abortSession).
+const INTERRUPT_REPLY_TIMEOUT_MS = parseInt(process.env.CLOUDCLI_CLAUDE_INTERRUPT_TIMEOUT_MS, 10) || 5000;
 
 // Background work must survive the end of the turn that started it, the same way it
 // does in the terminal CLI, however long it runs. Two things used to cut it short:
@@ -322,8 +328,9 @@ function mapCliOptionsToSDK(options = {}) {
  * @param {Object} writer - WebSocket writer for reconnect support
  * @param {Function} releaseInput - Closes the held stdin stream so the CLI can exit
  * @param {Function} injectTurn - Feeds a later turn into the live process
+ * @param {Function} isInputReleased - Whether the held stdin stream has been let go
  */
-function addSession(sessionId, queryInstance, writer = null, releaseInput = null, injectTurn = null) {
+function addSession(sessionId, queryInstance, writer = null, releaseInput = null, injectTurn = null, isInputReleased = null) {
   const existing = activeSessions.get(sessionId);
   // A different live instance under the same key means an earlier run was
   // superseded without being stopped (e.g. an abort that raced run setup and
@@ -355,7 +362,8 @@ function addSession(sessionId, queryInstance, writer = null, releaseInput = null
     writer,
     // Re-registered mid-run once the provider session id lands; keep the closer.
     releaseInput: releaseInput || carried?.releaseInput || null,
-    injectTurn: injectTurn || carried?.injectTurn || null
+    injectTurn: injectTurn || carried?.injectTurn || null,
+    isInputReleased: isInputReleased || carried?.isInputReleased || null
   });
   // The history reader reports a background agent as running or stopped by
   // whether this entry exists, and the cached history does not see this map.
@@ -1019,12 +1027,23 @@ async function queryClaudeSDK(command, options = {}, ws, context) {
     }
   };
 
+  // Closes stdin on the runtime's own decision. A release while the CLI still
+  // reports background work leaves a process that can run further turns but
+  // never hear a Stop (see abortSession), so those are worth a log line.
+  const releaseStdin = (reason) => {
+    const outstanding = backgroundWork.outstanding(sessionKey()).length;
+    if (!promptReleased() && (outstanding > 0 || backgroundTasks.length > 0)) {
+      console.log(`[Claude SDK] stdin of ${sessionKey()} released (${reason}) with background work still reported: ${outstanding} tracked, ${backgroundTasks.length} listed by the CLI`);
+    }
+    releasePromptStream();
+  };
+
   // Arms (or re-arms) the idle countdown that eventually closes stdin.
   const scheduleRelease = () => {
     clearIdleRelease();
     idleReleaseTimer = setTimeout(() => {
       idleReleaseTimer = null;
-      releasePromptStream();
+      releaseStdin('idle hold expired');
     }, BG_IDLE_RELEASE_MS);
     // Never let the hold keep the server process alive on its own.
     idleReleaseTimer.unref?.();
@@ -1351,7 +1370,7 @@ async function queryClaudeSDK(command, options = {}, ws, context) {
 
     // Track the query instance for abort capability
     if (sessionKey()) {
-      addSession(sessionKey(), queryInstance, ws, releasePromptStream, injectTurn);
+      addSession(sessionKey(), queryInstance, ws, releasePromptStream, injectTurn, () => promptReleased());
     }
 
     // Process streaming messages
@@ -1361,7 +1380,7 @@ async function queryClaudeSDK(command, options = {}, ws, context) {
       if (message.session_id && !capturedSessionId) {
 
         capturedSessionId = message.session_id;
-        addSession(sessionKey(), queryInstance, ws, releasePromptStream, injectTurn);
+        addSession(sessionKey(), queryInstance, ws, releasePromptStream, injectTurn, () => promptReleased());
 
         // Set session ID on writer
         if (ws.setSessionId && typeof ws.setSessionId === 'function') {
@@ -1428,7 +1447,7 @@ async function queryClaudeSDK(command, options = {}, ws, context) {
         && !backgroundWork.hasOutstanding(sessionKey())
       ) {
         heldForBackgroundWork = false;
-        releasePromptStream();
+        releaseStdin('last task stopped');
       }
 
       if (message.type === 'system') {
@@ -1512,7 +1531,7 @@ async function queryClaudeSDK(command, options = {}, ws, context) {
           // Either nothing was backgrounded, or the background work just
           // reported in — let the CLI exit now, as it always has.
           heldForBackgroundWork = false;
-          releasePromptStream();
+          releaseStdin('turn ended with nothing to hold for');
         }
       } else if (message.type === 'system' && message.subtype === 'background_tasks_changed') {
         backgroundTasks = Array.isArray(message.tasks) ? message.tasks : [];
@@ -1618,11 +1637,49 @@ async function queryClaudeSDK(command, options = {}, ws, context) {
 }
 
 /**
+ * Whether the CLI answered interrupt() in time. A rejection (the process is
+ * already gone, the transport refused the write) counts as no answer.
+ * @param {Object} instance - SDK query instance
+ * @param {number} timeoutMs - How long to wait for the reply
+ * @returns {Promise<boolean>}
+ */
+async function interruptAnswered(instance, timeoutMs) {
+  let timer = null;
+  try {
+    return await Promise.race([
+      Promise.resolve().then(() => instance.interrupt()).then(() => true),
+      new Promise((resolve) => {
+        timer = setTimeout(() => resolve(false), timeoutMs);
+        timer.unref?.();
+      }),
+    ]);
+  } catch (error) {
+    console.warn('[Claude SDK] interrupt() failed:', error?.message || error);
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
  * Aborts an active SDK session
  * @param {string} sessionId - Session identifier
- * @returns {boolean} True if session was aborted, false if not found
+ * @param {{ interruptTimeoutMs?: number }} [options]
+ * @returns {Promise<boolean>} True if session was aborted, false if not found
  */
-async function abortClaudeSDKSession(sessionId) {
+function abortClaudeSDKSession(sessionId, { interruptTimeoutMs = INTERRUPT_REPLY_TIMEOUT_MS } = {}) {
+  // Repeated Stop clicks while one is still waiting on the CLI share it.
+  const inFlight = pendingAborts.get(sessionId);
+  if (inFlight) {
+    return inFlight;
+  }
+  const attempt = abortSession(sessionId, interruptTimeoutMs)
+    .finally(() => { pendingAborts.delete(sessionId); });
+  pendingAborts.set(sessionId, attempt);
+  return attempt;
+}
+
+async function abortSession(sessionId, interruptTimeoutMs) {
   const session = getSession(sessionId);
 
   if (!session) {
@@ -1630,33 +1687,40 @@ async function abortClaudeSDKSession(sessionId) {
     return false;
   }
 
-  try {
-    console.log(`Aborting SDK session: ${sessionId}`);
+  console.log(`Aborting SDK session: ${sessionId}`);
 
-    // Mark before interrupting so the run loop knows not to emit its own
-    // terminal complete (the abort handler sends the aborted one).
-    abortedSessionIds.add(sessionId);
+  // Mark before interrupting so the run loop knows not to emit its own
+  // terminal complete (the abort handler sends the aborted one).
+  abortedSessionIds.add(sessionId);
 
-    // Call interrupt() on the query instance
-    await session.instance.interrupt();
-
-    // Release the held stdin stream; without this the CLI stays up for the rest
-    // of the post-turn hold even though the user cancelled.
-    session.releaseInput?.();
-
-    // Update session status
-    session.status = 'aborted';
-
-    // Clean up session
-    removeSession(sessionId);
-
-    return true;
-  } catch (error) {
-    console.error(`Error aborting session ${sessionId}:`, error);
-    // The run keeps going; let it emit its own terminal complete.
-    abortedSessionIds.delete(sessionId);
-    return false;
+  // interrupt() is a control request written to the CLI's stdin. Once stdin
+  // has been let go, the SDK drops the request silently and the promise never
+  // settles — while the CLI, still waiting on background agents, keeps running
+  // the turns they trigger. A Stop must stop: without an answer, end the
+  // process (SIGTERM, then SIGKILL). An interrupt kills the background agents
+  // too, so this takes nothing the user would not have lost anyway.
+  const stdinReleased = Boolean(session.isInputReleased?.());
+  const answered = !stdinReleased && await interruptAnswered(session.instance, interruptTimeoutMs);
+  if (!answered) {
+    console.warn(`[Claude SDK] ${sessionId}: interrupt ${stdinReleased ? 'cannot reach the CLI, its stdin is released' : 'got no answer'}; ending the CLI process`);
+    try {
+      session.instance.close?.();
+    } catch (error) {
+      console.error(`Error ending the CLI process of ${sessionId}:`, error);
+    }
   }
+
+  // Release the held stdin stream; without this the CLI stays up for the rest
+  // of the post-turn hold even though the user cancelled.
+  session.releaseInput?.();
+
+  // Update session status
+  session.status = 'aborted';
+
+  // Clean up session
+  removeSession(sessionId);
+
+  return true;
 }
 
 /**

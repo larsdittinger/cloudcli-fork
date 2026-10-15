@@ -7,6 +7,7 @@ import test from 'node:test';
 import { ClaudeSessionsProvider } from '@/modules/providers/list/claude/claude-sessions.provider.js';
 import { CLAUDE_PREDEFINED_MODELS } from '@/modules/providers/list/claude/claude-models.provider.js';
 import {
+  abortClaudeSDKSession,
   isClaudeSDKSessionMidTurn,
   listClaudeSDKBackgroundWork,
   queryClaudeSDK,
@@ -30,20 +31,34 @@ type Scripted = {
   end: () => void;
   released: () => boolean;
   stopped: string[];
+  /** How many times the runtime asked the CLI to interrupt. */
+  interrupts: () => number;
+  /** Whether the runtime ended the process (`query.close()`). */
+  closed: () => boolean;
+  /** Makes interrupt() never answer, like a request the SDK dropped on an ended stdin. */
+  hangInterrupts: () => void;
 };
+
+const PROCESS_KILLED = Symbol('process killed');
 
 /** A stand-in for the SDK query: yields what the test emits, and reads the held prompt to notice its release. */
 function createScriptedQuery(): { createQuery: NonNullable<ProviderRuntimeContext['createQuery']>; script: Scripted } {
-  const queue: Array<Record<string, unknown> | null> = [];
+  const queue: Array<Record<string, unknown> | null | typeof PROCESS_KILLED> = [];
   let wake: (() => void) | null = null;
   let released = false;
   const stopped: string[] = [];
+  let interrupts = 0;
+  let closed = false;
+  let interruptsHang = false;
 
   const script: Scripted = {
     emit: (message) => { queue.push(message); wake?.(); },
     end: () => { queue.push(null); wake?.(); },
     released: () => released,
     stopped,
+    interrupts: () => interrupts,
+    closed: () => closed,
+    hangInterrupts: () => { interruptsHang = true; },
   };
 
   const createQuery: NonNullable<ProviderRuntimeContext['createQuery']> = ({ prompt }) => {
@@ -60,6 +75,9 @@ function createScriptedQuery(): { createQuery: NonNullable<ProviderRuntimeContex
           continue;
         }
         const next = queue.shift();
+        if (next === PROCESS_KILLED) {
+          throw new Error('Claude Code process exited with code 143');
+        }
         if (next === null || next === undefined) {
           return;
         }
@@ -68,8 +86,16 @@ function createScriptedQuery(): { createQuery: NonNullable<ProviderRuntimeContex
     })();
 
     return Object.assign(iterator, {
-      interrupt: async () => {},
+      interrupt: () => {
+        interrupts += 1;
+        return interruptsHang ? new Promise<void>(() => {}) : Promise.resolve();
+      },
       stopTask: async (taskId: string) => { stopped.push(taskId); },
+      close: () => {
+        closed = true;
+        queue.push(PROCESS_KILLED);
+        wake?.();
+      },
     });
   };
 
@@ -156,6 +182,73 @@ test('stopping the last outstanding task releases the held process', async () =>
     assert.deepEqual(listClaudeSDKBackgroundWork(), []);
     assert.equal(script.released(), true, 'the process is let go once nothing is outstanding');
     void done;
+  });
+});
+
+/** Fails the test instead of hanging it when an abort never settles. */
+async function abortWithin(ms: number): Promise<boolean> {
+  return await Promise.race([
+    abortClaudeSDKSession(SESSION_ID, { interruptTimeoutMs: 50 }),
+    new Promise<never>((_resolve, reject) => {
+      setTimeout(() => reject(new Error(`abort did not settle within ${ms} ms`)), ms).unref();
+    }),
+  ]);
+}
+
+test('Stop ends a turn the CLI runs after its stdin was already released', async () => {
+  // julca 2026-10-15: the runtime had let go of stdin, but the CLI stayed up
+  // for a background agent and ran a follow-up turn when a shell settled. The
+  // SDK drops control requests written to an ended stdin, so interrupt()
+  // never settled and ten Stop clicks did nothing for eight minutes.
+  await withRun(async ({ script, sent }) => {
+    script.emit(init());
+    script.emit(result());
+    await waitFor(() => script.released());
+
+    script.hangInterrupts();
+    script.emit({ type: 'assistant', session_id: NATIVE_ID, parent_tool_use_id: null, message: { role: 'assistant', content: [{ type: 'text', text: 'Following up.' }] } });
+    await settle();
+
+    assert.equal(await abortWithin(1_000), true);
+    assert.equal(script.interrupts(), 0, 'a request on an ended stdin can never be answered, so none is sent');
+    assert.equal(script.closed(), true, 'the process is ended instead');
+    await settle();
+    assert.equal(sent.some((message) => message.kind === 'error'), false, 'the killed process is the abort, not an error');
+  });
+});
+
+test('Stop ends the process when the CLI does not answer interrupt()', async () => {
+  await withRun(async ({ script, sent }) => {
+    script.emit(init());
+    script.emit(toolUse('toolu_agent', 'Agent', { prompt: 'count', run_in_background: true }));
+    script.emit(taskStarted('a1', 'toolu_agent', 'local_agent'));
+    script.emit(result());
+    await settle();
+    assert.equal(script.released(), false, 'stdin is held for the agent');
+
+    script.hangInterrupts();
+    // Impatient clicks while the first Stop is still waiting share it.
+    const [first, second] = await Promise.all([abortWithin(1_000), abortWithin(1_000)]);
+
+    assert.deepEqual([first, second], [true, true]);
+    assert.equal(script.interrupts(), 1);
+    assert.equal(script.closed(), true);
+    await settle();
+    assert.equal(sent.some((message) => message.kind === 'error'), false);
+  });
+});
+
+test('Stop that the CLI answers leaves the process to wind down on its own', async () => {
+  await withRun(async ({ script }) => {
+    script.emit(init());
+    script.emit(toolUse('toolu_agent', 'Agent', { prompt: 'count', run_in_background: true }));
+    script.emit(taskStarted('a1', 'toolu_agent', 'local_agent'));
+    script.emit(result());
+    await settle();
+
+    assert.equal(await abortWithin(1_000), true);
+    assert.equal(script.interrupts(), 1);
+    assert.equal(script.closed(), false);
   });
 });
 

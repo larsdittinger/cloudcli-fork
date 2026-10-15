@@ -58,6 +58,12 @@ nasazuje — je v `../CLAUDE.md`.
   život. U vlastního procesu proto `listRunningSessions` věří `runtime.isMidTurn` (navazující tah, který CLI
   spustilo samo, od výstupu modelu do `result`), ne souboru — jinak chat „přemýšlel“ a každou novou zprávu
   odložil do fronty, dokud agent nedoběhl (2026-10-15).
+  **Stop vždycky zastaví (2026-10-15):** `interrupt()` je control request přes stdin CLI. Když runtime stdin už
+  pustil a CLI dál žije kvůli agentovi na pozadí (a samo spouští navazující tahy), SDK request na ukončeném stdin
+  tiše zahodí a promise se nikdy nevyřeší — na julce 10× Stop za 8 min bez účinku. `abortSession` proto při
+  uvolněném stdin (`isInputReleased` v záznamu session) nebo bez odpovědi do `CLOUDCLI_CLAUDE_INTERRUPT_TIMEOUT_MS`
+  (5 s) proces ukončí přes `query.close()`; souběžné Stopy sdílí jeden pokus (`pendingAborts`). Uvolnění stdin,
+  když CLI ještě hlásí práci na pozadí, se loguje (`stdin of … released (důvod) with background work…`).
 - **Channels** (`server/modules/channels`, `src/modules/channels`, Settings tab
   `tabs/channels-settings`): příchozí e-mail (imapflow) / WhatsApp (baileys) / webhook
   → pravidla → chat přes `createAppSession` + `runDetachedChatTurn`; odpovědi přes
