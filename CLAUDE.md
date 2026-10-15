@@ -17,6 +17,17 @@ nasazuje — je v `../CLAUDE.md`.
   a cron) jsou jen pro admina. Vynuceno v `modules/auth/session-access.ts` a odtud
   v projects/provider routes i v chat websocketu. Restricted uživatel taky nezaloží
   chat mimo přidělený projekt a přeskakuje onboarding (git + login providera).
+  **Čtení cizích vláken (2026-10-15):** `session_shares` (admin sdílí vlákno, ⋯ → Share with users…,
+  `PUT /api/admin/sessions/:id/shares`) a `users.sees_all_sessions` (všechna vlákna přidělených
+  projektů). Pravidlo čtení je jedna SQL klauzule `viewerScopeClause` v `sessions.db.ts` — všechny
+  výpisy s `ownerUserId` ji používají. `canReadSession` = čtení (GET routy přes `router.param`,
+  `chat.subscribe`, `session_upserted` per klient přes `connectionUsers`), `canAccessSession` = zápis
+  (vše ostatní). Cizí vlákno nese `readOnly`, projekt jen se sdílenými vlákny `sharedOnly`
+  (klient: jen Chat, bez New chat; `chat_subscribed.readOnly` pro otevření přes URL). Zápis hlídá i
+  `runDetachedChatTurn` (naplánované zprávy, fronta konceptů — dřív bez kontroly), `chat.stop-task`
+  a `chat.permission-response` (restricted musí poslat `sessionId` svého vlákna). Restricted tah
+  ignoruje `options.cwd` z klienta. Změna sdílení/flagu/projektů → `applyChatAccessChange`
+  (odpojí diváka od běžících streamů, klient dostane `chat_access_changed` a přenačte sidebar).
 - **Interaktivní Browser tab** — admin ovládá živou agentní session klikáním a psaním
   (`POST /api/browser-use/sessions/:id/input`). Restricted uživatel má tab taky, ale vidí
   a ovládá jen sessions, které agent založil v jeho přidělených projektech: MCP klient
