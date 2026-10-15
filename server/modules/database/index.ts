@@ -34,4 +34,6 @@ export { schedulesDb, scheduleRunsDb } from './repositories/schedules.db.js';
 export type { ScheduleKind, ScheduleRow, ScheduleRunRow, ScheduleRunStatus, ScheduleWrite } from './repositories/schedules.db.js';
 // tasksDb / taskEventsDb / taskThreadsDb: used by the Tasks module for long-running agent tasks, their diary and linked conversations.
 export { tasksDb, taskEventsDb, taskThreadsDb } from './repositories/tasks.db.js';
+// taskAttentionKey: used by the Tasks module to tell whether the owner already marked a task's current need read.
+export { taskAttentionKey } from './repositories/tasks.db.js';
 export type { TaskEventAuthor, TaskEventRow, TaskPatch, TaskRow, TaskStatus, TaskWrite } from './repositories/tasks.db.js';

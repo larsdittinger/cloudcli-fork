@@ -29,6 +29,18 @@ function readUserId(request: Request): number | null {
   return Number.isInteger(userId) ? userId : null;
 }
 
+/** Bulk Inbox actions take at most this many messages per request (the list shows 100). */
+const MAX_BULK_MESSAGES = 500;
+
+/** Reads a bulk request's `ids`: a non-empty array of distinct message ids. */
+function readMessageIds(body: unknown): string[] {
+  const ids = (body && typeof body === 'object' ? (body as Record<string, unknown>).ids : undefined);
+  if (!Array.isArray(ids) || !ids.length || ids.length > MAX_BULK_MESSAGES || ids.some((id) => typeof id !== 'string' || !id.trim())) {
+    throw new AppError(`"ids" must be 1–${MAX_BULK_MESSAGES} message ids.`, { code: 'INVALID_REQUEST', statusCode: 400 });
+  }
+  return [...new Set(ids as string[])];
+}
+
 function publicMessage(row: ChannelMessageRow, ruleNames: Map<string, string>, accountLabels: Map<string, string>) {
   return {
     id: row.id,
@@ -55,6 +67,7 @@ function publicMessage(row: ChannelMessageRow, ruleNames: Map<string, string>, a
     sessionId: row.session_id,
     status: row.status,
     statusDetail: row.status_detail,
+    read: row.read_at !== null,
     injection: readInjectionScan(row),
   };
 }
@@ -144,12 +157,14 @@ router.put('/settings', asyncHandler(async (req: Request, res: Response) => {
 }));
 
 router.get('/summary', asyncHandler(async (_req: Request, res: Response) => {
+  // The badge is what still needs a look: read messages drop out of it.
   const counts = channelMessagesDb.countByStatus();
+  const unread = channelMessagesDb.countByStatus({ unreadOnly: true });
   res.json(createApiSuccessResponse({
-    unmatched: counts.unmatched,
-    held: counts.held,
+    unmatched: unread.unmatched,
+    held: unread.held,
     queued: counts.queued,
-    failed: counts.failed,
+    failed: unread.failed,
     drafts: outboxService.countDrafts(),
     proposals: channelAccountsDb.list().filter((row) => row.proposal).length
       + channelRulesDb.listOrdered().filter((row) => row.proposal).length,
@@ -334,8 +349,23 @@ router.post('/messages/:id/ignore', asyncHandler(async (req: Request, res: Respo
   if (!channelMessagesDb.get(id)) {
     throw new AppError('Message not found.', { code: 'CHANNEL_MESSAGE_NOT_FOUND', statusCode: 404 });
   }
-  channelMessagesDb.setStatus(id, 'ignored', null);
+  // Through the service so every open tab hears it: the sidebar badge refetches only on that frame.
+  channelsService.ignoreMessages([id]);
   res.json(createApiSuccessResponse({ ignored: true }));
+}));
+
+// Bulk Inbox actions. `mark-read` without ids (`{ all: true }`) reads everything.
+router.post('/messages/mark-read', asyncHandler(async (req: Request, res: Response) => {
+  const all = (req.body ?? {}).all === true;
+  res.json(createApiSuccessResponse(channelsService.markMessagesRead(all ? null : readMessageIds(req.body))));
+}));
+
+router.post('/messages/ignore', asyncHandler(async (req: Request, res: Response) => {
+  res.json(createApiSuccessResponse(channelsService.ignoreMessages(readMessageIds(req.body))));
+}));
+
+router.post('/messages/delete', asyncHandler(async (req: Request, res: Response) => {
+  res.json(createApiSuccessResponse(channelsService.deleteMessages(readMessageIds(req.body))));
 }));
 
 router.get('/attachments/:messageId/:index', asyncHandler(async (req: Request, res: Response) => {

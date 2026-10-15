@@ -1914,6 +1914,8 @@ export type AgentTask = {
   closedAt: string | null;
   /** Outgoing messages of this task that wait for the owner (drafts, failed sends). */
   draftCount: number;
+  /** The owner marked what the task needs from them as read: it still needs them, but badges skip it until something new arrives. */
+  attentionRead?: boolean;
 };
 
 /** One diary entry of an agent task; `sessionId` links the chat of a wake-up. */

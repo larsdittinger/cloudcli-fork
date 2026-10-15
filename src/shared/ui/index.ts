@@ -20,6 +20,8 @@
 export { ActionMenu } from '@/shared/ui/ActionMenu';
 export { Badge } from '@/shared/ui/Badge';
 export { Button, buttonVariants } from '@/shared/ui/Button';
+export { BulkActionBar } from '@/shared/ui/BulkActionBar';
+export type { BulkAction } from '@/shared/ui/BulkActionBar';
 export { Card, CardHeader, CardTitle, CardContent, CardFooter } from '@/shared/ui/Card';
 export { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/shared/ui/Collapsible';
 export { Command, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem } from '@/shared/ui/Command';

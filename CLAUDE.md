@@ -96,6 +96,13 @@ nasazuje — je v `../CLAUDE.md`.
   `channels_reply` ani `tasks_send_message` na zadrženou zprávu. Chyba skeneru = zpráva projde (fail-open) a Inbox
   ukáže „filter failed".
   Data a měření: `scripts/prompt-injection/` (README s čísly, `dataset.py` fetch/prepare/mine, `eval.ts`).
+  **Přečteno + hromadné akce v Inboxu (2026-10-15):** `channel_messages.read_at`; badge (`/summary`) počítá jen
+  **nepřečtené** `unmatched`/`held`/`failed` (+ koncepty a návrhy jako dřív). Otevření zprávy ji přečte; nové selhání
+  (`setStatus` → `failed`) ji vrátí mezi nepřečtené. Přečteno je jen pozornost — zadržená zpráva zůstává `held`.
+  `POST /messages/mark-read {ids}|{all:true}`, `/messages/ignore {ids}` (zprávu u agenta/úkolu jen přečte),
+  `/messages/delete {ids}` (+ přílohy; chaty a koncepty zůstanou). Ignore (i jednotlivý) teď posílá
+  `channels_inbox_updated` — dřív ne, a badge v sidebaru se po Ignore neobnovil. UI: „⋯" (Mark all as read, Select
+  messages), ⌘/Ctrl-klik, Shift-klik rozsah, lišta Mark as read / Ignore / Delete — sdílené `useMultiSelect` + `BulkActionBar`.
 
 - **Schedules** (`server/modules/schedules`, `src/modules/schedules`, záložka `schedules`
   jen pro admina; od 2026-10-06, nahrazuje plugin `workspace-scheduled-prompts`): úlohy
@@ -144,6 +151,11 @@ nasazuje — je v `../CLAUDE.md`.
   (4) E-mail adaptér zapisuje `raw.senderAuth` z nejvyšší `Authentication-Results` (jen tvrdé `fail`, softfail
   ne); `fail` neprojde filtrem odesílatelů (`*` ano) ani do úkolu (`sender-auth.ts`, `senderFailedAuth` v barrelu).
   (5) `tasks_send_message` nepošle stejný text stejnému příjemci v rámci úkolu podruhé. (6) Souhrn max 4000 znaků.
+  **Přečteno + hromadné akce (2026-10-15):** `tasks.attention_read_key` = otisk toho, co úkol od vlastníka chce
+  (`taskAttentionKey`: otázka podle `askedAt`+textu, nepotvrzený mandát, id konceptů). Badge (`attention()`) úkol
+  přeskočí, dokud se otisk nezmění (nová otázka / koncept). Nic se tím neodpovídá, nepotvrzuje ani neposílá; karta
+  ukáže důvody šedě (`attentionRead`). `POST /api/tasks/mark-read {ids}|{all:true, projectPath?}`, `POST /api/tasks/delete {ids}`.
+  UI v `TaskBoard` (záložka projektu i všechny úkoly): „⋯", ⌘/Ctrl/Shift-klik, lišta Mark as read / Delete (s potvrzením).
 - **Přepínače autonomie agentů** (od 2026-10-06, výchozí vypnuto, `app_config`): Settings → Channels
   „Agents set up channels without approval" (`channels_agents_auto_approve` → návrh účtu/pravidla se hned
   schválí; validace pravidel platí dál), záložka Schedules „Agents' schedules run without approval"

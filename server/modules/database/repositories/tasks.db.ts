@@ -32,7 +32,31 @@ export type TaskRow = {
   created_at: string;
   updated_at: string;
   closed_at: string | null;
+  /** `taskAttentionKey` of what needed the owner when they marked the task read; null = never read. */
+  attention_read_key: string | null;
 };
+
+/**
+ * Fingerprint of what an open task needs from the owner right now: the open
+ * question (by when it was asked), an unconfirmed mandate and the waiting
+ * drafts. Null when nothing does. Marking a task read stores it; a new
+ * question or draft changes it, so the task counts again.
+ */
+export function taskAttentionKey(row: Pick<TaskRow, 'question' | 'mandate_confirmed'>, draftIds: string[]): string | null {
+  // Any stored question counts, even one without a usable `askedAt`; its text then tells questions apart.
+  let question: string | null = null;
+  if (row.question !== null) {
+    try {
+      const parsed = JSON.parse(row.question) as { askedAt?: unknown; text?: unknown };
+      question = `${typeof parsed.askedAt === 'string' ? parsed.askedAt : ''}|${typeof parsed.text === 'string' ? parsed.text : row.question}`;
+    } catch {
+      question = row.question;
+    }
+  }
+  const mandate = row.mandate_confirmed === 0;
+  if (question === null && !mandate && !draftIds.length) return null;
+  return JSON.stringify({ q: question, m: mandate, d: [...draftIds].sort() });
+}
 
 /** What a new task is created from. */
 export type TaskWrite = Pick<
@@ -66,7 +90,7 @@ export type TaskEventRow = {
 const TASK_COLUMNS = [
   'id', 'title', 'brief', 'mandate', 'mandate_confirmed', 'summary', 'checklist', 'status', 'question', 'next_check_at',
   'pending_wake', 'running_session_id', 'running_since', 'seen_event_id', 'failure_count', 'project_path', 'provider', 'model',
-  'effort', 'permission_mode', 'owner_user_id', 'created_by', 'created_at', 'updated_at', 'closed_at',
+  'effort', 'permission_mode', 'owner_user_id', 'created_by', 'created_at', 'updated_at', 'closed_at', 'attention_read_key',
 ].join(', ');
 
 const PATCH_FIELDS = [
@@ -132,6 +156,11 @@ export const tasksDb = {
       getConnection().prepare(`UPDATE tasks SET ${assignments}, updated_at = ? WHERE id = ?`).run(...values, nowIso(), id);
     }
     return this.get(id);
+  },
+
+  /** Stores what the owner has seen (see `taskAttentionKey`); not an edit, so `updated_at` stays. */
+  setAttentionRead(id: number, key: string | null): void {
+    getConnection().prepare('UPDATE tasks SET attention_read_key = ? WHERE id = ?').run(key, id);
   },
 
   delete(id: number): void {
@@ -210,17 +239,40 @@ export const tasksDb = {
 
   /**
    * Open tasks that need the owner: a question, an unconfirmed mandate or an
-   * outgoing draft. Each task counts once.
+   * outgoing draft, with the ids of those drafts and what the owner last
+   * marked read. `attention` counts the ones whose need is new to the owner.
    */
-  attention(): { total: number; byProject: Record<string, number> } {
+  listNeedingOwner(filter: { ids?: number[]; projectPath?: string } = {}): Array<Pick<TaskRow, 'id' | 'project_path' | 'question' | 'mandate_confirmed' | 'attention_read_key'> & { draftIds: string[] }> {
+    const clauses = [`t.status NOT IN (${CLOSED.map(() => '?').join(', ')})`];
+    const params: unknown[] = [...CLOSED];
+    if (filter.ids) {
+      if (!filter.ids.length) return [];
+      clauses.push(`t.id IN (${filter.ids.map(() => '?').join(', ')})`);
+      params.push(...filter.ids);
+    }
+    if (filter.projectPath) {
+      clauses.push('t.project_path = ?');
+      params.push(filter.projectPath);
+    }
     const rows = getConnection()
       .prepare(
-        `SELECT project_path FROM tasks t
-         WHERE t.status NOT IN (${CLOSED.map(() => '?').join(', ')})
+        `SELECT t.id, t.project_path, t.question, t.mandate_confirmed, t.attention_read_key,
+                (SELECT GROUP_CONCAT(o.id) FROM channel_outbox o WHERE o.task_id = t.id AND o.status IN ('draft', 'failed')) AS draft_ids
+         FROM tasks t
+         WHERE ${clauses.join(' AND ')}
            AND (t.question IS NOT NULL OR t.mandate_confirmed = 0
                 OR EXISTS (SELECT 1 FROM channel_outbox o WHERE o.task_id = t.id AND o.status IN ('draft', 'failed')))`,
       )
-      .all(...CLOSED) as Array<{ project_path: string }>;
+      .all(...params) as Array<Pick<TaskRow, 'id' | 'project_path' | 'question' | 'mandate_confirmed' | 'attention_read_key'> & { draft_ids: string | null }>;
+    return rows.map(({ draft_ids: draftIds, ...row }) => ({ ...row, draftIds: draftIds ? draftIds.split(',') : [] }));
+  },
+
+  /**
+   * Open tasks that need the owner and whose need the owner has not marked
+   * read yet. Each task counts once.
+   */
+  attention(): { total: number; byProject: Record<string, number> } {
+    const rows = this.listNeedingOwner().filter((row) => taskAttentionKey(row, row.draftIds) !== row.attention_read_key);
     const byProject: Record<string, number> = {};
     for (const row of rows) byProject[row.project_path] = (byProject[row.project_path] ?? 0) + 1;
     return { total: rows.length, byProject };

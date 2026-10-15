@@ -26,6 +26,18 @@ function readQuery(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
 }
 
+/** Bulk task actions take at most this many tasks per request. */
+const MAX_BULK_TASKS = 500;
+
+/** Reads a bulk request's `ids`: a non-empty array of distinct task numbers. */
+function readTaskIds(body: Record<string, unknown>): number[] {
+  const ids = body.ids;
+  if (!Array.isArray(ids) || !ids.length || ids.length > MAX_BULK_TASKS || ids.some((id) => !Number.isInteger(id) || (id as number) <= 0)) {
+    throw new AppError(`"ids" must be 1–${MAX_BULK_TASKS} task numbers.`, { code: 'INVALID_REQUEST', statusCode: 400 });
+  }
+  return [...new Set(ids as number[])];
+}
+
 const router = express.Router();
 
 router.get('/', asyncHandler(async (req: Request, res: Response) => {
@@ -44,6 +56,19 @@ router.put('/settings', asyncHandler(async (req: Request, res: Response) => {
   const value = readBody(req).trustAgentMandates;
   if (typeof value !== 'boolean') throw new AppError('"trustAgentMandates" must be a boolean.', { code: 'INVALID_REQUEST', statusCode: 400 });
   res.json(createApiSuccessResponse({ trustAgentMandates: tasksService.setTrustAgentMandates(value) }));
+}));
+
+// Marks what tasks need from the owner as read: `{ ids }`, or `{ all: true, projectPath? }`.
+router.post('/mark-read', asyncHandler(async (req: Request, res: Response) => {
+  const body = readBody(req);
+  const result = body.all === true
+    ? tasksService.markRead(null, { projectPath: readQuery(body.projectPath) })
+    : tasksService.markRead(readTaskIds(body));
+  res.json(createApiSuccessResponse(result));
+}));
+
+router.post('/delete', asyncHandler(async (req: Request, res: Response) => {
+  res.json(createApiSuccessResponse(tasksService.removeMany(readTaskIds(readBody(req)))));
 }));
 
 router.get('/:id', asyncHandler(async (req: Request, res: Response) => {

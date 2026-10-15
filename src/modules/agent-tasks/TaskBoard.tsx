@@ -1,6 +1,9 @@
 import { useMemo, useState } from 'react';
+import { CheckCheck, CheckSquare, MoreHorizontal, Trash2 } from 'lucide-react';
 
-import { Pill, PillBar } from '@/shared/ui';
+import { api, readApiJson } from '@/shared/api';
+import { useMultiSelect } from '@/shared/hooks/useMultiSelect';
+import { ActionMenu, BulkActionBar, Pill, PillBar } from '@/shared/ui';
 import { cn } from '@/shared/utils';
 import type { AgentTask } from '@/shared/types';
 import TaskCard from '@/modules/agent-tasks/TaskCard';
@@ -10,6 +13,10 @@ type Props = {
   tasks: AgentTask[];
   showProject: boolean;
   onOpen: (task: AgentTask) => void;
+  /** The board's project, so "Mark all as read" stays within it; null on the all-projects board. */
+  projectPath: string | null;
+  /** Refetches the board after a bulk action. */
+  onChanged: () => Promise<void> | void;
 };
 
 /** Newest activity first; questions by when they were asked, closed tasks by when they closed. */
@@ -26,7 +33,7 @@ function sortForColumn(columnId: string, tasks: AgentTask[]): AgentTask[] {
  * them side by side; narrow ones show one column at a time with a switcher,
  * so nothing ever scrolls sideways.
  */
-export default function TaskBoard({ tasks, showProject, onOpen }: Props) {
+export default function TaskBoard({ tasks, showProject, onOpen, projectPath, onChanged }: Props) {
   const columns = useMemo(
     () => BOARD_COLUMNS.map((column) => ({
       ...column,
@@ -40,9 +47,76 @@ export default function TaskBoard({ tasks, showProject, onOpen }: Props) {
   // The column shown on narrow screens; null = the most useful one for the current tasks.
   const [chosen, setChosen] = useState<string | null>(null);
   const activeId = chosen ?? firstUseful.id;
+  // Board order, column by column: what a Shift-click range runs over.
+  const orderedIds = useMemo(() => columns.flatMap((column) => column.tasks.map((task) => task.id)), [columns]);
+  const selection = useMultiSelect(orderedIds);
+  // A bulk action is on its way; the bar's buttons wait for it.
+  const [busy, setBusy] = useState(false);
+  // Why the last bulk action failed; cleared by the next one.
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  const run = async (action: () => Promise<Response>, clearSelection: boolean) => {
+    setBusy(true);
+    setActionError(null);
+    try {
+      await readApiJson(await action());
+      if (clearSelection) selection.clear();
+      await onChanged();
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const deleteSelected = () => {
+    const ids = [...selection.selected];
+    // Deleting stops the task's agent and discards its drafts; it cannot be undone.
+    if (!window.confirm(`Delete ${ids.length === 1 ? 'this task' : `${ids.length} tasks`}? A running agent stops and unsent drafts are discarded. This cannot be undone.`)) return;
+    void run(() => api.agentTasks.removeMany(ids), true);
+  };
 
   return (
     <div>
+      <div className="mb-2 flex items-center gap-2">
+        <ActionMenu
+          label="Task actions"
+          ariaLabel="Task actions"
+          icon={MoreHorizontal}
+          iconOnly
+          variant="ghost"
+          size="icon"
+          className="ml-auto"
+          triggerClassName="h-8 w-8 text-muted-foreground"
+          menuClassName="w-[260px] rounded-xl p-1.5 shadow-xl"
+          items={[
+            {
+              key: 'read-all',
+              label: 'Mark all as read',
+              description: 'Clears the badges. Questions, mandates and drafts still wait for you.',
+              icon: CheckCheck,
+              onSelect: () => { void run(() => api.agentTasks.markRead('all', projectPath ?? undefined), false); },
+            },
+            { key: 'select', label: 'Select tasks', description: `Or ${selection.modifierLabel}-click and Shift-click cards.`, icon: CheckSquare, onSelect: selection.startSelecting },
+          ]}
+        />
+      </div>
+      {selection.isSelecting && (
+        <BulkActionBar
+          className="mb-3"
+          count={selection.selected.size}
+          noun={['task', 'tasks']}
+          busy={busy}
+          onSelectAll={selection.selectAll}
+          onClear={selection.clear}
+          actions={[
+            { key: 'read', label: 'Mark as read', icon: CheckCheck, onSelect: () => { void run(() => api.agentTasks.markRead([...selection.selected]), true); } },
+            { key: 'delete', label: 'Delete', icon: Trash2, isDanger: true, onSelect: deleteSelected },
+          ]}
+        />
+      )}
+      {actionError && <p role="alert" className="mb-2 text-sm text-red-600 dark:text-red-300">{actionError}</p>}
+
       <PillBar role="group" aria-label="Board column" className="mb-3 flex w-full lg:hidden">
         {columns.map((column) => (
           <Pill
@@ -79,7 +153,14 @@ export default function TaskBoard({ tasks, showProject, onOpen }: Props) {
             </header>
             <div className="space-y-2">
               {column.tasks.map((task) => (
-                <TaskCard key={task.id} task={task} showProject={showProject} onOpen={() => onOpen(task)} />
+                <TaskCard
+                  key={task.id}
+                  task={task}
+                  showProject={showProject}
+                  isSelecting={selection.isSelecting}
+                  isPicked={selection.selected.has(task.id)}
+                  onOpen={(event) => selection.handleClick(task.id, event, () => onOpen(task))}
+                />
               ))}
               {column.tasks.length === 0 && (
                 <p className="px-1 py-3 text-center text-xs text-muted-foreground/80">

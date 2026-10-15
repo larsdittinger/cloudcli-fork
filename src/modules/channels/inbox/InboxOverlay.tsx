@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Loader2, ShieldAlert, X } from 'lucide-react';
+import { CheckCheck, CheckSquare, EyeOff, Loader2, MoreHorizontal, ShieldAlert, Trash2, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 import { api, readApiJson } from '@/shared/api';
-import { Button, Dialog, DialogContent, DialogTitle, Pill, PillBar } from '@/shared/ui';
+import { ActionMenu, BulkActionBar, Button, Dialog, DialogContent, DialogTitle, Pill, PillBar } from '@/shared/ui';
+import { useMultiSelect } from '@/shared/hooks/useMultiSelect';
 import { cn } from '@/shared/utils';
 import { ChannelIcon, FIELD_CLASS, MessageStatusBadge, formatWhen } from '@/modules/channels/ChannelBits';
 import PendingReplyCard from '@/modules/channels/chat/PendingReplyCard';
@@ -34,6 +35,9 @@ const MESSAGE_FILTERS: Array<{ value: MessageStatus | ''; label: string }> = [
   { value: 'task', label: 'With a task' },
   { value: 'ignored', label: 'Ignored' },
 ];
+
+/** Statuses that need the owner while unread — the ones the Inbox badge counts. */
+const ATTENTION_STATUSES = new Set<MessageStatus>(['unmatched', 'held', 'failed']);
 
 function Count({ value }: { value: number }) {
   if (value <= 0) return null;
@@ -83,10 +87,53 @@ function MessagesTab({ accounts, onOpenChat, onDetailOpen, initialMessageId }: {
 
   // Which messages have a reply waiting for approval.
   const waitingReply = useMemo(() => new Set(drafts.map((item) => item.in_reply_to_message_id).filter(Boolean)), [drafts]);
+  const messageIds = useMemo(() => messages.map((message) => message.id), [messages]);
+  const selection = useMultiSelect(messageIds);
+  // A bulk action is on its way; the bar's buttons wait for it.
+  const [bulkBusy, setBulkBusy] = useState(false);
+  // Why the last bulk action failed; cleared by the next one.
+  const [bulkError, setBulkError] = useState<string | null>(null);
+
+  // Opening a message reads it: it leaves the badge (the server tells every tab).
+  const openMessage = (message: ChannelMessage) => {
+    setSelectedId(message.id);
+    if (message.read === false) void api.channels.markMessagesRead([message.id]).catch(() => {});
+  };
+
+  const runBulk = async (action: (ids: string[]) => Promise<Response>, ids: string[]) => {
+    setBulkBusy(true);
+    setBulkError(null);
+    try {
+      await readApiJson(await action(ids));
+      selection.clear();
+      await load();
+    } catch (error) {
+      setBulkError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
+  const markAllRead = async () => {
+    setBulkError(null);
+    try {
+      await readApiJson(await api.channels.markMessagesRead('all'));
+      await load();
+    } catch (error) {
+      setBulkError(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  const deleteSelected = () => {
+    const ids = [...selection.selected];
+    // Deleting cannot be undone; chats the messages started stay.
+    if (!window.confirm(`Delete ${ids.length === 1 ? 'this message' : `${ids.length} messages`} from the Inbox? Chats and replies they started stay.`)) return;
+    void runBulk(api.channels.deleteMessages, ids);
+  };
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <select aria-label="Status filter" className={cn(FIELD_CLASS, 'w-auto')} value={status} onChange={(event) => setStatus(event.target.value as MessageStatus | '')}>
           {MESSAGE_FILTERS.map((filter) => <option key={filter.value} value={filter.value}>{filter.label}</option>)}
         </select>
@@ -96,7 +143,38 @@ function MessagesTab({ accounts, onOpenChat, onDetailOpen, initialMessageId }: {
             {accounts.map((account) => <option key={account.id} value={account.id}>{account.label}</option>)}
           </select>
         )}
+        <ActionMenu
+          label="Inbox actions"
+          ariaLabel="Inbox actions"
+          icon={MoreHorizontal}
+          iconOnly
+          variant="ghost"
+          size="icon"
+          className="ml-auto"
+          triggerClassName="h-8 w-8 text-muted-foreground"
+          menuClassName="w-[260px] rounded-xl p-1.5 shadow-xl"
+          items={[
+            { key: 'read-all', label: 'Mark all as read', description: 'Clears the badge; nothing is sent or ignored.', icon: CheckCheck, onSelect: () => { void markAllRead(); } },
+            { key: 'select', label: 'Select messages', description: `Or ${selection.modifierLabel}-click and Shift-click rows.`, icon: CheckSquare, onSelect: selection.startSelecting },
+          ]}
+        />
       </div>
+
+      {selection.isSelecting && (
+        <BulkActionBar
+          count={selection.selected.size}
+          noun={['message', 'messages']}
+          busy={bulkBusy}
+          onSelectAll={selection.selectAll}
+          onClear={selection.clear}
+          actions={[
+            { key: 'read', label: 'Mark as read', icon: CheckCheck, onSelect: () => { void runBulk(api.channels.markMessagesRead, [...selection.selected]); } },
+            { key: 'ignore', label: 'Ignore', icon: EyeOff, onSelect: () => { void runBulk(api.channels.ignoreMessages, [...selection.selected]); } },
+            { key: 'delete', label: 'Delete', icon: Trash2, isDanger: true, onSelect: deleteSelected },
+          ]}
+        />
+      )}
+      {bulkError && <p role="alert" className="text-sm text-red-600 dark:text-red-300">{bulkError}</p>}
 
       {loading ? (
         <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" aria-hidden /> Loading…</div>
@@ -104,17 +182,32 @@ function MessagesTab({ accounts, onOpenChat, onDetailOpen, initialMessageId }: {
         <p className="py-8 text-center text-sm text-muted-foreground">{status ? 'No messages with this status.' : 'Nothing here yet. Messages arrive once an account is connected.'}</p>
       ) : (
         <ul className="min-h-0 flex-1 divide-y divide-border/60 overflow-y-auto rounded-md border border-border/60">
-          {messages.map((message) => (
+          {messages.map((message) => {
+            const isPicked = selection.selected.has(message.id);
+            const isUnread = message.read === false && ATTENTION_STATUSES.has(message.status);
+            return (
             <li key={message.id}>
               <button
                 type="button"
-                className="flex w-full items-start gap-3 px-3 py-2 text-left hover:bg-accent/50"
-                onClick={() => setSelectedId(message.id)}
+                aria-pressed={selection.isSelecting ? isPicked : undefined}
+                className={cn('flex w-full items-start gap-3 px-3 py-2 text-left hover:bg-accent/50', isPicked && 'bg-primary/10 hover:bg-primary/15')}
+                // Shift-click picks a range; without this the browser would select text too.
+                onMouseDown={(event) => { if (event.shiftKey) event.preventDefault(); }}
+                onClick={(event) => selection.handleClick(message.id, event, () => openMessage(message))}
               >
+                {selection.isSelecting && (
+                  <span
+                    aria-hidden
+                    className={cn('mt-1 flex h-4 w-4 flex-shrink-0 items-center justify-center rounded border', isPicked ? 'border-primary bg-primary text-primary-foreground' : 'border-muted-foreground/50')}
+                  >
+                    {isPicked && <CheckCheck className="h-3 w-3" />}
+                  </span>
+                )}
                 <ChannelIcon channel={message.channel} className="mt-0.5 flex-shrink-0 text-muted-foreground" />
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                    <span className="truncate text-sm font-medium">{message.from.name || message.from.address}</span>
+                    {isUnread && <span className="h-2 w-2 flex-shrink-0 rounded-full bg-primary" aria-label="Unread" />}
+                    <span className={cn('truncate text-sm', isUnread ? 'font-semibold' : 'font-medium')}>{message.from.name || message.from.address}</span>
                     <span className="text-xs text-muted-foreground">{formatWhen(message.receivedAt)}</span>
                     <MessageStatusBadge status={message.status} />
                     {isQuarantined(message) && (
@@ -131,7 +224,8 @@ function MessagesTab({ accounts, onOpenChat, onDetailOpen, initialMessageId }: {
                 </div>
               </button>
             </li>
-          ))}
+            );
+          })}
         </ul>
       )}
 

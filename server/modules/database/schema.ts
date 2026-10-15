@@ -344,6 +344,8 @@ CREATE TABLE IF NOT EXISTS channel_messages (
     status_detail TEXT,
     -- prompt-injection scan (JSON) when it found anything; a flagged message waits as 'held'
     injection_json TEXT,
+    -- when the owner read it in the Inbox; unread no-rule/held/failed messages are the Inbox badge
+    read_at DATETIME,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(account_id, external_id)
 );
@@ -468,7 +470,9 @@ CREATE TABLE IF NOT EXISTS tasks (
     created_by TEXT NOT NULL DEFAULT 'owner',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
-    closed_at TEXT
+    closed_at TEXT,
+    -- what needed the owner when they marked the task read; the badge skips it until that changes
+    attention_read_key TEXT
 );
 
 CREATE TABLE IF NOT EXISTS task_events (

@@ -20,7 +20,7 @@ const ACCOUNT_COLUMNS =
 const RULE_COLUMNS =
   'id, name, enabled, position, account_id, channel, conditions, project_path, provider, model, effort, permission_mode, prompt_template, conversation, reply_mode, reply_scope, auto_reply_senders, hold_inbound, owner_user_id, proposal, created_at, updated_at';
 const MESSAGE_COLUMNS =
-  'id, account_id, channel, external_id, thread_key, from_address, from_name, to_json, subject, text, html, is_group, attachments_json, raw_json, received_at, rule_id, session_id, status, status_detail, created_at, injection_json';
+  'id, account_id, channel, external_id, thread_key, from_address, from_name, to_json, subject, text, html, is_group, attachments_json, raw_json, received_at, rule_id, session_id, status, status_detail, created_at, injection_json, read_at';
 const OUTBOX_COLUMNS =
   'id, account_id, session_id, in_reply_to_message_id, to_address, subject, text, action, status, status_detail, external_id, created_by, created_at, sent_at, task_id';
 
@@ -263,7 +263,39 @@ export const channelMessagesDb = {
   },
 
   setStatus(id: string, status: MessageStatus, detail: string | null = null): void {
-    getConnection().prepare('UPDATE channel_messages SET status = ?, status_detail = ? WHERE id = ?').run(status, detail, id);
+    // A message that newly fails needs the owner again, even if they had read it.
+    getConnection()
+      .prepare(
+        `UPDATE channel_messages SET status = ?, status_detail = ?,
+           read_at = CASE WHEN ? = 'failed' AND status <> 'failed' THEN NULL ELSE read_at END
+         WHERE id = ?`,
+      )
+      .run(status, detail, status, id);
+  },
+
+  /** Marks messages read (`ids`, or every unread one when null) and returns the ids that changed. */
+  markRead(ids: string[] | null): string[] {
+    const db = getConnection();
+    const where = ids ? `read_at IS NULL AND id IN (${ids.map(() => '?').join(', ')})` : 'read_at IS NULL';
+    const params = ids ?? [];
+    if (ids && !ids.length) return [];
+    return db.transaction(() => {
+      const changed = (db.prepare(`SELECT id FROM channel_messages WHERE ${where}`).all(...params) as Array<{ id: string }>).map((row) => row.id);
+      if (changed.length) db.prepare(`UPDATE channel_messages SET read_at = CURRENT_TIMESTAMP WHERE ${where}`).run(...params);
+      return changed;
+    })();
+  },
+
+  /** Deletes the given messages and returns the ids that existed, so their attachment folders can go too. */
+  deleteMany(ids: string[]): string[] {
+    if (!ids.length) return [];
+    const db = getConnection();
+    const placeholders = ids.map(() => '?').join(', ');
+    return db.transaction(() => {
+      const existing = (db.prepare(`SELECT id FROM channel_messages WHERE id IN (${placeholders})`).all(...ids) as Array<{ id: string }>).map((row) => row.id);
+      if (existing.length) db.prepare(`DELETE FROM channel_messages WHERE id IN (${placeholders})`).run(...ids);
+      return existing;
+    })();
   },
 
   /** Stores the prompt-injection scan (JSON) shown in the Inbox; null clears it. */
@@ -294,9 +326,11 @@ export const channelMessagesDb = {
       .all(accountId, threadKey, limit) as ChannelMessageRow[];
   },
 
-  countByStatus(): Record<MessageStatus, number> {
+  /** Messages per status; `unreadOnly` counts just those the owner has not read (the Inbox badge). */
+  countByStatus(options: { unreadOnly?: boolean } = {}): Record<MessageStatus, number> {
     const counts: Record<MessageStatus, number> = { unmatched: 0, held: 0, ignored: 0, queued: 0, dispatched: 0, failed: 0, manual: 0, task: 0 };
-    const rows = getConnection().prepare('SELECT status, COUNT(*) AS count FROM channel_messages GROUP BY status').all() as Array<{ status: MessageStatus; count: number }>;
+    const where = options.unreadOnly ? 'WHERE read_at IS NULL' : '';
+    const rows = getConnection().prepare(`SELECT status, COUNT(*) AS count FROM channel_messages ${where} GROUP BY status`).all() as Array<{ status: MessageStatus; count: number }>;
     for (const row of rows) counts[row.status] = row.count;
     return counts;
   },
