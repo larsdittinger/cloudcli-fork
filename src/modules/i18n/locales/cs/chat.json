@@ -418,5 +418,32 @@
     "tokensLabel_other": "tokenů",
     "escClosesModal": "Esc zavře okno.",
     "close": "Zavřít"
+  },
+  "backgroundTasks": {
+    "agents_one": "{{count}} agent",
+    "agents_few": "{{count}} agenti",
+    "agents_many": "{{count}} agentů",
+    "agents_other": "{{count}} agentů",
+    "tasks_one": "{{count}} úloha",
+    "tasks_few": "{{count}} úlohy",
+    "tasks_many": "{{count}} úloh",
+    "tasks_other": "{{count}} úloh",
+    "suffix": "na pozadí",
+    "title": "Po odpovědi dál běží na pozadí",
+    "toolUses_one": "{{count}} nástroj",
+    "toolUses_few": "{{count}} nástroje",
+    "toolUses_many": "{{count}} nástrojů",
+    "toolUses_other": "{{count}} nástrojů",
+    "elapsed": {
+      "hoursMinutes": "{{hours}} h {{minutes}} min"
+    },
+    "tokens": "{{tokens}} tokenů",
+    "lastActivity": "Poslední krok před {{elapsed}}",
+    "quietFor": "Bez pokroku {{elapsed}}",
+    "openTranscript": "Ukázat, co agent dělá",
+    "agentFinished": "Hotovo",
+    "transcriptLoading": "Načítám kroky agenta…",
+    "transcriptUnavailable": "Kroky nejsou k dispozici: {{reason}}",
+    "transcriptEmpty": "Zatím nic nezaznamenal"
   }
 }

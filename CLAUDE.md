@@ -36,6 +36,10 @@ nasazuje — je v `../CLAUDE.md`.
   `task_progress`), registr ho drží na běhu a `chat_subscribed` ho vrací pozdě
   připojeným klientům. V composeru fialový štítek „N agents in background“
   (`BackgroundTasksTab`), Agent karta je „running“ podle toho seznamu, ne podle odhadu.
+  Od 2026-10-15 nese seznam i `totalTokens` a `lastActivityAt` (z `task_progress`): štítek ukazuje
+  součet tokenů, řádek tokeny a „Poslední krok před…“ (po 5 min bez pokroku oranžově „Bez pokroku…“).
+  Klik na agenta otevře dialog s jeho přepisem — `GET /api/providers/sessions/:id/agents/:agentId`
+  čte `subagents/agent-<taskId>.jsonl` (taskId agenta = agentId), dialog ho čte znovu co 3 s.
 - **Channels** (`server/modules/channels`, `src/modules/channels`, Settings tab
   `tabs/channels-settings`): příchozí e-mail (imapflow) / WhatsApp (baileys) / webhook
   → pravidla → chat přes `createAppSession` + `runDetachedChatTurn`; odpovědi přes

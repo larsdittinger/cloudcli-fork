@@ -1112,6 +1112,51 @@ test('a workflow agent the journal has not settled is running only while the run
   }
 });
 
+test('a spawned agent\'s timeline is read from its own transcript', { concurrency: false }, async () => {
+  // A background agent's rows never reach the parent session's stream; the
+  // composer's agent list opens this to show what the agent is doing.
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'claude-subagent-activity-'));
+  const sessionId = '6a0f3c52-8f0c-4a52-9d4e-3c1b2a7e9f10';
+  const agentId = 'a6d28bc06febf1598';
+
+  try {
+    const parentPath = path.join(tempRoot, `${sessionId}.jsonl`);
+    await writeFile(parentPath, `${JSON.stringify({ type: 'user', uuid: 'p-u1', sessionId, timestamp: '2026-10-15T15:00:00.000Z', message: { role: 'user', content: 'Analyse the labels.' } })}\n`, 'utf8');
+    const subagentDir = path.join(tempRoot, sessionId, 'subagents');
+    await mkdir(subagentDir, { recursive: true });
+    const rows = [
+      { isSidechain: true, agentId, type: 'user', uuid: 's-u1', timestamp: '2026-10-15T15:02:00.000Z', message: { role: 'user', content: 'Find how labels are deleted.' } },
+      { isSidechain: true, agentId, type: 'assistant', uuid: 's-a1', timestamp: '2026-10-15T15:02:05.000Z', message: { role: 'assistant', model: 'claude-opus-4-1', content: [{ type: 'text', text: 'Reading the plugin.' }, { type: 'tool_use', id: 'toolu_s_1', name: 'Grep', input: { pattern: 'unlink' } }] } },
+      { isSidechain: true, agentId, type: 'user', uuid: 's-u2', timestamp: '2026-10-15T15:02:06.000Z', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_s_1', content: 'label.php:42' }] } },
+    ];
+    await writeFile(path.join(subagentDir, `agent-${agentId}.jsonl`), `${rows.map((row) => JSON.stringify(row)).join('\n')}\n`, 'utf8');
+    await writeFile(path.join(subagentDir, `agent-${agentId}.meta.json`), JSON.stringify({ agentType: 'web', description: 'PPL labels: analysis' }), 'utf8');
+
+    await withIsolatedDatabase(async () => {
+      const now = new Date().toISOString();
+      sessionsDb.createSession(sessionId, 'claude', tempRoot, 'Agent session', now, now, parentPath);
+
+      const live = await new ClaudeSessionsProvider({ getLiveRunStartTime: () => Date.parse('2026-10-15T15:00:00.000Z') })
+        .readSubagentActivity(sessionId, agentId);
+      assert.deepEqual(live?.agent, { id: agentId, label: 'PPL labels: analysis', model: 'claude-opus-4-1', status: 'running' });
+      assert.equal(live?.activityCount, 2);
+      assert.deepEqual(live?.activity.map((entry) => entry.kind), ['text', 'tool']);
+      assert.equal(live?.activity[1]?.toolResult?.content, 'label.php:42');
+
+      // A process started after the agent is not the one running it.
+      const orphaned = await new ClaudeSessionsProvider({ getLiveRunStartTime: () => Date.parse('2026-10-15T16:00:00.000Z') })
+        .readSubagentActivity(sessionId, agentId);
+      assert.equal(orphaned?.agent.status, 'stopped');
+
+      const missing = await new ClaudeSessionsProvider({ getLiveRunStartTime: () => null })
+        .readSubagentActivity(sessionId, 'aa1e064cf8bd159d6');
+      assert.equal(missing, null);
+    });
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test('the live stream\'s background-task events normalize to task_status', () => {
   // Verified against a real query: the SDK reports on a launched workflow,
   // agent or shell command through four `system` subtypes the transcript

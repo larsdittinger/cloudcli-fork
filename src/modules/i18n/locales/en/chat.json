@@ -301,7 +301,15 @@
     "toolUses_other": "{{count}} tools",
     "elapsed": {
       "hoursMinutes": "{{hours}}h {{minutes}}m"
-    }
+    },
+    "tokens": "{{tokens}} tokens",
+    "lastActivity": "Last step {{elapsed}} ago",
+    "quietFor": "No progress for {{elapsed}}",
+    "openTranscript": "Show what the agent is doing",
+    "agentFinished": "Finished",
+    "transcriptLoading": "Reading the agent's steps…",
+    "transcriptUnavailable": "Steps unavailable: {{reason}}",
+    "transcriptEmpty": "Nothing recorded yet"
   },
   "projectSelection": {
     "startChatWithProvider": "Select a project to start chatting with {{provider}}"

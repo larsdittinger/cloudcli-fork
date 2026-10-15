@@ -600,6 +600,10 @@ export type BackgroundTask = {
   activity: string | null;
   /** Tool calls the agent made so far. */
   toolUses: number | null;
+  /** Tokens the agent spent so far, from the CLI's progress events. */
+  totalTokens: number | null;
+  /** Epoch ms of the agent's latest progress event — how long it has been quiet. */
+  lastActivityAt: number | null;
 };
 
 /**

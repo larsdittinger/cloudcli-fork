@@ -546,6 +546,8 @@ function ChatInterface({
             </div>
           )}
 
+          {/* The composer's background-agents list opens an agent's transcript, which is addressed by session. */}
+          <TranscriptSessionContext.Provider value={transcriptSessionValue}>
           <ChatComposer
           pendingPermissionRequests={pendingPermissionRequests}
           handlePermissionDecision={handlePermissionDecision}
@@ -618,6 +620,7 @@ function ChatInterface({
           isTextareaExpanded={isTextareaExpanded}
           sendByCtrlEnter={sendByCtrlEnter}
         />
+          </TranscriptSessionContext.Provider>
         </div>
       </div>
 

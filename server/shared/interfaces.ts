@@ -252,6 +252,16 @@ export interface IProviderSessions {
     runId: string,
     agentId: string,
   ): Promise<WorkflowAgentActivity | null>;
+
+  /**
+   * Reads what one spawned agent (an `Agent` call, background or not) did,
+   * from its own transcript. Returns `null` when the session left no
+   * transcript for that agent. Optional for the same reason as above.
+   */
+  readSubagentActivity?(
+    sessionId: string,
+    agentId: string,
+  ): Promise<WorkflowAgentActivity | null>;
 }
 
 // ---------------------------

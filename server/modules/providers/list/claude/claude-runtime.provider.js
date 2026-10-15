@@ -1059,6 +1059,8 @@ async function queryClaudeSDK(command, options = {}, ws, context) {
         startedAt: details.startedAt || null,
         activity: details.activity || null,
         toolUses: details.toolUses ?? null,
+        totalTokens: details.totalTokens ?? null,
+        lastActivityAt: details.lastActivityAt || null,
       };
     });
     const key = JSON.stringify(tasks);
@@ -1087,12 +1089,18 @@ async function queryClaudeSDK(command, options = {}, ws, context) {
         startedAt: Date.now(),
         activity: null,
         toolUses: null,
+        totalTokens: null,
+        lastActivityAt: null,
       });
     } else if (message.subtype === 'task_progress') {
       const details = taskDetails.get(taskId);
       if (details) {
         details.activity = message.description || details.activity;
         details.toolUses = message.usage?.tool_uses ?? details.toolUses;
+        // Tokens and the time of the last progress are what tell a working
+        // agent from a stuck one: both stop moving when it hangs.
+        details.totalTokens = message.usage?.total_tokens ?? details.totalTokens;
+        details.lastActivityAt = Date.now();
         if (backgroundTasks.some((task) => task.task_id === taskId)) {
           sendBackgroundTasks();
         }

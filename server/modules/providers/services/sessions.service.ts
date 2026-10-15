@@ -622,6 +622,32 @@ export const sessionsService = {
   },
 
   /**
+   * Reads what one spawned agent did, for the composer's background-agents
+   * list. Not found covers a provider without agent transcripts and an agent
+   * whose transcript is not written yet.
+   */
+  async readSubagentActivity(sessionId: string, agentId: string): Promise<WorkflowAgentActivity> {
+    const session = sessionsDb.getSessionById(sessionId);
+    if (!session) {
+      throw new AppError(`Session "${sessionId}" was not found.`, {
+        code: 'SESSION_NOT_FOUND',
+        statusCode: 404,
+      });
+    }
+
+    const sessions = providerRegistry.resolveProvider(session.provider as LLMProvider).sessions;
+    const activity = await sessions.readSubagentActivity?.(sessionId, agentId);
+    if (!activity) {
+      throw new AppError(`Agent "${agentId}" was not found.`, {
+        code: 'SUBAGENT_NOT_FOUND',
+        statusCode: 404,
+      });
+    }
+
+    return activity;
+  },
+
+  /**
    * Resolves one session (by app id, falling back to the provider-native id)
    * to its metadata plus the owning project.
    *

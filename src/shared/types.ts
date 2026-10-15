@@ -338,6 +338,10 @@ export type BackgroundTask = {
   activity: string | null;
   /** Tool calls the agent has made so far. */
   toolUses: number | null;
+  /** Tokens the agent has spent so far; absent from servers that predate it. */
+  totalTokens?: number | null;
+  /** Epoch ms (server clock) of the agent's latest progress — how long it has been quiet. */
+  lastActivityAt?: number | null;
 };
 
 /** Identity and lifecycle of one spawned subagent as the backend reports it; present on the tool call that spawned the agent and used to draw its container header. */

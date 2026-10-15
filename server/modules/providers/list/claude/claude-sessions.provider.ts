@@ -1727,6 +1727,56 @@ export class ClaudeSessionsProvider implements IProviderSessions {
   }
 
   /**
+   * Reads one spawned agent's timeline from its own transcript, for the
+   * background-agents list in the composer. A background agent's rows are
+   * never streamed to the parent session, so while it runs this file is the
+   * only place its work is visible.
+   *
+   * The transcript cannot say whether the agent finished, so the status is
+   * only the process rule history applies: `running` while the run that
+   * spawned it (one that started before its first row) is alive, `stopped`
+   * otherwise. The caller knows better from its live task list and polls on
+   * that.
+   */
+  async readSubagentActivity(
+    sessionId: string,
+    agentId: string,
+  ): Promise<WorkflowAgentActivity | null> {
+    const session = sessionsDb.getSessionById(sessionId);
+    const jsonlPath = session?.jsonl_path;
+    const providerSessionId = session?.provider_session_id;
+    if (!jsonlPath || !providerSessionId) {
+      return null;
+    }
+
+    const located = await findClaudeSubagentTranscript(path.dirname(jsonlPath), providerSessionId, agentId);
+    if (!located) {
+      return null;
+    }
+
+    const [transcript, meta] = await Promise.all([
+      readClaudeSubagentTranscript(located.transcriptPath),
+      readClaudeSubagentMeta(located.metaPath),
+    ]);
+    const liveRunStartedAt = this.getLiveRunStartTime(sessionId) ?? this.getLiveRunStartTime(providerSessionId);
+
+    return {
+      agent: {
+        id: agentId,
+        label: meta.description || meta.agentType,
+        model: transcript.model,
+        status: liveRunStartedAt !== null && Date.parse(transcript.startedAt ?? '') >= liveRunStartedAt
+          ? 'running'
+          : 'stopped',
+      },
+      activity: transcript.activity
+        .slice(-MAX_TRANSMITTED_SUBAGENT_ACTIVITIES)
+        .map(truncateSubagentActivity),
+      activityCount: transcript.activity.length,
+    };
+  }
+
+  /**
    * Loads Claude JSONL history for a project/session and returns normalized
    * messages, preserving the existing pagination behavior from projects.js.
    */

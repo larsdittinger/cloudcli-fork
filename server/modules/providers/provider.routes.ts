@@ -1017,6 +1017,20 @@ router.get(
   }),
 );
 
+/**
+ * One spawned agent's timeline, read on demand when the composer's
+ * background-agents list opens it. Agent ids share the workflow agents' shape.
+ */
+router.get(
+  '/sessions/:sessionId/agents/:agentId',
+  asyncHandler(async (req: Request, res: Response) => {
+    const sessionId = parseSessionId(req.params.sessionId);
+    const agentId = parseWorkflowAgentId(req.params.agentId);
+    const result = await sessionsService.readSubagentActivity(sessionId, agentId);
+    res.json(createApiSuccessResponse(result));
+  }),
+);
+
 router.get('/search/sessions', requireAdmin, asyncHandler(async (req: Request, res: Response) => {
   const query = parseSessionSearchQuery(req.query.q);
   const limit = parseSessionSearchLimit(req.query.limit);
