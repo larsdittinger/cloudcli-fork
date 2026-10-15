@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { LucideIcon } from 'lucide-react';
-import { Bot, ChevronRight, ChevronUp, Eye, Terminal, Workflow } from 'lucide-react';
+import { Bot, ChevronRight, ChevronUp, Eye, Terminal, Workflow, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import type { BackgroundTask, SubagentActivity } from '@/shared/types';
@@ -10,6 +10,7 @@ import { cn } from '@/shared/utils';
 import { SubagentTimeline } from '@/modules/chat/tools/SubagentTimeline';
 import { useTranscriptSessionId } from '@/modules/chat/context/TranscriptSessionContext';
 import { createCachedDiffCalculator } from '@/modules/chat/utils/messageTransforms';
+import { CLAIMS_ESCAPE_ATTRIBUTE } from '@/modules/chat/utils/escapeOwnership';
 
 type BackgroundTasksTabProps = {
   tasks: BackgroundTask[];
@@ -151,6 +152,8 @@ export default function BackgroundTasksTab({ tasks, isInputFocused = false }: Ba
       {isOpen && (
         <div
           role="list"
+          // Escape folds the list; without the mark it would also stop the chat and its agents.
+          {...{ [CLAIMS_ESCAPE_ATTRIBUTE]: '' }}
           className="absolute bottom-full left-0 z-20 mb-1.5 max-h-72 w-[min(28rem,calc(100vw-2rem))] overflow-y-auto rounded-lg border border-border/60 bg-card p-1 shadow-lg"
         >
           {tasks.map((task) => {
@@ -335,10 +338,21 @@ function AgentTranscriptDialog({ sessionId, agentId, task, tokensLabel, elapsedL
   return (
     <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
       <DialogContent className="flex max-h-[88vh] w-[min(100vw-1rem,52rem)] max-w-none flex-col gap-2 p-4">
-        <DialogTitle className="flex items-center gap-2 pr-6 text-sm font-semibold">
-          {isRunning && <span className="h-1.5 w-1.5 flex-shrink-0 animate-pulse rounded-full bg-purple-500 dark:bg-purple-400" aria-hidden />}
-          <span className="min-w-0 truncate">{title}</span>
-        </DialogTitle>
+        <div className="flex items-center gap-2">
+          {/* DialogTitle is screen-reader-only by default; here it is the visible header. */}
+          <DialogTitle className="not-sr-only flex min-w-0 flex-1 items-center gap-2 text-sm font-semibold">
+            {isRunning && <span className="h-1.5 w-1.5 flex-shrink-0 animate-pulse rounded-full bg-purple-500 dark:bg-purple-400" aria-hidden />}
+            <span className="min-w-0 truncate">{title}</span>
+          </DialogTitle>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label={t('backgroundTasks.closeTranscript', { defaultValue: 'Close' })}
+            className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
         {meta && <div className="truncate text-[11px] text-muted-foreground">{meta}</div>}
         <div
           ref={scrollRef}

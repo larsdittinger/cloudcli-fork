@@ -309,7 +309,8 @@
     "agentFinished": "Finished",
     "transcriptLoading": "Reading the agent's steps…",
     "transcriptUnavailable": "Steps unavailable: {{reason}}",
-    "transcriptEmpty": "Nothing recorded yet"
+    "transcriptEmpty": "Nothing recorded yet",
+    "closeTranscript": "Close"
   },
   "projectSelection": {
     "startChatWithProvider": "Select a project to start chatting with {{provider}}"

@@ -31,6 +31,7 @@ import {
 } from '@/shared/context/SessionProtectionContext';
 import ChatMessagesPane from '@/modules/chat/transcript/ChatMessagesPane';
 import ChatComposer from '@/modules/chat/composer/ChatComposer';
+import { isEscapeClaimedElsewhere } from '@/modules/chat/utils/escapeOwnership';
 import CommandResultModal from '@/modules/chat/modals/CommandResultModal';
 
 type ChatInterfaceProps = {
@@ -337,7 +338,7 @@ function ChatInterface({
     }
 
     const handleGlobalEscape = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape' || event.repeat || event.defaultPrevented) {
+      if (event.key !== 'Escape' || event.repeat || event.defaultPrevented || isEscapeClaimedElsewhere()) {
         return;
       }
 

@@ -444,6 +444,7 @@
     "agentFinished": "Hotovo",
     "transcriptLoading": "Načítám kroky agenta…",
     "transcriptUnavailable": "Kroky nejsou k dispozici: {{reason}}",
-    "transcriptEmpty": "Zatím nic nezaznamenal"
+    "transcriptEmpty": "Zatím nic nezaznamenal",
+    "closeTranscript": "Zavřít"
   }
 }
