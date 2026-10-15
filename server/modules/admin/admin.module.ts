@@ -1,7 +1,7 @@
 import { createRequire } from 'node:module';
 
 import { sessionSharesDb, sessionsDb, userDb, userProjectAccessDb } from '@/modules/database/index.js';
-import { broadcastSessionUpserted } from '@/modules/websocket/index.js';
+import { applyChatAccessChange, broadcastSessionUpserted } from '@/modules/websocket/index.js';
 
 import { createAdminRouter } from './admin.routes.js';
 import { createAdminService } from './admin.service.js';
@@ -39,6 +39,7 @@ const adminService = createAdminService({
         console.error('[Admin] Failed to announce a shared chat', error);
       });
     },
+    applyAccessChange: () => applyChatAccessChange(),
   },
   // Same cost factor as auth.module.ts so all password hashes are comparable.
   hashPassword: (password) => bcrypt.hash(password, 12),

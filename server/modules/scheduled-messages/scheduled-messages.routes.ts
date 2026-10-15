@@ -1,10 +1,11 @@
 import express from 'express';
 import type { Request, Response } from 'express';
 
+import { assertSessionAccess } from '@/modules/auth/index.js';
 import { scheduledMessagesService } from '@/modules/scheduled-messages/services/scheduled-messages.service.js';
 import { AppError, asyncHandler, createApiSuccessResponse } from '@/shared/utils.js';
 
-type AuthenticatedRequest = Request & { user?: { id?: number | string } };
+type AuthenticatedRequest = Request & { user?: { id?: number | string; role?: string } };
 
 function readUserId(request: Request): number {
   const userId = Number((request as AuthenticatedRequest).user?.id);
@@ -46,9 +47,12 @@ router.post(
   '/',
   asyncHandler(async (req: Request, res: Response) => {
     const body = (req.body ?? {}) as Record<string, unknown>;
+    const sessionId = readString(body.sessionId, 'sessionId');
+    // Scheduling sends into the chat later: only into one the user may write to.
+    assertSessionAccess((req as AuthenticatedRequest).user, sessionId);
     const result = scheduledMessagesService.schedule({
       userId: readUserId(req),
-      sessionId: readString(body.sessionId, 'sessionId'),
+      sessionId,
       content: readString(body.content, 'content'),
       options: body.options,
       scheduledFor: readString(body.scheduledFor, 'scheduledFor'),

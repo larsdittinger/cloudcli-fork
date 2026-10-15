@@ -5,6 +5,9 @@ export { chatRunRegistry } from './services/chat-run-registry.service.js';
 // sessions it (re)indexed from disk through the same builder the chat gateway
 // uses, so both paths put the identical delta on the wire.
 export { broadcastSessionUpserted, broadcastSessionUpsertedBatch } from './services/session-upsert-broadcast.service.js';
+// applyChatAccessChange: used by the admin module after shares, the "sees all
+// chats" flag or project grants change, so live restricted sockets follow.
+export { applyChatAccessChange } from './services/chat-access-change.service.js';
 // runDetachedChatTurn: used by the scheduled-messages module to run a turn
 // from a timer, with no socket to stream to or report errors on.
 export { runDetachedChatTurn } from './services/chat-websocket.service.js';

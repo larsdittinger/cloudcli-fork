@@ -91,6 +91,9 @@ function createFakeDependencies() {
       announceSession: (sessionId: string) => {
         announced.push(sessionId);
       },
+      applyAccessChange: () => {
+        announced.push('access-change');
+      },
     },
     hashPassword: async (password: string) => `hashed:${password}`,
   };
@@ -207,7 +210,7 @@ test('setSessionShares shares a chat with restricted users only and announces it
   assert.deepEqual(service.setSessionShares('ceo-1', [viewer, viewer]), { success: true, userIds: [viewer] });
   assert.deepEqual(shares.get('ceo-1'), [viewer]);
   assert.deepEqual(service.getSessionShares('ceo-1'), { userIds: [viewer] });
-  assert.deepEqual(announced, ['ceo-1']);
+  assert.deepEqual(announced, ['ceo-1', 'access-change']);
 });
 
 test('setSeesAllSessions toggles the flag for restricted users and listUsers shows access', async () => {

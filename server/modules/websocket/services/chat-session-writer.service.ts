@@ -140,6 +140,15 @@ export class ChatSessionWriter {
     this.connections.add(newConnection);
   }
 
+  /** Drops every socket of the live audience the predicate rejects (access revoked). */
+  pruneConnections(keep: (connection: RealtimeClientConnection) => boolean): void {
+    for (const connection of this.connections) {
+      if (!keep(connection)) {
+        this.connections.delete(connection);
+      }
+    }
+  }
+
   setSessionId(sessionId: string): void {
     this.captureProviderSessionId(sessionId);
   }

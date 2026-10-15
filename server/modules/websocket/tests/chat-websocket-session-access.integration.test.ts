@@ -11,7 +11,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { closeConnection, initializeDatabase, sessionSharesDb, sessionsDb, userDb } from '@/modules/database/index.js';
-import { handleChatConnection } from '@/modules/websocket/services/chat-websocket.service.js';
+import { handleChatConnection, runDetachedChatTurn } from '@/modules/websocket/services/chat-websocket.service.js';
 import type { AuthenticatedWebSocketRequest, AuthenticatedWebSocketUser } from '@/shared/types.js';
 
 type SentFrame = { kind?: string; code?: string; sessionId?: string | null };
@@ -288,4 +288,25 @@ test('a restricted owner answers a permission request of their own chat', async 
     getPendingApprovalsForSession: (sessionId: string) => (sessionId === 'mine-1' ? [{ requestId: 'req-9' }] : []),
     resolveToolApproval: (requestId: string) => { resolved.push(requestId); },
   });
+});
+
+test('a queued or scheduled turn by a viewer is refused when it is sent', async () => {
+  const runs: string[] = [];
+  await withChatSocket(viewer, async () => {
+    seedSharedChat();
+    const result = await runDetachedChatTurn(
+      { sessionId: 'ceo-1', userId: 2, content: 'sneak in' },
+      { runtime: { ...runtime, run: async () => { runs.push('ran'); } } } as never,
+    );
+    assert.equal(result.started, false);
+    assert.match(result.error ?? '', /own chats/);
+
+    // The chat's owner (an admin) still sends, and so do turns nobody owns (channels, schedules).
+    const ownerResult = await runDetachedChatTurn(
+      { sessionId: 'ceo-1', userId: 1, content: 'hi' },
+      { runtime: { ...runtime, run: async () => { runs.push('ran'); } } } as never,
+    );
+    assert.equal(ownerResult.started, true);
+  });
+  assert.deepEqual(runs, ['ran']);
 });

@@ -3,7 +3,7 @@ import path from 'node:path';
 import type { WebSocket } from 'ws';
 
 import { canAccessSession, canReadSession, resolveSessionOwnerScope } from '@/modules/auth/index.js';
-import { sessionsDb } from '@/modules/database/index.js';
+import { sessionsDb, userDb } from '@/modules/database/index.js';
 import { providerModelsService, sessionsService } from '@/modules/providers/index.js';
 import { chatRunRegistry } from '@/modules/websocket/services/chat-run-registry.service.js';
 import { connectedClients, connectionUsers, WS_OPEN_STATE } from '@/modules/websocket/services/websocket-state.service.js';
@@ -135,6 +135,19 @@ function denySessionAccess(
     sessionId
   );
   return true;
+}
+
+/**
+ * The stored user a run is started for, as the access helpers expect it, or
+ * `undefined` for runs nobody in particular started (channels, schedules and
+ * tasks without an owner) and for a user that no longer exists.
+ */
+function readRunUser(userId: string | number | null): AuthenticatedWebSocketUser | undefined {
+  if (userId === null || userId === undefined) {
+    return undefined;
+  }
+  const row = userDb.getUserById(Number(userId));
+  return row ? { id: row.id, role: row.role } : undefined;
 }
 
 function sendJson(ws: WebSocket, payload: unknown): void {
@@ -313,7 +326,9 @@ async function dispatchRun(
     images: uniqueAttachments.filter(isImageAttachmentDescriptor),
     files: uniqueAttachments.filter((descriptor) => !isImageAttachmentDescriptor(descriptor)),
     sessionId,
-    cwd: clientOptions.cwd ?? session.project_path ?? undefined,
+    // A restricted user's turn always runs in the chat's own project: the
+    // project grant was checked against that path when the chat was created.
+    cwd: (readRunUser(userId)?.role === 'restricted' ? null : clientOptions.cwd) ?? session.project_path ?? undefined,
     projectPath: session.project_path ?? clientOptions.projectPath,
   };
 
@@ -717,6 +732,13 @@ export async function runDetachedChatTurn(
   const session = sessionsDb.getSessionById(input.sessionId);
   if (!session) {
     return { started: false, error: 'The session no longer exists.' };
+  }
+
+  // Queued and scheduled turns are stored by a user and sent later; one that
+  // targets a chat the user may only read (shared with them) is refused here,
+  // whichever route stored it.
+  if (!canAccessSession(readRunUser(input.userId), input.sessionId)) {
+    return { started: false, error: 'You can only send messages into your own chats.' };
   }
 
   const provider = session.provider as LLMProvider;

@@ -11,8 +11,9 @@ type UseSessionReadOnlyArgs = {
 
 /**
  * Whether the open chat is one the user may only watch: somebody else's chat
- * shared with a restricted user, or any chat of a project they reach only
- * through shares (where they cannot start one either).
+ * shared with a restricted user, or a new chat in a project they reach only
+ * through shares (where they cannot start one). Their own older chats in such
+ * a project stay writable, as the server allows.
  *
  * The sidebar row says so up front (`readOnly`, `sharedOnly`), and the server
  * confirms it in the `chat_subscribed` ack, which covers a chat opened by URL
@@ -37,7 +38,7 @@ export function useSessionReadOnly({ subscribe, sessionId, selectedSession, sele
     });
   }), [subscribe]);
 
-  return Boolean(selectedProject?.sharedOnly)
+  return (Boolean(selectedProject?.sharedOnly) && !selectedSession)
     || Boolean(selectedSession?.readOnly)
     || (sessionId !== null && readOnlySessionIds.has(sessionId));
 }

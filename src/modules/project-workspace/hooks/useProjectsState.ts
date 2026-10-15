@@ -733,6 +733,13 @@ export function useProjectsState({
         return;
       }
 
+      // An admin shared or unshared a chat with this (restricted) user, or
+      // changed their projects: the list of chats they may read changed.
+      if (event.kind === 'chat_access_changed') {
+        void refreshProjectsSilently();
+        return;
+      }
+
       if (event.kind === 'loading_progress') {
         if (loadingProgressTimeoutRef.current) {
           clearTimeout(loadingProgressTimeoutRef.current);

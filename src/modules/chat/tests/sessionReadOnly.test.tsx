@@ -42,9 +42,12 @@ test('an own chat is writable, a row marked readOnly is not', () => {
   assert.equal(renderReadOnly(bus, { id: 'theirs', readOnly: true }).result.current, true);
 });
 
-test('a project reached only through shares is read-only, even before a chat is open', () => {
+test('a project reached only through shares offers no new chat, but keeps own chats writable', () => {
   const bus = createBus();
-  assert.equal(renderReadOnly(bus, null, { ...PROJECT, sharedOnly: true }).result.current, true);
+  const sharedOnly = { ...PROJECT, sharedOnly: true };
+  assert.equal(renderReadOnly(bus, null, sharedOnly).result.current, true);
+  assert.equal(renderReadOnly(bus, { id: 'mine-from-before' }, sharedOnly).result.current, false);
+  assert.equal(renderReadOnly(bus, { id: 'shared', readOnly: true }, sharedOnly).result.current, true);
 });
 
 test('the subscribe ack marks a chat read-only, and only that chat', () => {

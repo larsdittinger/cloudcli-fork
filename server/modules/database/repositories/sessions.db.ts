@@ -754,6 +754,9 @@ export const sessionsDb = {
   deleteSessionsByProjectPath(projectPath: string): void {
     const db = getConnection();
     const normalizedProjectPath = normalizeProjectPath(projectPath);
+    db.prepare(
+      'DELETE FROM session_shares WHERE session_id IN (SELECT session_id FROM sessions WHERE project_path = ?)'
+    ).run(normalizedProjectPath);
     db.prepare(`DELETE FROM sessions WHERE project_path = ?`).run(normalizedProjectPath);
   },
 

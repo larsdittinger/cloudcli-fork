@@ -282,6 +282,18 @@ export const chatRunRegistry = {
   },
 
   /**
+   * Removes sockets from every run's live audience when they may no longer
+   * read its session — a share was withdrawn while a restricted user watched.
+   * Runs held open for background agents can last hours, so waiting for the
+   * run to end is not enough.
+   */
+  pruneConnections(canRead: (connection: RealtimeClientConnection, appSessionId: string) => boolean): void {
+    for (const run of runs.values()) {
+      run.writer.pruneConnections((connection) => canRead(connection, run.appSessionId));
+    }
+  },
+
+  /**
    * Adds a websocket connection to a run's live audience.
    *
    * This is the generic replacement for the Claude-only writer reconnect:

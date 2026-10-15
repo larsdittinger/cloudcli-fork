@@ -1,5 +1,7 @@
 import express from 'express';
 
+import { assertSessionAccess } from '@/modules/auth/index.js';
+
 import type { createUserService } from './user.service.js';
 
 type AuthenticatedRequest = express.Request & { user?: { id?: number | string; role?: string } };
@@ -78,7 +80,12 @@ export function createUserRouter(service: ReturnType<typeof createUserService>):
   // rather than the path: neither form is guaranteed to be URL-path-safe.
   router.put('/drafts', (req, res, next) => {
     try {
-      const body = req.body as { scope?: unknown };
+      const body = req.body as { scope?: unknown; queuedMessage?: unknown };
+      // A queued turn is sent into the chat by the server later, so it is a
+      // write: only into a chat the user owns (not one merely shared with them).
+      if (body?.queuedMessage != null && typeof body.scope === 'string' && !body.scope.startsWith('project:')) {
+        assertSessionAccess((req as AuthenticatedRequest).user, body.scope);
+      }
       res.json(service.saveDraft(readUserId(req), body?.scope, req.body));
     } catch (error) {
       next(error);

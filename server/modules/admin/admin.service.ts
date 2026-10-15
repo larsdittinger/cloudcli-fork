@@ -39,6 +39,8 @@ type AdminDependencies = {
     }>;
     /** Pushes the chat to sidebars, so a new viewer sees it without reloading. */
     announceSession(sessionId: string): void;
+    /** Applies changed read access to live restricted connections (streams, sidebars). */
+    applyAccessChange(): void;
   };
   hashPassword(password: string): Promise<string>;
 };
@@ -177,6 +179,7 @@ export function createAdminService(dependencies: AdminDependencies) {
       }
       requireExistingUser(dependencies, targetUserId);
       dependencies.access.setProjectsForUser(targetUserId, projectIdsInput);
+      dependencies.viewing.applyAccessChange();
       return { success: true, projectIds: projectIdsInput };
     },
 
@@ -188,6 +191,7 @@ export function createAdminService(dependencies: AdminDependencies) {
       }
       requireExistingUser(dependencies, targetUserId);
       dependencies.viewing.setSeesAllSessions(targetUserId, enabledInput);
+      dependencies.viewing.applyAccessChange();
       return { success: true, enabled: enabledInput };
     },
 
@@ -216,6 +220,7 @@ export function createAdminService(dependencies: AdminDependencies) {
       }
       dependencies.viewing.setUsersForSession(sessionId, userIds);
       dependencies.viewing.announceSession(sessionId);
+      dependencies.viewing.applyAccessChange();
       return { success: true, userIds };
     },
 
@@ -226,6 +231,7 @@ export function createAdminService(dependencies: AdminDependencies) {
       const remaining = dependencies.viewing.listUserIdsForSession(sessionId).filter((userId) => userId !== targetUserId);
       dependencies.viewing.setUsersForSession(sessionId, remaining);
       dependencies.viewing.announceSession(sessionId);
+      dependencies.viewing.applyAccessChange();
       return { success: true, userIds: remaining };
     },
   };

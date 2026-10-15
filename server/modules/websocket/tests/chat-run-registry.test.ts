@@ -353,3 +353,40 @@ test('background task snapshots are kept on the run but never sequenced or repla
     assert.deepEqual(chatRunRegistry.getBackgroundTasks('app-run-bg'), []);
   });
 });
+
+test('withdrawing a share stops a live stream the viewer was watching', async () => {
+  await withIsolatedDatabase(async () => {
+    const { userDb, sessionSharesDb } = await import('@/modules/database/index.js');
+    const { connectionUsers } = await import('@/modules/websocket/services/websocket-state.service.js');
+    const { applyChatAccessChange } = await import('@/modules/websocket/services/chat-access-change.service.js');
+
+    userDb.createUser('admin', 'hash');
+    const viewerId = Number(userDb.createUserWithRole('viewer', 'hash', 'restricted').id);
+    sessionsDb.createAppSession('ceo-run', 'claude', '/workspace/ceo', 'CEO', null);
+    sessionSharesDb.setUsersForSession('ceo-run', [viewerId]);
+
+    const owner = new FakeConnection();
+    const viewer = new FakeConnection();
+    connectionUsers.set(owner as never, { id: 1, role: 'admin' });
+    connectionUsers.set(viewer as never, { userId: viewerId, role: 'restricted' });
+    connectedClients.add(owner as never);
+    connectedClients.add(viewer as never);
+
+    const run = chatRunRegistry.startRun({
+      appSessionId: 'ceo-run', provider: 'claude', providerSessionId: null, connection: owner, userId: 1,
+    });
+    assert.ok(run);
+    chatRunRegistry.attachConnection('ceo-run', viewer);
+
+    run.writer.send({ kind: 'text', provider: 'claude', sessionId: 'p-1', content: 'before' });
+    sessionSharesDb.setUsersForSession('ceo-run', []);
+    applyChatAccessChange();
+    run.writer.send({ kind: 'text', provider: 'claude', sessionId: 'p-1', content: 'after' });
+
+    assert.deepEqual(owner.frames.map((frame) => frame.content), ['before', 'after']);
+    assert.deepEqual(
+      viewer.frames.map((frame) => frame.kind === 'chat_access_changed' ? 'access-changed' : frame.content),
+      ['before', 'access-changed'],
+    );
+  });
+});
