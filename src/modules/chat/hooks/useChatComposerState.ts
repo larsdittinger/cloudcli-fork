@@ -883,8 +883,11 @@ export function useChatComposerState({
       // under: the agents, workflows and commands it still has going are
       // stopped, or finish where nothing is listening. Sending is the user's
       // call, but not one to make for them.
+      // Claude's runtime feeds a plain message into the live process instead,
+      // and its agents keep running; only an edit (a rewind) starts over.
       const backgroundActivity = processingSessionsRef.current?.get(targetSessionId);
-      if (backgroundActivity?.background) {
+      const replacesProcess = provider !== 'claude' || Boolean(editingAnchorId);
+      if (backgroundActivity?.background && replacesProcess) {
         const work = ownBackgroundTasks(backgroundActivity.tasks ?? [])
           .map((task) => `• ${describeBackgroundTask(task, t)}`)
           .join('\n');

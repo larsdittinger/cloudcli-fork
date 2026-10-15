@@ -9,9 +9,11 @@ import type { PermissionMode, Project, ProjectSession, SessionActivityMap } from
 
 /**
  * A session whose turn has ended with background work still running keeps
- * its composer usable — but a new turn replaces the CLI process that work
- * runs under, so the work is stopped or finishes where nothing listens. The
- * composer says so and asks before sending; nothing else in the app does.
+ * its composer usable. Where a new turn replaces the process that work runs
+ * under, the work is stopped, so the composer asks before sending. Claude's
+ * runtime instead feeds the message into the live process and the agents keep
+ * going, so there it sends without asking — a native confirm there also froze
+ * the tab for nothing.
  */
 
 const PROJECT: Project = { projectId: 'project-1', displayName: 'Project One', fullPath: '/tmp/project-one' };
@@ -32,14 +34,14 @@ const backgroundOnly: SessionActivityMap = new Map([[
   },
 ]]);
 
-const submit = async (processingSessions: SessionActivityMap) => {
+const submit = async (processingSessions: SessionActivityMap, provider: 'claude' | 'codex' = 'codex') => {
   const sent: Array<{ type: string }> = [];
   const view = renderHook(() =>
     useChatComposerState({
       selectedProject: PROJECT,
       selectedSession: SESSION,
       currentSessionId: SESSION.id,
-      provider: 'claude',
+      provider,
       permissionMode: 'default',
       cyclePermissionMode: () => undefined,
       resolvePermissionModeForProvider: () => 'default' as PermissionMode,
@@ -100,6 +102,13 @@ test('confirming sends the message', async () => {
 
 test('a session with nothing in the background sends without asking', async () => {
   const { sends } = await submit(new Map());
+
+  assert.equal(confirm.mock.calls.length, 0);
+  assert.equal(sends.length, 1);
+});
+
+test('a Claude session takes the message into its live process without asking', async () => {
+  const { sends } = await submit(backgroundOnly, 'claude');
 
   assert.equal(confirm.mock.calls.length, 0);
   assert.equal(sends.length, 1);
