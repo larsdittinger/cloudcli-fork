@@ -78,6 +78,8 @@ export default function LazyMessageRow({
     <div
       ref={elementRef}
       data-message-timestamp={timestamp || undefined}
+      // A guessed height is no place to anchor the scroll position on; see scrollAnchor.
+      data-estimated-height={!isMounted && measuredHeight === null ? '' : undefined}
       style={isMounted ? undefined : { height: measuredHeight ?? ESTIMATED_ROW_HEIGHT_PX }}
     >
       {isMounted ? children : null}

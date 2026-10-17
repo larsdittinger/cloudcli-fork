@@ -588,20 +588,14 @@
     clip-path: inset(-8px -8px 0 -8px);
   }
 
+  /*
+   * No content-visibility: auto here. Offscreen messages then laid out at a
+   * guessed 96-240px and snapped to their real height on scrolling into view,
+   * which Safari (no scroll anchoring) showed as the transcript jumping.
+   * LazyMessageRow already keeps offscreen rows cheap.
+   */
   .chat-message {
     contain: layout style paint;
-    content-visibility: auto;
-    contain-intrinsic-size: auto 180px;
-  }
-
-  .chat-message.assistant {
-    contain-intrinsic-size: auto 240px;
-  }
-
-  .chat-message.user,
-  .chat-message.tool,
-  .chat-message.error {
-    contain-intrinsic-size: auto 96px;
   }
 
   /* Mobile touch optimization and safe areas */
@@ -773,10 +767,14 @@
   }
 
   /* Text wrapping improvements */
+  /*
+   * No hyphens: auto. Safari hyphenates every candidate break of a long
+   * unbroken run (a path, a hash, base64) while sizing a grid's min-content,
+   * and one such tool output froze an iPhone tab for good once scrolled near.
+   */
   .chat-message {
     word-wrap: break-word;
     overflow-wrap: break-word;
-    hyphens: auto;
   }
 
   /* Force wrap long URLs and code */

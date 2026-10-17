@@ -7,6 +7,7 @@ import type { SessionStore } from '@/modules/chat/hooks/useSessionStore';
 import { SESSION_MESSAGES_PAGE_SIZE } from '@/modules/chat/utils/sessionMessagePagination';
 import { createMessageHistoryRefreshCoordinator } from '@/modules/chat/utils/messageHistoryRefreshCoordinator';
 import { createCachedDiffCalculator } from '@/modules/chat/utils/messageTransforms';
+import { isTranscriptScrollAnchorSupported } from '@/modules/chat/utils/scrollAnchor';
 import { normalizedToChatMessages } from '@/modules/chat/hooks/useChatMessages';
 import { findSearchTargetIndex, resolveSearchWindowSize } from '@/modules/chat/utils/searchTargetLocator';
 import { readSelectedProvider } from '@/shared/selectedProvider';
@@ -578,6 +579,13 @@ export function useChatSessionState({
     if (!isActive || !scrollContainerRef.current) return;
 
     const container = scrollContainerRef.current;
+    if (pendingScrollRestoreRef.current && isTranscriptScrollAnchorSupported()) {
+      // The pane's own scroll anchor (useTranscriptScrollAnchor) keeps the
+      // visible message still through the prepend, and more precisely than the
+      // restore below; doing both would move the transcript by the page twice.
+      pendingScrollRestoreRef.current = null;
+      return;
+    }
     if (pendingScrollRestoreRef.current) {
       const { height, top, anchor, anchorOffset } = pendingScrollRestoreRef.current;
       if (anchor?.isConnected && anchorOffset !== null) {
@@ -936,7 +944,10 @@ export function useChatSessionState({
         );
 
         if (targetElement) {
-          targetElement.scrollIntoView({ block: 'center', behavior: 'smooth' });
+          // Instant, not smooth: rows mounting along a smooth scroll's path
+          // are compensated by writing scrollTop, which cancels the animation
+          // part-way (useTranscriptScrollAnchor).
+          targetElement.scrollIntoView({ block: 'center' });
           targetElement.classList.add('search-highlight-flash');
           setTimeout(() => targetElement.classList.remove('search-highlight-flash'), 4000);
           searchScrollTimerRef.current = null;
@@ -1133,7 +1144,8 @@ export function useChatSessionState({
       // retries never run.
       const element = container ? findRenderedMessageElement(container, message.timestamp, remaining === 0) : null;
       if (element) {
-        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        // Instant for the same reason as the search jump above.
+        element.scrollIntoView({ block: 'center' });
         return;
       }
       if (remaining > 0) {

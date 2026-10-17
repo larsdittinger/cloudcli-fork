@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next';
-import { memo, useCallback, useMemo } from 'react';
+import { memo, useCallback, useMemo, useRef } from 'react';
 import type { Dispatch, RefObject, SetStateAction } from 'react';
 
 import type { BackgroundTaskSummary,
@@ -12,6 +12,7 @@ import type { BackgroundTaskSummary,
 import { getIntrinsicMessageKey } from '@/modules/chat/utils/messageKeys';
 import { groupConsecutiveTools, isToolGroupItem } from '@/modules/chat/utils/toolGrouping';
 import { useLazyRowObserver } from '@/modules/chat/hooks/useLazyRowObserver';
+import { useTranscriptScrollAnchor } from '@/modules/chat/hooks/useTranscriptScrollAnchor';
 import LazyMessageRow from '@/modules/chat/transcript/LazyMessageRow';
 import MessageComponent from '@/modules/chat/transcript/MessageComponent';
 import ProviderSelectionEmptyState from '@/modules/chat/transcript/ProviderSelectionEmptyState';
@@ -26,6 +27,16 @@ import { BackgroundTasksStrip } from '@/modules/chat/transcript/BackgroundTasksS
  * near the viewport. Covers a bit more than one screen of typical rows.
  */
 const INITIAL_MOUNTED_TAIL_ROWS = 30;
+
+/**
+ * How many of the oldest rows mount with real content on their first commit.
+ * Scrolling to the top prepends an older page right above the viewport; as
+ * placeholders those rows would sit there at a guessed height and snap to
+ * their real one a frame later, moving the transcript under the user's finger.
+ * Mounted at once, they are measured before anything is painted, and the
+ * lazy-row observer turns the far ones into exact-height placeholders.
+ */
+const INITIAL_MOUNTED_HEAD_ROWS = 30;
 
 type ChatMessagesPaneProps = {
   scrollContainerRef: RefObject<HTMLDivElement>;
@@ -151,6 +162,8 @@ function ChatMessagesPane({
 }: ChatMessagesPaneProps) {
   const { t } = useTranslation('chat');
   const lazyRows = useLazyRowObserver(scrollContainerRef);
+  const rowsRef = useRef<HTMLDivElement>(null);
+  useTranscriptScrollAnchor(scrollContainerRef, rowsRef);
   const groupedVisibleMessages = useMemo(
     () => groupConsecutiveTools(visibleMessages, Boolean(showThinking)),
     [visibleMessages, showThinking],
@@ -193,7 +206,9 @@ function ChatMessagesPane({
       ref={scrollContainerRef}
       onWheel={onWheel}
       onTouchMove={onTouchMove}
-      className={`chat-messages-pane relative min-h-0 flex-1 overflow-y-auto overflow-x-hidden pt-3 sm:pt-4 ${
+      // Native scroll anchoring is off: useTranscriptScrollAnchor does it in
+      // every browser, Safari included, and two would correct a shift twice.
+      className={`chat-messages-pane relative min-h-0 flex-1 overflow-y-auto overflow-x-hidden pt-3 [overflow-anchor:none] sm:pt-4 ${
         hasActivityIndicator ? 'pb-12 sm:pb-14' : 'pb-3 sm:pb-4'
       }`}
     >
@@ -223,7 +238,7 @@ function ChatMessagesPane({
           </div>
         </div>
       )}
-      <div className="mx-auto w-full max-w-[54.25rem] space-y-3 px-4 sm:space-y-4">
+      <div ref={rowsRef} className="mx-auto w-full max-w-[54.25rem] space-y-3 px-4 sm:space-y-4">
       {(isLoadingSessionMessages || isProcessing) && chatMessages.length === 0 ? (
         <div className="mt-8 text-center text-gray-500 dark:text-gray-400">
           <div className="flex items-center justify-center space-x-2">
@@ -303,9 +318,11 @@ function ChatMessagesPane({
 
             return groupedVisibleMessages.map((item, index) => {
               // Rows near the tail mount their content on first commit so the
-              // initial scroll-to-bottom measures real heights; older rows
-              // start as placeholders and mount when scrolled toward.
-              const initiallyNearViewport = index >= rowCount - INITIAL_MOUNTED_TAIL_ROWS;
+              // initial scroll-to-bottom measures real heights, rows at the head
+              // so a prepended page lands measured; the rest start as
+              // placeholders and mount when scrolled toward.
+              const initiallyNearViewport = index >= rowCount - INITIAL_MOUNTED_TAIL_ROWS
+                || index < INITIAL_MOUNTED_HEAD_ROWS;
 
               if (isToolGroupItem(item)) {
                 const groupPrevMessage = prevMessage;
