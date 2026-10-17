@@ -200,6 +200,17 @@ nasazuje — je v `../CLAUDE.md`.
   a co 10 min porovná vlastní `assets/index-*.js` s tím v aktuálním `index.html` a ukáže lištu
   Reload. Sám se nepřenačte (neuložený editor ve Files, formuláře). Bez toho běžel otevřený tab
   hodiny na starém kódu a oprava se k němu nedostala.
+- **Scroll přepisu na telefonu (2026-10-17):** Safari nemá CSS scroll anchoring, takže každá změna
+  výšky nad viditelnou zprávou házela přepisem. Kotvu dělá `useTranscriptScrollAnchor` →
+  `utils/scrollAnchor.ts` ve všech prohlížečích (pane má `overflow-anchor: none`, starý pagination
+  restore v `useChatSessionState` se při podpoře přeskočí — jinak by se stránka vyrovnala dvakrát).
+  Kotva = první řádek začínající na obrazovce, ne nejstarší načtený (mění se mu hlavička) ani zástupný
+  blok s odhadem (`data-estimated-height`); dole drží konec jen při změně layoutu, ne při scrollu
+  (stream); kliknutý prvek drží na místě. **Nevracet** `content-visibility: auto` ani `hyphens: auto`
+  na `.chat-message` (to druhé WebKit zamrazilo natrvalo) a `scrollIntoView` v přepisu nechat bez
+  `smooth`. Hlavní řádky přepisu (30) se mountují hned, ať dočtená stránka přijde změřená.
+  Simulace: Playwright WebKit (iPhone 15) proti lokálnímu `npm run dev` s `HOME` na kopii dlouhého
+  JSONL, scroll po 60 px a měření posunu zprávy uprostřed; `overflow-anchor: none` = chování Safari.
 
 Držet **minimal-diff** proti upstreamu — čím menší rozdíl, tím snazší merge. Nové
 featury zvažovat nejdřív jako plugin (viz cron plugin `workspace-scheduled-prompts`,
