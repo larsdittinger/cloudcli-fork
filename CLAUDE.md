@@ -208,7 +208,7 @@ nasazuje — je v `../CLAUDE.md`.
   blok s odhadem (`data-estimated-height`); dole drží konec jen při změně layoutu, ne při scrollu
   (stream); kliknutý prvek drží na místě. **Nevracet** `content-visibility: auto` ani `hyphens: auto`
   na `.chat-message` (to druhé WebKit zamrazilo natrvalo) a `scrollIntoView` v přepisu nechat bez
-  `smooth`. Hlavní řádky přepisu (30) se mountují hned, ať dočtená stránka přijde změřená.
+  `smooth`. Nejstarších 30 načtených řádků se mountuje hned, ať dočtená stránka přijde změřená.
   Simulace: Playwright WebKit (iPhone 15) proti lokálnímu `npm run dev` s `HOME` na kopii dlouhého
   JSONL, scroll po 60 px a měření posunu zprávy uprostřed; `overflow-anchor: none` = chování Safari.
 
