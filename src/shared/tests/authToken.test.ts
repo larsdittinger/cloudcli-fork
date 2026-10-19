@@ -10,6 +10,7 @@ import {
   isAuthTokenExpired,
   isNewerAuthToken,
   shouldExpireSession,
+  shouldStoreRefreshedToken,
   storeAuthToken,
   TOKEN_EXPIRY_SKEW_MS,
 } from '@/shared/authToken';
@@ -187,4 +188,15 @@ test('a rejected request carrying a superseded token leaves the session alone', 
 
 test('a response without X-Auth-Error never ends the session', () => {
   assert.equal(shouldExpireSession(false, STORED, STORED), false);
+});
+
+test('shouldStoreRefreshedToken: only while the token the request carried is still the stored one', () => {
+  const now = Math.floor(Date.now() / 1000);
+  const sent = makeToken({ iat: now - 60, exp: now + 600 });
+  const rotated = makeToken({ iat: now, exp: now + 900 });
+  const other = makeToken({ sub: 'other', iat: now - 30, exp: now + 600 });
+  assert.equal(shouldStoreRefreshedToken(rotated, sent, sent), true);
+  assert.equal(shouldStoreRefreshedToken(rotated, sent, other), false, 'signed in as someone else meanwhile');
+  assert.equal(shouldStoreRefreshedToken(rotated, null, null), false, 'request carried no token');
+  assert.equal(shouldStoreRefreshedToken(sent, rotated, rotated), false, 'older than the one sent');
 });

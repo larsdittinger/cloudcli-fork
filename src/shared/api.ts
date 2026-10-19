@@ -1,8 +1,8 @@
 import {
   expireAuthSession,
   getStoredAuthToken,
-  isNewerAuthToken,
   shouldExpireSession,
+  shouldStoreRefreshedToken,
   storeAuthToken,
 } from '@/shared/authToken';
 import { IS_PLATFORM } from '@/shared/utils';
@@ -46,7 +46,7 @@ export const authenticatedFetch = (
     },
   }).then((response) => {
     const refreshedToken = response.headers.get('X-Refreshed-Token');
-    if (refreshedToken && isNewerAuthToken(refreshedToken, token)) {
+    if (refreshedToken && shouldStoreRefreshedToken(refreshedToken, token, localStorage.getItem('auth-token'))) {
       storeAuthToken(refreshedToken);
     }
     // Belt and braces for any path that still reaches a cached response: only a

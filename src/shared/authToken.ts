@@ -74,6 +74,15 @@ export const isNewerAuthToken = (candidate: unknown, current: unknown): boolean 
   return !claims || next.issuedAt >= claims.issuedAt;
 };
 
+// A refreshed token is about the session its request was sent with. When the
+// user signed in again while the request was on the wire, the stored token is a
+// different one and the rotated old token must not replace it.
+export const shouldStoreRefreshedToken = (
+  candidate: unknown,
+  sentToken: string | null | undefined,
+  storedToken: string | null | undefined,
+): boolean => Boolean(sentToken) && sentToken === storedToken && isNewerAuthToken(candidate, sentToken);
+
 export const getAuthTokenRefreshDelay = (token: unknown): number | null => {
   const claims = readTokenClaims(token);
   if (!claims) {

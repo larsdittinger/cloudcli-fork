@@ -257,3 +257,22 @@ test('an auth error on a request sent without a token leaves the session alone',
   window.removeEventListener(AUTH_SESSION_EXPIRED_EVENT, onExpired);
   assert.equal(expiries, 0);
 });
+
+test('a refreshed token for a session the user has since left does not replace the new sign-in', async () => {
+  // The request left with account A's token; while it was on the wire the user
+  // signed in as B. The rotated A token on the response says nothing about B —
+  // storing it would quietly switch the tab back to A.
+  const now = Math.floor(Date.now() / 1000);
+  const accountA = makeToken({ sub: 'a', iat: now - 120, exp: now + 600 });
+  const rotatedA = makeToken({ sub: 'a', iat: now, exp: now + 900 });
+  const accountB = makeToken({ sub: 'b', iat: now - 60, exp: now + 600 });
+  localStorage.setItem('auth-token', accountA);
+  vi.stubGlobal('fetch', vi.fn(async () => {
+    localStorage.setItem('auth-token', accountB);
+    return new Response('{}', { status: 200, headers: { 'X-Refreshed-Token': rotatedA } });
+  }));
+
+  await (await loadFetch(false))('/api/projects');
+
+  assert.equal(localStorage.getItem('auth-token'), accountB);
+});
