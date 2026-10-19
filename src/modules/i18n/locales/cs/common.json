@@ -17,6 +17,10 @@
     "upload": "Nahrát",
     "browse": "Procházet"
   },
+  "workspace": {
+    "downloadProject": "Stáhnout projekt jako ZIP",
+    "downloadProjectConfirm": "Stáhnout celý projekt „{{name}}“ jako ZIP? Může být velký."
+  },
   "tabs": {
     "chat": "Chat",
     "shell": "Shell",
@@ -25,7 +29,9 @@
     "tasks": "Úkoly",
     "browser": "Prohlížeč",
     "computer": "Počítač",
-    "views": "Zobrazení pracovního prostoru"
+    "views": "Zobrazení pracovního prostoru",
+    "schedules": "Plánované úlohy",
+    "agentTasks": "Úkoly agentů"
   },
   "status": {
     "loading": "Načítání...",
@@ -112,7 +118,9 @@
     "createProjectDesktop": "Nový projekt vytvoříte kliknutím na ikonu složky v postranním panelu",
     "newSession": "Nová relace",
     "untitledSession": "Relace bez názvu",
-    "projectFiles": "Soubory projektu"
+    "projectFiles": "Soubory projektu",
+    "renameSessionHint": "{{title}} (dvojklikem přejmenujete)",
+    "renameSessionLabel": "Název relace"
   },
   "fileTree": {
     "loading": "Načítání souborů...",
@@ -469,5 +477,9 @@
     "taskRowNotLoaded": "Spuštěno dříve v této konverzaci; kliknutím načtete",
     "taskOfAgent": "Spuštěno jedním z agentů této relace"
   },
-  "cancel": "Zrušit"
+  "cancel": "Zrušit",
+  "staleBuild": {
+    "message": "Je nasazená nová verze CloudCLI. Načtěte stránku znovu, ať ji používáte — rozepsaná zpráva v chatu zůstane, otevřené soubory si ale nejdřív uložte.",
+    "reload": "Načíst znovu"
+  }
 }

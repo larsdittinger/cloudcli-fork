@@ -377,9 +377,9 @@ export default function BrowserUsePanel({ isVisible, onShowSettings }: BrowserUs
       setSessions((current) => current.map((item) => (item.id === next.id ? next : item)));
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Browser input failed');
+      setError(err instanceof Error ? err.message : t('browserUse.inputFailed'));
     }
-  }, [selectedSession?.id]);
+  }, [selectedSession?.id, t]);
 
   const enqueueInput = useCallback((payload: Record<string, unknown>) => {
     inputQueueRef.current = inputQueueRef.current.then(() => sendInput(payload)).catch(() => undefined);
@@ -458,9 +458,9 @@ export default function BrowserUsePanel({ isVisible, onShowSettings }: BrowserUs
       setDevtools(data.data);
     } catch (err) {
       setDevtools(null);
-      setError(err instanceof Error ? err.message : 'Failed to read devtools');
+      setError(err instanceof Error ? err.message : t('browserUse.devtools.loadFailed'));
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     if (!isVisible || !isDevtoolsOpen || !selectedSession?.id) {
@@ -611,9 +611,9 @@ export default function BrowserUsePanel({ isVisible, onShowSettings }: BrowserUs
     if (devices.length === 0) return null;
     const emulation = selectedSession?.emulation || null;
     const groups: Array<{ label: string; category: DevicePreset['category'] }> = [
-      { label: 'Phone', category: 'phone' },
-      { label: 'Tablet', category: 'tablet' },
-      { label: 'Desktop', category: 'desktop' },
+      { label: t('browserUse.deviceGroups.phone'), category: 'phone' },
+      { label: t('browserUse.deviceGroups.tablet'), category: 'tablet' },
+      { label: t('browserUse.deviceGroups.desktop'), category: 'desktop' },
     ];
 
     return (
@@ -621,13 +621,13 @@ export default function BrowserUsePanel({ isVisible, onShowSettings }: BrowserUs
         value={emulation?.preset || ''}
         onChange={(event) => event.target.value && applyDevice(event.target.value)}
         disabled={isBusy || !isInteractive}
-        title="Emulate a device viewport"
-        aria-label="Emulate a device viewport"
+        title={t('browserUse.emulateDevice')}
+        aria-label={t('browserUse.emulateDevice')}
         className="h-8 rounded-md border border-border bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-50"
       >
         {!emulation?.preset && (
           <option value="">
-            {emulation ? emulation.label : 'Device'}
+            {emulation ? emulation.label : t('browserUse.device')}
           </option>
         )}
         {groups.map((group) => (
@@ -664,7 +664,7 @@ export default function BrowserUsePanel({ isVisible, onShowSettings }: BrowserUs
                 devtoolsTab === tab ? 'bg-primary/10 text-foreground' : 'text-muted-foreground hover:bg-muted/60',
               )}
             >
-              {tab}
+              {t(`browserUse.devtools.${tab}`)}
               {tab === 'console' && counts?.errors ? (
                 <span className="ml-1.5 text-destructive">{counts.errors}</span>
               ) : null}
@@ -676,9 +676,9 @@ export default function BrowserUsePanel({ isVisible, onShowSettings }: BrowserUs
           <div className="ml-auto flex items-center gap-2 text-[11px] text-muted-foreground">
             {counts && (
               <span>
-                {counts.console} messages
+                {t('browserUse.devtools.messages', { count: counts.console })}
                 <span className="px-1">/</span>
-                {counts.requests} requests
+                {t('browserUse.devtools.requests', { count: counts.requests })}
               </span>
             )}
             <Button
@@ -686,8 +686,8 @@ export default function BrowserUsePanel({ isVisible, onShowSettings }: BrowserUs
               size="sm"
               className="h-6 w-6 p-0"
               onClick={() => setIsDevtoolsOpen(false)}
-              title="Close devtools"
-              aria-label="Close devtools"
+              title={t('browserUse.devtools.close')}
+              aria-label={t('browserUse.devtools.close')}
             >
               <X className="h-3.5 w-3.5" />
             </Button>
@@ -697,7 +697,7 @@ export default function BrowserUsePanel({ isVisible, onShowSettings }: BrowserUs
         <div className="min-h-0 flex-1 overflow-auto font-mono text-[11px] leading-5">
           {devtoolsTab === 'console' ? (
             consoleEntries.length === 0 ? (
-              <div className="p-3 font-sans text-xs text-muted-foreground">No console output captured yet.</div>
+              <div className="p-3 font-sans text-xs text-muted-foreground">{t('browserUse.devtools.noConsole')}</div>
             ) : (
               consoleEntries.map((entry) => (
                 <div
@@ -719,7 +719,7 @@ export default function BrowserUsePanel({ isVisible, onShowSettings }: BrowserUs
               ))
             )
           ) : networkEntries.length === 0 ? (
-            <div className="p-3 font-sans text-xs text-muted-foreground">No requests captured yet.</div>
+            <div className="p-3 font-sans text-xs text-muted-foreground">{t('browserUse.devtools.noRequests')}</div>
           ) : (
             networkEntries.map((entry) => {
               const failed = entry.failure !== null || (entry.status !== null && entry.status >= 400);
@@ -864,7 +864,7 @@ export default function BrowserUsePanel({ isVisible, onShowSettings }: BrowserUs
                       <input
                         value={urlDraft}
                         onChange={(event) => setUrlDraft(event.target.value)}
-                        placeholder="Open URL..."
+                        placeholder={t('browserUse.openUrlPlaceholder')}
                         className="h-8 w-36 rounded-md border border-border bg-background px-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary md:w-56"
                       />
                     </form>
@@ -873,7 +873,7 @@ export default function BrowserUsePanel({ isVisible, onShowSettings }: BrowserUs
                   {selectedSession?.viewport && (
                     <Badge variant="outline" className="hidden text-[10px] text-muted-foreground sm:inline-flex">
                       {selectedSession.viewport.width}x{selectedSession.viewport.height}
-                      {selectedSession.emulation?.hasTouch ? ' touch' : ''}
+                      {selectedSession.emulation?.hasTouch ? ` ${t('browserUse.touch')}` : ''}
                     </Badge>
                   )}
                   <Button
@@ -882,8 +882,8 @@ export default function BrowserUsePanel({ isVisible, onShowSettings }: BrowserUs
                     className={cn('h-8 w-8 p-0', isDevtoolsOpen && 'bg-primary/10 text-foreground')}
                     onClick={() => setIsDevtoolsOpen((current) => !current)}
                     disabled={!selectedSession || selectedSession.status !== 'ready'}
-                    title="Console and network"
-                    aria-label="Console and network"
+                    title={t('browserUse.devtools.toggle')}
+                    aria-label={t('browserUse.devtools.toggle')}
                   >
                     <Terminal className="h-4 w-4" />
                   </Button>
@@ -945,9 +945,9 @@ export default function BrowserUsePanel({ isVisible, onShowSettings }: BrowserUs
                   <span className="truncate font-medium text-foreground">{selectedSession?.profileName || t('browserUse.temporaryProfile')}</span>
                 </div>
                 <div className="flex items-center justify-between gap-3">
-                  <span>Device</span>
+                  <span>{t('browserUse.device')}</span>
                   <span className="truncate font-medium text-foreground">
-                    {selectedSession?.emulation?.label || 'Desktop'}
+                    {selectedSession?.emulation?.label || t('browserUse.deviceGroups.desktop')}
                   </span>
                 </div>
               </div>

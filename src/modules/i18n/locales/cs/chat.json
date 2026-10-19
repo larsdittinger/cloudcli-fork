@@ -191,6 +191,11 @@
       "title": "Nahrazení dřívější zprávy",
       "filesNotReverted": "soubory, které agent už změnil, se nevrátí do původního stavu",
       "cancel": "Zrušit"
+    },
+    "readOnly": "Jen ke čtení — tento chat s vámi někdo sdílel. Můžete ho živě sledovat, ale psát do něj nemůžete.",
+    "sendError": {
+      "offline": "Nejste připojeni k serveru, takže se zpráva neodeslala. Připojení se obnoví samo — za pár sekund zkuste znovu Odeslat.",
+      "failed": "Při odesílání se něco pokazilo ({{detail}}). Načtěte stránku znovu — pokud text v poli zůstal, zpráva se neodeslala."
     }
   },
   "providerSelection": {
@@ -252,7 +257,8 @@
     "status": {
       "newSession": "Nová relace",
       "initializing": "Inicializace...",
-      "restarting": "Restartování..."
+      "restarting": "Restartování...",
+      "themeRestartHint": "Restartujte, aby se nový motiv projevil v Claude Code"
     },
     "actions": {
       "disconnect": "Odpojit",
@@ -304,7 +310,14 @@
       "count_one": "{{count}} úloha",
       "count_few": "{{count}} úlohy",
       "count_many": "{{count}} úlohy",
-      "count_other": "{{count}} úloh"
+      "count_other": "{{count}} úloh",
+      "prompt": {
+        "title": "V této relaci ještě běží práce na pozadí",
+        "description": "Nová zpráva spustí nový tah a ten tuto práci zastaví; co ještě nenahlásila, se ztratí. Zprávu můžete zařadit do fronty — odešle se, až práce doběhne.",
+        "cancel": "Zrušit",
+        "queue": "Zařadit do fronty",
+        "sendAnyway": "Přesto odeslat"
+      }
     },
     "controls": {
       "stopGeneration": "Zastavit generování",
@@ -322,7 +335,8 @@
   },
   "message": {
     "editAndResend": "Upravit a znovu odeslat",
-    "forkFromHere": "Rozvětvit odsud"
+    "forkFromHere": "Rozvětvit odsud",
+    "answeredBy": "Odpověděl {{model}}"
   },
   "export": {
     "trigger": "Exportovat konverzaci",
@@ -448,6 +462,9 @@
     "closeTranscript": "Zavřít"
   },
   "modelLibrary": {
+    "effortLevels": "Úrovně uvažování",
+    "effortLevelsHint": "Vyberte úrovně uvažování, které tento model podporuje. Když nevyberete žádnou, nepůjde u tohoto modelu v poli pro zprávu úroveň zvolit.",
+    "effortSummary": "Uvažování: {{levels}}",
     "customModelsOnly": "Používat jen mé modely",
     "customModelsOnlyHint": "Skryje vestavěné modely {{provider}} ve všech výběrech modelu a nastaví váš první model jako výchozí. Vestavěné modely zůstanou v seznamu, dokud nepřidáte model.",
     "builtInModelsHidden": "Skryto ve výběrech modelu, dokud je zapnuto „Používat jen mé modely“.",

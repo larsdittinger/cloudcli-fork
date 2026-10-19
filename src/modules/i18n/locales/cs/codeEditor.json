@@ -40,5 +40,9 @@
     "loading": "Načítání náhledu...",
     "error": "Tento soubor nelze zobrazit.",
     "openInNewTab": "Otevřít na nové kartě"
+  },
+  "unsavedChanges": {
+    "confirmClose": "Máte neuložené změny. Zavřít tento soubor a zahodit je?",
+    "indicator": "Neuložené změny"
   }
 }

@@ -29,6 +29,7 @@
     "tasks": "Tasks",
     "browser": "Browser",
     "computer": "Computer",
+    "views": "Workspace views",
     "schedules": "Schedules",
     "agentTasks": "Agent tasks"
   },
@@ -61,7 +62,9 @@
     "back": "Back",
     "next": "Next",
     "previous": "Previous",
-    "logout": "Logout"
+    "logout": "Logout",
+    "scrollTabsLeft": "Scroll tabs left",
+    "scrollTabsRight": "Scroll tabs right"
   },
   "common": {
     "language": "Language",
@@ -76,7 +79,10 @@
     "version": "Version",
     "select": "Select",
     "selectAll": "Select All",
-    "deselectAll": "Deselect All"
+    "deselectAll": "Deselect All",
+    "cancel": "Cancel",
+    "done": "Done",
+    "failed": "Failed"
   },
   "time": {
     "justNow": "Just now",
@@ -132,6 +138,14 @@
     "newFolder": "New Folder (Cmd+Shift+N)",
     "refresh": "Refresh",
     "collapseAll": "Collapse All",
+    "dropToUpload": "Drop files to upload",
+    "dropToUploadTo": "Drop files to upload to \"{{folder}}\"",
+    "uploadingFiles": "Uploading files",
+    "uploadFiles": "Upload files (max {{size}} each)",
+    "uploadToFolder": "Upload files to \"{{folder}}\"",
+    "uploadComplete": "Upload complete",
+    "uploadFailed": "Upload failed",
+    "uploadedCount": "Uploaded {{uploaded}} of {{total}} {{label}}",
     "context": {
       "rename": "Rename",
       "delete": "Delete",
@@ -143,6 +157,28 @@
       "refresh": "Refresh",
       "menuLabel": "File context menu",
       "loading": "Loading..."
+    },
+    "delete": {
+      "title": "Delete {{type}}",
+      "folderWarning": "This folder and all its contents will be permanently deleted.",
+      "fileWarning": "This file will be permanently deleted.",
+      "confirm": "Delete"
+    },
+    "toast": {
+      "renamed": "Renamed successfully",
+      "fileDeleted": "File deleted",
+      "folderDeleted": "Folder deleted",
+      "fileCreated": "File created successfully",
+      "folderCreated": "Folder created successfully",
+      "pathCopied": "Path copied to clipboard",
+      "copyFailed": "Failed to copy path",
+      "folderDownloaded": "Folder downloaded as ZIP"
+    },
+    "validation": {
+      "emptyName": "Filename cannot be empty",
+      "invalidChars": "Filename contains invalid characters",
+      "reserved": "Filename is a reserved name",
+      "dotsOnly": "Filename cannot be only dots"
     }
   },
   "projectWizard": {

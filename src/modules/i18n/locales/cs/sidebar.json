@@ -32,7 +32,15 @@
     "loadingSessions": "Načítání relací...",
     "unnamed": "Bez názvu",
     "loading": "Načítání...",
-    "showMore": "Zobrazit další relace"
+    "showMore": "Zobrazit další relace",
+    "select": "Vybrat",
+    "selectAll": "Vybrat vše",
+    "selectAllLoaded": "Vybrat všechny načtené",
+    "clearSelection": "Zrušit výběr",
+    "deleteSelected_one": "Smazat {{count}} relaci",
+    "deleteSelected_few": "Smazat {{count}} relace",
+    "deleteSelected_many": "Smazat {{count}} relace",
+    "deleteSelected_other": "Smazat {{count}} relací"
   },
   "tooltips": {
     "viewEnvironments": "Zobrazit prostředí",
@@ -125,7 +133,11 @@
     "restoreProjectError": "Při obnovování projektu došlo k chybě. Zkuste to prosím znovu.",
     "restoreSessionFailed": "Nepodařilo se obnovit relaci. Zkuste to prosím znovu.",
     "restoreSessionError": "Při obnovování relace došlo k chybě. Zkuste to prosím znovu.",
-    "forkSessionError": "Tuto relaci se nepodařilo forknout. Zkuste to prosím znovu."
+    "forkSessionError": "Tuto relaci se nepodařilo forknout. Zkuste to prosím znovu.",
+    "deleteSessionsPartialFailure_one": "Nepodařilo se smazat {{count}} relaci z {{total}}. Zkuste to prosím znovu.",
+    "deleteSessionsPartialFailure_few": "Nepodařilo se smazat {{count}} relace z {{total}}. Zkuste to prosím znovu.",
+    "deleteSessionsPartialFailure_many": "Nepodařilo se smazat {{count}} relace z {{total}}. Zkuste to prosím znovu.",
+    "deleteSessionsPartialFailure_other": "Nepodařilo se smazat {{count}} relací z {{total}}. Zkuste to prosím znovu."
   },
   "version": {
     "updateAvailable": "Je dostupná aktualizace",
@@ -198,6 +210,41 @@
     "deleteSessionPermanently": "Trvale smazat",
     "deleteAllData": "Trvale smazat všechna data",
     "allConversationsDeleted": "Projekt bude odstraněn z postranního panelu. Vaše soubory, paměť a data relací zůstanou zachovány.",
-    "cannotUndo": "Projekt můžete později znovu přidat."
+    "cannotUndo": "Projekt můžete později znovu přidat.",
+    "confirmDeleteSessions": "Co chcete udělat s",
+    "deleteSessions_one": "Smazat {{count}} relaci",
+    "deleteSessions_few": "Smazat {{count}} relace",
+    "deleteSessions_many": "Smazat {{count}} relace",
+    "deleteSessions_other": "Smazat {{count}} relací",
+    "selectedSessions_one": "{{count}} vybranou relací",
+    "selectedSessions_few": "{{count}} vybranými relacemi",
+    "selectedSessions_many": "{{count}} vybrané relace",
+    "selectedSessions_other": "{{count}} vybranými relacemi",
+    "archiveSessions_one": "Archivovat {{count}} relaci",
+    "archiveSessions_few": "Archivovat {{count}} relace",
+    "archiveSessions_many": "Archivovat {{count}} relace",
+    "archiveSessions_other": "Archivovat {{count}} relací",
+    "archiveSessionsNotice_one": "Archivace skryje relaci ze seznamu aktivních a zachová její historii.",
+    "archiveSessionsNotice_few": "Archivace skryje relace ze seznamu aktivních a zachová jejich historii.",
+    "archiveSessionsNotice_many": "Archivace skryje relace ze seznamu aktivních a zachová jejich historii.",
+    "archiveSessionsNotice_other": "Archivace skryje relace ze seznamu aktivních a zachová jejich historii."
+  },
+  "share": {
+    "menuItem": "Sdílet s uživateli…",
+    "menuDescription": "Omezení uživatelé ho mohou číst, ale ne do něj psát.",
+    "title": "Sdílet chat",
+    "explanation": "Mohou tento chat číst a živě sledovat, i když nemají přístup k jeho projektu. Nemohou do něj psát, zastavit ho ani otevřít soubory projektu.",
+    "loading": "Načítání…",
+    "noUsers": "Zatím tu nejsou žádní omezení uživatelé. Vytvořte je v Nastavení → Uživatelé.",
+    "loadError": "Uživatele se nepodařilo načíst.",
+    "saveError": "Sdílení se nepodařilo uložit.",
+    "cancel": "Zrušit",
+    "save": "Uložit",
+    "saving": "Ukládání…",
+    "readOnlyRow": "Sdíleno s vámi — jen ke čtení",
+    "sharedRow_one": "Sdíleno s {{count}} uživatelem",
+    "sharedRow_few": "Sdíleno s {{count}} uživateli",
+    "sharedRow_many": "Sdíleno s {{count}} uživatele",
+    "sharedRow_other": "Sdíleno s {{count}} uživateli"
   }
 }
