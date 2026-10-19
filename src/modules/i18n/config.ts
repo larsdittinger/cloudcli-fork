@@ -23,6 +23,10 @@ import enCodeEditor from '@/modules/i18n/locales/en/codeEditor.json';
 import enTasks from '@/modules/i18n/locales/en/tasks.json';
 // oxlint-disable-next-line importx/order
 import enGit from '@/modules/i18n/locales/en/git.json';
+// oxlint-disable-next-line importx/order
+import enSchedules from '@/modules/i18n/locales/en/schedules.json';
+// oxlint-disable-next-line importx/order
+import enAgentTasks from '@/modules/i18n/locales/en/agentTasks.json';
 
 import frCommon from '@/modules/i18n/locales/fr/common.json';
 import frSettings from '@/modules/i18n/locales/fr/settings.json';
@@ -122,6 +126,10 @@ import csCodeEditor from '@/modules/i18n/locales/cs/codeEditor.json';
 import csTasks from '@/modules/i18n/locales/cs/tasks.json';
 // oxlint-disable-next-line importx/order
 import csGit from '@/modules/i18n/locales/cs/git.json';
+// oxlint-disable-next-line importx/order
+import csSchedules from '@/modules/i18n/locales/cs/schedules.json';
+// oxlint-disable-next-line importx/order
+import csAgentTasks from '@/modules/i18n/locales/cs/agentTasks.json';
 
 import heCommon from '@/modules/i18n/locales/he/common.json';
 import heSettings from '@/modules/i18n/locales/he/settings.json';
@@ -189,6 +197,8 @@ i18n
         codeEditor: enCodeEditor,
         tasks: enTasks,
 git: enGit,
+        schedules: enSchedules,
+        agentTasks: enAgentTasks,
       },
       fr: {
         common: frCommon,
@@ -290,6 +300,8 @@ git: enGit,
         codeEditor: csCodeEditor,
         tasks: csTasks,
         git: csGit,
+        schedules: csSchedules,
+        agentTasks: csAgentTasks,
       },
       he: {
         common: heCommon,
@@ -332,7 +344,7 @@ git: enGit,
     debug: false,
 
     // Namespaces - load only what's needed
-    ns: ['common', 'settings', 'auth', 'sidebar', 'chat', 'codeEditor', 'tasks', 'git'],
+    ns: ['common', 'settings', 'auth', 'sidebar', 'chat', 'codeEditor', 'tasks', 'git', 'schedules', 'agentTasks'],
     defaultNS: 'common',
 
     // Key separator for nested keys (default: '.')

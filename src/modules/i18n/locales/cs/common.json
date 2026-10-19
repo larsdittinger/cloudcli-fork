@@ -25,7 +25,9 @@
     "tasks": "Úkoly",
     "browser": "Prohlížeč",
     "computer": "Počítač",
-    "views": "Zobrazení pracovního prostoru"
+    "views": "Zobrazení pracovního prostoru",
+    "schedules": "Naplánované úlohy",
+    "agentTasks": "Úkoly agentů"
   },
   "status": {
     "loading": "Načítání...",

@@ -1,5 +1,6 @@
 import type { MouseEvent } from 'react';
 import { AlertCircle, Check, Clock, Loader2 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 import { cn, formatDateTime } from '@/shared/utils';
 import type { AgentTask } from '@/shared/types';
@@ -36,7 +37,8 @@ type Props = {
 
 /** Used by TaskBoard: one task as a card — what it is, where it stands, and whether it needs you. */
 export default function TaskCard({ task, showProject, onOpen, isSelecting = false, isPicked = false }: Props) {
-  const reasons = attentionReasons(task);
+  const { t } = useTranslation('agentTasks');
+  const reasons = attentionReasons(task, t);
   // Read: it still needs the owner, but they have seen it — no amber, no badge.
   const isUnread = reasons.length > 0 && !task.attentionRead;
   const done = task.checklist.filter((item) => item.done).length;
@@ -80,7 +82,7 @@ export default function TaskCard({ task, showProject, onOpen, isSelecting = fals
       {task.running && (
         <p className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-violet-500/15 px-1.5 py-0.5 text-[11px] font-medium text-violet-700 dark:text-violet-300">
           <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
-          Agent working
+          {t('card.agentWorking')}
         </p>
       )}
 
@@ -91,7 +93,7 @@ export default function TaskCard({ task, showProject, onOpen, isSelecting = fals
       )}
 
       {reasons.length > 0 && (
-        <ul className="mt-2 space-y-0.5" aria-label="Needs you">
+        <ul className="mt-2 space-y-0.5" aria-label={t('card.needsYou')}>
           {reasons.map((reason) => (
             <li key={reason} className={cn('flex items-center gap-1 text-xs font-medium', isUnread ? 'text-amber-700 dark:text-amber-300' : 'text-muted-foreground')}>
               <AlertCircle className="h-3 w-3 shrink-0" aria-hidden />
@@ -102,14 +104,14 @@ export default function TaskCard({ task, showProject, onOpen, isSelecting = fals
       )}
 
       <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] tabular-nums text-muted-foreground">
-        {task.checklist.length > 0 && <span>{done}/{task.checklist.length} steps</span>}
+        {task.checklist.length > 0 && <span>{t('card.steps', { done, total: task.checklist.length })}</span>}
         {!closed && task.nextCheckAt && !task.running && (
-          <span className="inline-flex items-center gap-1" title="The agent looks again at this time">
+          <span className="inline-flex items-center gap-1" title={t('card.nextCheckTitle')}>
             <Clock className="h-3 w-3" aria-hidden />
             {formatDateTime(task.nextCheckAt)}
           </span>
         )}
-        {task.status === 'cancelled' && <span>Cancelled</span>}
+        {task.status === 'cancelled' && <span>{t('status.cancelled')}</span>}
         {showProject && <span title={task.projectPath}>{projectName(task.projectPath)}</span>}
       </div>
     </article>

@@ -1,7 +1,14 @@
+import { i18n } from '@/modules/i18n';
 import type { ScheduleSpec } from '@/shared/types';
 import { formatDateTime } from '@/shared/utils';
 
-const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+/**
+ * Weekday 1 (Monday) … 7 (Sunday) in the UI language, from `Intl` so no
+ * language needs its own list. 1 January 2024 was a Monday.
+ */
+export function weekdayName(day: number, width: 'long' | 'short'): string {
+  return new Intl.DateTimeFormat(i18n.language || 'en', { weekday: width, timeZone: 'UTC' }).format(Date.UTC(2024, 0, day));
+}
 
 /** `45 s`, `3 min 12 s`, `1 h 05 min`; `—` while either end is missing. */
 export function formatDuration(startIso: string | null | undefined, endIso: string | null | undefined): string {
@@ -15,24 +22,26 @@ export function formatDuration(startIso: string | null | undefined, endIso: stri
 
 /** Instant summary while the form is edited; the server's `summary` is authoritative once saved. */
 export function describeSchedule(spec: ScheduleSpec): string {
+  const t = i18n.getFixedT(null, 'schedules');
   switch (spec.type) {
     case 'once':
-      return `Once on ${formatDateTime(spec.at)}`;
+      return t('describe.once', { date: formatDateTime(spec.at) });
     case 'interval':
-      return spec.every === 1 ? `Every ${spec.unit === 'hours' ? 'hour' : 'minute'}` : `Every ${spec.every} ${spec.unit}`;
+      return t(spec.unit === 'hours' ? 'describe.everyHours' : 'describe.everyMinutes', { count: spec.every });
     case 'daily':
-      return `Daily at ${spec.time}`;
+      return t('describe.daily', { time: spec.time });
     case 'weekly': {
       const key = [...spec.days].sort().join(',');
-      const label = key === '1,2,3,4,5' ? 'weekday' : key === '6,7' ? 'weekend day' : spec.days.length === 7 ? 'day'
-        : [...spec.days].sort().map((day) => DAY_NAMES[day - 1]).join(', ');
-      return `Every ${label} at ${spec.time}`;
+      if (key === '1,2,3,4,5') return t('describe.weekdays', { time: spec.time });
+      if (key === '6,7') return t('describe.weekend', { time: spec.time });
+      if (spec.days.length === 7) return t('describe.everyDay', { time: spec.time });
+      const days = [...spec.days].sort().map((day) => weekdayName(day, 'long')).join(', ');
+      return t('describe.days', { days, time: spec.time });
     }
     case 'monthly':
-      return spec.day === 'last'
-        ? `Monthly on the last day at ${spec.time}`
-        : `Monthly on day ${spec.day}${spec.day > 28 ? ' (or the last day)' : ''} at ${spec.time}`;
+      if (spec.day === 'last') return t('describe.monthlyLast', { time: spec.time });
+      return t(spec.day > 28 ? 'describe.monthlyDayOrLast' : 'describe.monthlyDay', { day: spec.day, time: spec.time });
     case 'cron':
-      return `Cron: ${spec.expression}`;
+      return t('describe.cron', { expression: spec.expression });
   }
 }

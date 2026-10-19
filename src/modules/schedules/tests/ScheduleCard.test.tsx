@@ -7,6 +7,8 @@ import type { Schedule } from '@/shared/types';
 
 vi.mock('@/shared/api', () => ({ api: { schedules: {} }, readApiJson: async () => ({}) }));
 
+// The assertions read the English labels.
+await import('@/modules/i18n');
 const { default: ScheduleCard } = await import('@/modules/schedules/ScheduleCard');
 
 afterEach(() => cleanup());

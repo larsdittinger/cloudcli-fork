@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Loader2, X } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 import { api, readApiJson } from '@/shared/api';
 import { Button, Dialog, DialogContent, DialogTitle } from '@/shared/ui';
@@ -17,6 +18,7 @@ type Props = {
 
 /** Opened by AllTasksButton and TaskLinkOverlay: the board of every project's agent tasks; new tasks are made in a project's tab. */
 export default function AllTasksOverlay({ onClose, initialTaskId = null }: Props) {
+  const { t } = useTranslation('agentTasks');
   // Whether tasks closed more than 30 days ago are listed too.
   const [includeOld, setIncludeOld] = useState(false);
   // The task whose detail is open above the board, by number.
@@ -38,16 +40,16 @@ export default function AllTasksOverlay({ onClose, initialTaskId = null }: Props
       onOpenChange={(next) => { if (!next && openId === null && editing === null) onClose(); }}
     >
       <DialogContent
-        aria-label="All agent tasks"
+        aria-label={t('allTasks.title')}
         wrapperClassName="z-[10000]"
         className="flex h-[min(92vh,60rem)] w-[min(100vw-1rem,90rem)] max-w-none flex-col gap-3 p-4 md:p-5"
       >
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <DialogTitle className="not-sr-only text-base font-semibold">All agent tasks</DialogTitle>
-            <p className="text-sm text-muted-foreground">Every project's tasks. New tasks start in a project's Agent tasks tab.</p>
+            <DialogTitle className="not-sr-only text-base font-semibold">{t('allTasks.title')}</DialogTitle>
+            <p className="text-sm text-muted-foreground">{t('allTasks.description')}</p>
           </div>
-          <Button variant="ghost" size="icon" aria-label="Close" onClick={onClose}>
+          <Button variant="ghost" size="icon" aria-label={t('allTasks.close')} onClick={onClose}>
             <X className="h-4 w-4" aria-hidden />
           </Button>
         </div>
@@ -55,14 +57,14 @@ export default function AllTasksOverlay({ onClose, initialTaskId = null }: Props
         <div className="min-h-0 flex-1 space-y-3 overflow-y-auto">
           {error && <p role="alert" className="text-sm text-red-600 dark:text-red-300">{error}</p>}
           {loading ? (
-            <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" aria-hidden /> Loading tasks…</p>
+            <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" aria-hidden /> {t('panel.loading')}</p>
           ) : tasks.length === 0 ? (
-            <p className="rounded-lg border border-dashed border-border/70 p-6 text-sm text-muted-foreground">No agent tasks yet.</p>
+            <p className="rounded-lg border border-dashed border-border/70 p-6 text-sm text-muted-foreground">{t('allTasks.noTasks')}</p>
           ) : (
             <TaskBoard tasks={tasks} showProject projectPath={null} onChanged={reload} onOpen={(task) => setOpenId(task.id)} />
           )}
           <button type="button" className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground" onClick={() => setIncludeOld((value) => !value)}>
-            {includeOld ? 'Hide tasks closed over 30 days ago' : 'Show older closed tasks'}
+            {t(includeOld ? 'panel.hideOlder' : 'panel.showOlder')}
           </button>
         </div>
 

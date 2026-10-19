@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { CheckCheck, CheckSquare, MoreHorizontal, Trash2 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 import { api, readApiJson } from '@/shared/api';
 import { useMultiSelect } from '@/shared/hooks/useMultiSelect';
@@ -34,12 +35,15 @@ function sortForColumn(columnId: string, tasks: AgentTask[]): AgentTask[] {
  * so nothing ever scrolls sideways.
  */
 export default function TaskBoard({ tasks, showProject, onOpen, projectPath, onChanged }: Props) {
+  const { t } = useTranslation('agentTasks');
   const columns = useMemo(
     () => BOARD_COLUMNS.map((column) => ({
       ...column,
+      label: t(`columns.${column.id}.label`),
+      short: t(`columns.${column.id}.short`),
       tasks: sortForColumn(column.id, tasks.filter((task) => column.statuses.includes(task.status))),
     })),
-    [tasks],
+    [tasks, t],
   );
   const firstUseful = columns.find((column) => column.id === 'waiting_owner' && column.tasks.length)
     ?? columns.find((column) => column.id !== 'closed' && column.tasks.length)
@@ -72,7 +76,7 @@ export default function TaskBoard({ tasks, showProject, onOpen, projectPath, onC
   const deleteSelected = () => {
     const ids = [...selection.selected];
     // Deleting stops the task's agent and discards its drafts; it cannot be undone.
-    if (!window.confirm(`Delete ${ids.length === 1 ? 'this task' : `${ids.length} tasks`}? A running agent stops and unsent drafts are discarded. This cannot be undone.`)) return;
+    if (!window.confirm(t('board.confirmDelete', { count: ids.length }))) return;
     void run(() => api.agentTasks.removeMany(ids), true);
   };
 
@@ -80,8 +84,8 @@ export default function TaskBoard({ tasks, showProject, onOpen, projectPath, onC
     <div>
       <div className="mb-2 flex items-center gap-2">
         <ActionMenu
-          label="Task actions"
-          ariaLabel="Task actions"
+          label={t('board.taskActions')}
+          ariaLabel={t('board.taskActions')}
           icon={MoreHorizontal}
           iconOnly
           variant="ghost"
@@ -92,12 +96,12 @@ export default function TaskBoard({ tasks, showProject, onOpen, projectPath, onC
           items={[
             {
               key: 'read-all',
-              label: 'Mark all as read',
-              description: 'Clears the badges. Questions, mandates and drafts still wait for you.',
+              label: t('board.markAllRead'),
+              description: t('board.markAllReadDescription'),
               icon: CheckCheck,
               onSelect: () => { void run(() => api.agentTasks.markRead('all', projectPath ?? undefined), false); },
             },
-            { key: 'select', label: 'Select tasks', description: `Or ${selection.modifierLabel}-click and Shift-click cards.`, icon: CheckSquare, onSelect: selection.startSelecting },
+            { key: 'select', label: t('board.selectTasks'), description: t('board.selectDescription', { modifier: selection.modifierLabel }), icon: CheckSquare, onSelect: selection.startSelecting },
           ]}
         />
       </div>
@@ -110,14 +114,14 @@ export default function TaskBoard({ tasks, showProject, onOpen, projectPath, onC
           onSelectAll={selection.selectAll}
           onClear={selection.clear}
           actions={[
-            { key: 'read', label: 'Mark as read', icon: CheckCheck, onSelect: () => { void run(() => api.agentTasks.markRead([...selection.selected]), true); } },
-            { key: 'delete', label: 'Delete', icon: Trash2, isDanger: true, onSelect: deleteSelected },
+            { key: 'read', label: t('board.markAsRead'), icon: CheckCheck, onSelect: () => { void run(() => api.agentTasks.markRead([...selection.selected]), true); } },
+            { key: 'delete', label: t('board.delete'), icon: Trash2, isDanger: true, onSelect: deleteSelected },
           ]}
         />
       )}
       {actionError && <p role="alert" className="mb-2 text-sm text-red-600 dark:text-red-300">{actionError}</p>}
 
-      <PillBar role="group" aria-label="Board column" className="mb-3 flex w-full lg:hidden">
+      <PillBar role="group" aria-label={t('board.boardColumn')} className="mb-3 flex w-full lg:hidden">
         {columns.map((column) => (
           <Pill
             key={column.id}
@@ -164,7 +168,7 @@ export default function TaskBoard({ tasks, showProject, onOpen, projectPath, onC
               ))}
               {column.tasks.length === 0 && (
                 <p className="px-1 py-3 text-center text-xs text-muted-foreground/80">
-                  {column.id === 'waiting_owner' ? 'Nothing waits for you.' : 'Empty'}
+                  {t(column.id === 'waiting_owner' ? 'board.nothingWaits' : 'board.empty')}
                 </p>
               )}
             </div>

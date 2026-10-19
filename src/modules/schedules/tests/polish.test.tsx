@@ -31,6 +31,8 @@ vi.mock('@/shared/api', () => ({
 const stableSocket = { subscribe: () => () => {} };
 vi.mock('@/shared/context/WebSocketContext', () => ({ useWebSocket: () => stableSocket }));
 
+// The assertions read the English labels.
+await import('@/modules/i18n');
 const { default: RunsTable } = await import('@/modules/schedules/RunsTable');
 const { default: ScheduleForm } = await import('@/modules/schedules/ScheduleForm');
 const { SchedulesTabBadge, SchedulesPanel } = await import('@/modules/schedules');

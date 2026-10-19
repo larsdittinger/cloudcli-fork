@@ -1,11 +1,14 @@
+import { useTranslation } from 'react-i18next';
+
 import { cn } from '@/shared/utils';
 
 type Props = { count: number; className?: string };
 
 /** Used by the agent-tasks badges: the amber count of tasks that need the owner (nothing when none). */
 export default function AttentionCount({ count, className }: Props) {
+  const { t } = useTranslation('agentTasks');
   if (count <= 0) return null;
-  const label = `${count} task${count === 1 ? '' : 's'} need${count === 1 ? 's' : ''} you`;
+  const label = t('badge', { count });
   return (
     <span
       aria-label={label}

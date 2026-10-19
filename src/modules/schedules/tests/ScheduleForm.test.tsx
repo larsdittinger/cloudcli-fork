@@ -10,6 +10,8 @@ vi.mock('@/shared/api', () => ({
   readApiJson: async (response: Response) => response.json(),
 }));
 
+// The assertions read the English labels.
+await import('@/modules/i18n');
 const { default: ScheduleForm } = await import('@/modules/schedules/ScheduleForm');
 
 afterEach(() => cleanup());
