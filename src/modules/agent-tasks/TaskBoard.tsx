@@ -109,7 +109,7 @@ export default function TaskBoard({ tasks, showProject, onOpen, projectPath, onC
         <BulkActionBar
           className="mb-3"
           count={selection.selected.size}
-          noun={['task', 'tasks']}
+          selectedLabel={t('board.selectedCount', { count: selection.selected.size })}
           busy={busy}
           onSelectAll={selection.selectAll}
           onClear={selection.clear}

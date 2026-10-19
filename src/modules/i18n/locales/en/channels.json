@@ -52,8 +52,6 @@
     "markAllReadDescription": "Clears the badge; nothing is sent or ignored.",
     "selectMessages": "Select messages",
     "selectMessagesDescription": "Or {{modifier}}-click and Shift-click rows.",
-    "nounOne": "message",
-    "nounOther": "messages",
     "markRead": "Mark as read",
     "ignore": "Ignore",
     "delete": "Delete",
@@ -64,7 +62,9 @@
     "unread": "Unread",
     "possibleInjection": "Possible prompt injection",
     "replyWaits": "Reply waits for you",
-    "outboxEmpty": "No outgoing messages. Drafts appear here when an agent replies."
+    "outboxEmpty": "No outgoing messages. Drafts appear here when an agent replies.",
+    "selectedCount_one": "{{count}} message selected",
+    "selectedCount_other": "{{count}} messages selected"
   },
   "message": {
     "titleFrom": "Message from {{name}}",

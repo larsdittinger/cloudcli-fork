@@ -481,5 +481,10 @@
   "staleBuild": {
     "message": "Je nasazená nová verze CloudCLI. Načtěte stránku znovu, ať ji používáte — rozepsaná zpráva v chatu zůstane, otevřené soubory si ale nejdřív uložte.",
     "reload": "Načíst znovu"
+  },
+  "bulkActions": {
+    "selectedItems": "Vybrané položky",
+    "selectAll": "Vybrat vše",
+    "clearSelection": "Zrušit výběr"
   }
 }

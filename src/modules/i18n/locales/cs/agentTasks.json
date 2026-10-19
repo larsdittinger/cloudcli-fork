@@ -1,10 +1,25 @@
 {
   "columns": {
-    "new": { "label": "Nové", "short": "Nové" },
-    "working": { "label": "Probíhá", "short": "Probíhá" },
-    "waiting_external": { "label": "Čeká na odpověď", "short": "Čeká" },
-    "waiting_owner": { "label": "Čeká na vás", "short": "Pro vás" },
-    "closed": { "label": "Hotovo", "short": "Hotovo" }
+    "new": {
+      "label": "Nové",
+      "short": "Nové"
+    },
+    "working": {
+      "label": "Probíhá",
+      "short": "Probíhá"
+    },
+    "waiting_external": {
+      "label": "Čeká na odpověď",
+      "short": "Čeká"
+    },
+    "waiting_owner": {
+      "label": "Čeká na vás",
+      "short": "Pro vás"
+    },
+    "closed": {
+      "label": "Hotovo",
+      "short": "Hotovo"
+    }
   },
   "status": {
     "new": "Nový",
@@ -68,7 +83,11 @@
     "confirmDelete_other": "Smazat {{count}} úkolů? Běžící agent se zastaví a neodeslané koncepty se zahodí. Nelze vrátit zpět.",
     "boardColumn": "Sloupec tabule",
     "nothingWaits": "Nic na vás nečeká.",
-    "empty": "Prázdné"
+    "empty": "Prázdné",
+    "selectedCount_one": "Vybrán {{count}} úkol",
+    "selectedCount_few": "Vybrány {{count}} úkoly",
+    "selectedCount_many": "Vybráno {{count}} úkolu",
+    "selectedCount_other": "Vybráno {{count}} úkolů"
   },
   "card": {
     "agentWorking": "Agent pracuje",

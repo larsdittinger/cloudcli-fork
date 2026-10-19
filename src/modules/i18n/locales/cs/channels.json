@@ -54,8 +54,6 @@
     "markAllReadDescription": "Vynuluje odznak; nic se neodešle ani neignoruje.",
     "selectMessages": "Vybrat zprávy",
     "selectMessagesDescription": "Nebo {{modifier}}-klik a Shift-klik na řádky.",
-    "nounOne": "zpráva",
-    "nounOther": "zprávy",
     "markRead": "Označit jako přečtené",
     "ignore": "Ignorovat",
     "delete": "Smazat",
@@ -68,7 +66,11 @@
     "unread": "Nepřečteno",
     "possibleInjection": "Podezření na prompt injection",
     "replyWaits": "Odpověď čeká na vás",
-    "outboxEmpty": "Žádné odchozí zprávy. Koncepty se tu objeví, když agent odpoví."
+    "outboxEmpty": "Žádné odchozí zprávy. Koncepty se tu objeví, když agent odpoví.",
+    "selectedCount_one": "Vybrána {{count}} zpráva",
+    "selectedCount_few": "Vybrány {{count}} zprávy",
+    "selectedCount_many": "Vybráno {{count}} zprávy",
+    "selectedCount_other": "Vybráno {{count}} zpráv"
   },
   "message": {
     "titleFrom": "Zpráva od {{name}}",

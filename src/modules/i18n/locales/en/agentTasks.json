@@ -1,10 +1,25 @@
 {
   "columns": {
-    "new": { "label": "New", "short": "New" },
-    "working": { "label": "Working", "short": "Working" },
-    "waiting_external": { "label": "Waiting for a reply", "short": "Waiting" },
-    "waiting_owner": { "label": "Needs you", "short": "For you" },
-    "closed": { "label": "Done", "short": "Done" }
+    "new": {
+      "label": "New",
+      "short": "New"
+    },
+    "working": {
+      "label": "Working",
+      "short": "Working"
+    },
+    "waiting_external": {
+      "label": "Waiting for a reply",
+      "short": "Waiting"
+    },
+    "waiting_owner": {
+      "label": "Needs you",
+      "short": "For you"
+    },
+    "closed": {
+      "label": "Done",
+      "short": "Done"
+    }
   },
   "status": {
     "new": "New",
@@ -60,7 +75,9 @@
     "confirmDelete_other": "Delete {{count}} tasks? A running agent stops and unsent drafts are discarded. This cannot be undone.",
     "boardColumn": "Board column",
     "nothingWaits": "Nothing waits for you.",
-    "empty": "Empty"
+    "empty": "Empty",
+    "selectedCount_one": "{{count}} task selected",
+    "selectedCount_other": "{{count}} tasks selected"
   },
   "card": {
     "agentWorking": "Agent working",

@@ -157,7 +157,7 @@ function MessagesTab({ accounts, onOpenChat, onDetailOpen, initialMessageId }: {
       {selection.isSelecting && (
         <BulkActionBar
           count={selection.selected.size}
-          noun={[t('inbox.nounOne'), t('inbox.nounOther')]}
+          selectedLabel={t('inbox.selectedCount', { count: selection.selected.size })}
           busy={bulkBusy}
           onSelectAll={selection.selectAll}
           onClear={selection.clear}
