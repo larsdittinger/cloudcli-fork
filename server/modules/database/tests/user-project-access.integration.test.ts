@@ -6,6 +6,7 @@ import test from 'node:test';
 
 import { closeConnection } from '@/modules/database/connection.js';
 import { initializeDatabase } from '@/modules/database/init-db.js';
+import { apiKeysDb } from '@/modules/database/repositories/api-keys.js';
 import { userProjectAccessDb } from '@/modules/database/repositories/user-project-access.js';
 import { userDb } from '@/modules/database/repositories/users.js';
 
@@ -90,5 +91,18 @@ test('updatePassword changes the stored hash', async () => {
     userDb.updatePassword(Number(user.id), 'new-hash');
     const fetched = userDb.getUserByUsername('viewer');
     assert.equal(fetched?.password_hash, 'new-hash');
+  });
+});
+
+test('validateApiKey reports the role of the key owner', async () => {
+  await withIsolatedDatabase(() => {
+    const admin = userDb.createUser('admin-user', 'hash');
+    const restricted = userDb.createUserWithRole('viewer', 'hash2', 'restricted');
+    const adminKey = apiKeysDb.createApiKey(Number(admin.id), 'admin key').apiKey;
+    const restrictedKey = apiKeysDb.createApiKey(Number(restricted.id), 'viewer key').apiKey;
+
+    // The Agent API refuses keys of restricted users, so the role must come along.
+    assert.equal(apiKeysDb.validateApiKey(adminKey)?.role, 'admin');
+    assert.equal(apiKeysDb.validateApiKey(restrictedKey)?.role, 'restricted');
   });
 });

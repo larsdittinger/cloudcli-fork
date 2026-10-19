@@ -34,6 +34,7 @@ function createDependencies(
       getSessionById: () => null,
       getSessionByProviderSessionId: () => null,
       createAppSession: () => ({ sessionId: 'app-session-1' }),
+      canAccess: () => true,
     },
     // A registry stand-in: the runtime writes straight to the audience, which
     // is all the tests above this file's registration tests need.
@@ -107,6 +108,64 @@ test('Agent route validates API keys through the injected repository', async () 
   });
 
   assert.deepEqual(receivedKeys, ['invalid-key']);
+});
+
+test('Agent route refuses an API key owned by a restricted user', async () => {
+  await withAgentServer(createDependencies({
+    platformMode: false,
+    apiKeys: { validateApiKey: () => ({ id: 7, username: 'viewer', role: 'restricted' }) },
+  }), async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/api/agent`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-api-key': 'viewer-key' },
+      body: JSON.stringify({ projectPath: '/workspace/project', message: 'Run', sessionId: 'admin-chat' }),
+    });
+    assert.equal(response.status, 403);
+  });
+});
+
+test('Agent route accepts an API key owned by an admin', async () => {
+  await withAgentServer(createDependencies({
+    platformMode: false,
+    apiKeys: { validateApiKey: () => ({ id: 1, username: 'boss', role: 'admin' }) },
+  }), async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/api/agent`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-api-key': 'admin-key' },
+      body: JSON.stringify({ message: 'Run' }),
+    });
+    // Past authentication: the missing project is what stops it.
+    assert.equal(response.status, 400);
+  });
+});
+
+test('Agent route refuses to continue a session the key owner may not write to', async () => {
+  const checked: Array<{ userId: unknown; sessionId: string }> = [];
+  await withAgentServer(createDependencies({
+    sessions: {
+      getSessionById: () => ({
+        session_id: 'someone-elses',
+        provider: 'claude',
+        provider_session_id: null,
+        project_path: '/home/test/project',
+      }),
+      getSessionByProviderSessionId: () => null,
+      createAppSession: () => { throw new Error('a refused run must not create a row'); },
+      canAccess: (user, sessionId) => {
+        checked.push({ userId: (user as { id?: unknown } | undefined)?.id, sessionId });
+        return false;
+      },
+    },
+  }), async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/api/agent`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ projectPath: '/home/test/project', message: 'Run', sessionId: 'someone-elses', stream: false }),
+    });
+    assert.equal(response.status, 403);
+  });
+
+  assert.deepEqual(checked, [{ userId: 1, sessionId: 'someone-elses' }]);
 });
 
 test('Agent route rejects GitHub lookalike hosts before cloning', async () => {
@@ -404,6 +463,7 @@ test('Agent route reads no model catalog for a continued session of an unregiste
       }),
       getSessionByProviderSessionId: () => null,
       createAppSession: () => { throw new Error('a continued session must not create a row'); },
+      canAccess: () => true,
     },
   }), async (baseUrl) => {
     const response = await fetch(`${baseUrl}/api/agent`, {
