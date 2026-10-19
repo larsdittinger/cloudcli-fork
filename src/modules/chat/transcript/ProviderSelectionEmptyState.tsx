@@ -24,6 +24,7 @@ import {
 } from "@/shared/ui";
 import ModelGroupList, { type ModelGroup } from "@/modules/chat/composer/ModelGroupList";
 import ModelLibraryPanel from "@/modules/chat/modals/ModelLibraryPanel";
+import { useIsAdmin } from '@/shared/hooks/useIsAdmin';
 import { writeSelectedProvider } from '@/shared/selectedProvider';
 
 const PROVIDER_META: { id: LLMProvider; name: string }[] = [
@@ -102,6 +103,8 @@ export default function ProviderSelectionEmptyState({
   setInput,
 }: ProviderSelectionEmptyStateProps) {
   const { t } = useTranslation("chat");
+  // Custom models are instance-wide; the server lets only admins change them.
+  const isAdmin = useIsAdmin();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [modelLibraryOpen, setModelLibraryOpen] = useState(false);
 
@@ -247,16 +250,18 @@ export default function ProviderSelectionEmptyState({
                       })}
                   </p>
                 </div>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={openModelLibrary}
-                  className="h-8 shrink-0 rounded-lg px-2.5 text-xs"
-                >
-                  <Plus className="h-3.5 w-3.5" />
-                  {t("providerSelection.addModel", { defaultValue: "Add model" })}
-                </Button>
+                {isAdmin && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={openModelLibrary}
+                    className="h-8 shrink-0 rounded-lg px-2.5 text-xs"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    {t("providerSelection.addModel", { defaultValue: "Add model" })}
+                  </Button>
+                )}
               </div>
               <Command filter={modelSearchFilter}>
                 <CommandInput

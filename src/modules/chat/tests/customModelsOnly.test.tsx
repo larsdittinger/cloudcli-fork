@@ -92,6 +92,8 @@ vi.mock('@/shared/api', () => ({
 
 // The picker's task banner pulls in the terminal stack; these tests never show it.
 vi.mock('@/modules/task-master', () => ({ NextTaskBanner: () => null }));
+// The model library is admin-only; the auth module drags in the terminal, which jsdom can't render.
+vi.mock('@/shared/hooks/useIsAdmin', () => ({ useIsAdmin: () => true }));
 
 // A boolean, so a failing assertion never has node:assert inspect a DOM node
 // (which runs the test worker out of memory).

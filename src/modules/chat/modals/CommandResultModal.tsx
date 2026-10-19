@@ -26,6 +26,7 @@ import type {
   ProviderModelsDefinition,CommandModalPayload,CostCommandData,HelpCommandData,ModelCommandData,StatusCommandData
 } from '@/shared/types';
 import ModelLibraryPanel from '@/modules/chat/modals/ModelLibraryPanel';
+import { useIsAdmin } from '@/shared/hooks/useIsAdmin';
 
 type CommandResultModalProps = {
   payload: CommandModalPayload | null;
@@ -243,6 +244,8 @@ function ModelsContent({
   currentSessionId: string | null;
   onSelectProviderModel: CommandResultModalProps['onSelectProviderModel'];
 }) {
+  // Custom models are instance-wide; the server lets only admins change them.
+  const isAdmin = useIsAdmin();
   const { t } = useTranslation();
   const [query, setQuery] = useState('');
   const [changingModel, setChangingModel] = useState<string | null>(null);
@@ -329,16 +332,18 @@ function ModelsContent({
             )}
           </p>
         </div>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={() => setManagingModels(true)}
-          className="h-9 shrink-0 rounded-xl bg-background px-3 text-xs"
-        >
-          <Plus className="h-3.5 w-3.5" />
-          Manage models
-        </Button>
+        {isAdmin && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setManagingModels(true)}
+            className="h-9 shrink-0 rounded-xl bg-background px-3 text-xs"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Manage models
+          </Button>
+        )}
       </div>
 
       {showSearch && (
