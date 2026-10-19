@@ -92,7 +92,7 @@ const INLINE_CODE_CLASS =
  * Until the lookup answers — and for anything that is not a file — it is plain
  * inline code.
  */
-const InlineFileCode = ({ fileRef, className, children }: { fileRef: string; className?: string; children?: React.ReactNode }) => {
+const InlineFileCode = ({ fileRef, line, className, children }: { fileRef: string; line: number | null; className?: string; children?: React.ReactNode }) => {
   const { resolveFileRef, openFileInEditor } = usePaletteOps();
   const [resolvedPath, setResolvedPath] = useState<string | null>(null);
 
@@ -119,7 +119,8 @@ const InlineFileCode = ({ fileRef, className, children }: { fileRef: string; cla
       className="cursor-pointer no-underline hover:underline"
       onClick={(event) => {
         event.preventDefault();
-        openFileInEditor(resolvedPath);
+        // `src/x.ts:42` opens at line 42, like a markdown file link.
+        openFileInEditor(resolvedPath, line);
       }}
     >
       <code className={`${INLINE_CODE_CLASS} text-blue-600 dark:text-blue-400 ${className || ''}`}>{children}</code>
@@ -141,7 +142,7 @@ const CodeBlock = ({ node: _node, className, children, forceBlock, ...props }: C
   if (shouldInline) {
     const fileRef = inlineCodeFileRef(raw);
     if (fileRef) {
-      return <InlineFileCode fileRef={fileRef} className={className}>{children}</InlineFileCode>;
+      return <InlineFileCode fileRef={fileRef} line={lineFromRef(raw.trim())} className={className}>{children}</InlineFileCode>;
     }
     return (
       <code className={`${INLINE_CODE_CLASS} text-foreground ${className || ''}`} {...props}>

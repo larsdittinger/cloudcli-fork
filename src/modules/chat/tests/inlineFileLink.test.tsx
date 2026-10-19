@@ -11,20 +11,23 @@ import { Markdown } from '@/modules/chat/transcript/Markdown';
  * naming an existing project file is a link that opens it next to the chat.
  */
 
-function Workspace({ files, opened }: { files: Record<string, string>; opened: string[] }) {
+function Workspace({ files, opened, lines }: { files: Record<string, string>; opened: string[]; lines: Array<number | null | undefined> }) {
   usePaletteOpsRegister({
     resolveFileRef: async (ref) => files[ref] ?? null,
-    openFileInEditor: (path) => opened.push(path),
+    openFileInEditor: (path, line) => {
+      opened.push(path);
+      lines.push(line);
+    },
   });
   return null;
 }
 
-function renderChat(markdown: string, files: Record<string, string>) {
+function renderChat(markdown: string, files: Record<string, string>, lines: Array<number | null | undefined> = []) {
   const opened: string[] = [];
   render(
     <PaletteOpsProvider>
       <Markdown>{markdown}</Markdown>
-      <Workspace files={files} opened={opened} />
+      <Workspace files={files} opened={opened} lines={lines} />
     </PaletteOpsProvider>,
   );
   return opened;
@@ -45,6 +48,21 @@ test('a line suffix stays visible but the file is resolved without it', async ()
 
   fireEvent.click(await screen.findByRole('link', { name: 'src/foo.ts:130' }));
   assert.deepEqual(opened, ['/p/src/foo.ts']);
+});
+
+test('a line suffix opens the file at that line, as upstream file links do', async () => {
+  const lines: Array<number | null | undefined> = [];
+  const opened = renderChat('See `src/x.ts:42` and `src/y.ts:7:3`, or `README.md`.', {
+    'src/x.ts': '/p/src/x.ts',
+    'src/y.ts': '/p/src/y.ts',
+    'README.md': '/p/README.md',
+  }, lines);
+
+  fireEvent.click(await screen.findByRole('link', { name: 'src/x.ts:42' }));
+  fireEvent.click(await screen.findByRole('link', { name: 'src/y.ts:7:3' }));
+  fireEvent.click(await screen.findByRole('link', { name: 'README.md' }));
+  assert.deepEqual(opened, ['/p/src/x.ts', '/p/src/y.ts', '/p/README.md']);
+  assert.deepEqual(lines, [42, 7, null]);
 });
 
 test('inline code that is not an existing file stays plain', async () => {

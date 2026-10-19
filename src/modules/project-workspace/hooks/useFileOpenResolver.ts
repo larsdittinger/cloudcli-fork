@@ -2,7 +2,7 @@ import { useCallback, useMemo } from 'react';
 
 import { api } from '@/shared/api';
 import type { Project } from '@/shared/types';
-import { createFileRefResolver } from '@/modules/project-workspace/utils/fileRefResolver';
+import { createFileRefResolver, isAbsoluteRef } from '@/modules/project-workspace/utils/fileRefResolver';
 import type { FlatFile } from '@/modules/project-workspace/utils/fileRefResolver';
 
 type FileNode = {
@@ -17,11 +17,6 @@ type FileNode = {
 type OnFileOpen = (filePath: string, diffInfo?: any, line?: number | null) => void;
 
 const normalize = (value: string): string => value.replace(/\\/g, '/');
-
-// Backslashes are already normalized above, so a Windows path arrives as
-// `C:/…`; counting it as absolute lets a Windows server resolve it as-is and a
-// POSIX one answer an honest 404 instead of opening some other file.
-const isAbsoluteRef = (value: string): boolean => /^(\/|[A-Za-z]:\/)/.test(value);
 
 const flatten = (nodes: FileNode[], out: FlatFile[]): void => {
   for (const node of nodes) {
