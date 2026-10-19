@@ -78,6 +78,8 @@ export type ProviderRuntimeGateway = {
   stopBackgroundTask(provider: LLMProvider, sessionId: string, taskId: string): Promise<boolean>;
   /** Whether a provider runtime still holds background work for the session after its turn ended. */
   hasBackgroundWork(sessionId: string): boolean;
+  /** Whether a turn sent now goes into the session's live process, so its background work keeps running. */
+  acceptsLiveTurn(sessionId: string): boolean;
   /** Whether the provider runtime still owns a live process for the session, with or without a chat run. */
   ownsLiveProcess(provider: LLMProvider, sessionId: string): boolean;
   resolveToolApproval(requestId: string, payload: ProviderPermissionDecision): void;

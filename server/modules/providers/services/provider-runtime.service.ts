@@ -106,6 +106,11 @@ export function createProviderRuntimeService(
         (provider.runtime.listBackgroundWork?.() ?? []).some((entry) => entry.sessionId === sessionId));
     },
 
+    acceptsLiveTurn(sessionId: string): boolean {
+      return dependencies.listProviders().some((provider) =>
+        Boolean(provider.runtime.acceptsLiveTurn?.(sessionId)));
+    },
+
     resolveToolApproval(requestId: string, decision: ProviderPermissionDecision): void {
       for (const provider of dependencies.listProviders()) {
         provider.runtime.permissions?.resolve(requestId, decision);

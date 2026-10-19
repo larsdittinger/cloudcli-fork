@@ -67,6 +67,15 @@ export interface IProviderRuntime {
    * which an SDK process marks `busy` once at start and never updates.
    */
   isMidTurn?(sessionId: string): boolean;
+  /**
+   * Whether a turn sent now would be fed into the session's live process
+   * rather than start a new one: the process waits between turns (held for
+   * background work) and still reads its stdin. Background work keeps running
+   * through such a turn, so a caller holding a message back for that work need
+   * not wait for it. Runtimes that never feed turns into a live process leave
+   * this undefined.
+   */
+  acceptsLiveTurn?(sessionId: string): boolean;
 }
 
 /**

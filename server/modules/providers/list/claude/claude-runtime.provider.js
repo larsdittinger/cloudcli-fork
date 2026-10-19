@@ -333,8 +333,9 @@ function mapCliOptionsToSDK(options = {}) {
  * @param {Function} releaseInput - Closes the held stdin stream so the CLI can exit
  * @param {Function} injectTurn - Feeds a later turn into the live process
  * @param {Function} isInputReleased - Whether the held stdin stream has been let go
+ * @param {Function} canTakeTurn - Whether injectTurn would take a turn right now
  */
-function addSession(sessionId, queryInstance, writer = null, releaseInput = null, injectTurn = null, isInputReleased = null) {
+function addSession(sessionId, queryInstance, writer = null, releaseInput = null, injectTurn = null, isInputReleased = null, canTakeTurn = null) {
   const existing = activeSessions.get(sessionId);
   // A different live instance under the same key means an earlier run was
   // superseded without being stopped (e.g. an abort that raced run setup and
@@ -367,7 +368,8 @@ function addSession(sessionId, queryInstance, writer = null, releaseInput = null
     // Re-registered mid-run once the provider session id lands; keep the closer.
     releaseInput: releaseInput || carried?.releaseInput || null,
     injectTurn: injectTurn || carried?.injectTurn || null,
-    isInputReleased: isInputReleased || carried?.isInputReleased || null
+    isInputReleased: isInputReleased || carried?.isInputReleased || null,
+    canTakeTurn: canTakeTurn || carried?.canTakeTurn || null
   });
   // The history reader reports a background agent as running or stopped by
   // whether this entry exists, and the cached history does not see this map.
@@ -1357,8 +1359,8 @@ async function queryClaudeSDK(command, options = {}, ws, context) {
     // background work (see the top of queryClaudeSDK). Resolves true once that
     // turn's `result` arrives, or false when this process cannot take the turn
     // and the caller has to start a fresh one.
+    const canTakeTurn = () => !processEnded && turnCompleteSent && !promptReleased();
     const injectTurn = async (nextCommand, nextOptions, nextWs) => {
-      const canTakeTurn = () => !processEnded && turnCompleteSent && !promptReleased();
       if (!canTakeTurn()) {
         return false;
       }
@@ -1428,7 +1430,7 @@ async function queryClaudeSDK(command, options = {}, ws, context) {
 
     // Track the query instance for abort capability
     if (sessionKey()) {
-      addSession(sessionKey(), queryInstance, ws, releasePromptStream, injectTurn, () => promptReleased());
+      addSession(sessionKey(), queryInstance, ws, releasePromptStream, injectTurn, () => promptReleased(), canTakeTurn);
     }
 
     // Process streaming messages
@@ -1438,7 +1440,7 @@ async function queryClaudeSDK(command, options = {}, ws, context) {
       if (message.session_id && !capturedSessionId) {
 
         capturedSessionId = message.session_id;
-        addSession(sessionKey(), queryInstance, ws, releasePromptStream, injectTurn, () => promptReleased());
+        addSession(sessionKey(), queryInstance, ws, releasePromptStream, injectTurn, () => promptReleased(), canTakeTurn);
 
         // Set session ID on writer
         if (ws.setSessionId && typeof ws.setSessionId === 'function') {
@@ -1865,6 +1867,19 @@ function isClaudeSDKSessionMidTurn(sessionId) {
 }
 
 /**
+ * Whether a message sent now would go into the session's live process (see
+ * injectTurn) instead of a new one, which would stop its background agents:
+ * the process is between turns — its own turn reported `complete`, the CLI is
+ * not answering a settled task on its own — and still reads its stdin.
+ * @param {string} sessionId - Session identifier
+ * @returns {boolean} True when the live process would take the turn
+ */
+function canClaudeSDKSessionTakeTurn(sessionId) {
+  const session = getSession(sessionId);
+  return Boolean(session && session.status === 'active' && !session.midTurn && session.canTakeTurn?.());
+}
+
+/**
  * When the run behind a session started, or null when no run is up.
  *
  * The history reader uses this to tell a background agent launched by the
@@ -1935,6 +1950,7 @@ export const claudeRuntime = {
   stopBackgroundTask: stopClaudeSDKTask,
   isLive: isClaudeSDKSessionActive,
   isMidTurn: isClaudeSDKSessionMidTurn,
+  acceptsLiveTurn: canClaudeSDKSessionTakeTurn,
 };
 
 // Export public API
@@ -1946,6 +1962,7 @@ export {
   stopClaudeSDKTask,
   isClaudeSDKSessionActive,
   isClaudeSDKSessionMidTurn,
+  canClaudeSDKSessionTakeTurn,
   getClaudeSDKSessionStartTime,
   getActiveClaudeSDKSessions,
   resolveToolApproval,

@@ -136,3 +136,14 @@ test('routes permission decisions through provider-owned runtime capabilities', 
     { requestId: 'request-1', sessionId: 'session-1' },
   ]);
 });
+
+test('a live turn is accepted only by a runtime that can take one for the session', () => {
+  const service = createService([
+    createProvider('claude', createRuntime({ acceptsLiveTurn: (sessionId) => sessionId === 'held-session' })),
+    // A runtime without live processes never takes a turn into one.
+    createProvider('codex', createRuntime()),
+  ]);
+
+  assert.equal(service.acceptsLiveTurn('held-session'), true);
+  assert.equal(service.acceptsLiveTurn('other-session'), false);
+});

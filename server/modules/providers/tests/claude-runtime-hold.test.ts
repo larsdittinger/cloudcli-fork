@@ -8,6 +8,7 @@ import { ClaudeSessionsProvider } from '@/modules/providers/list/claude/claude-s
 import { CLAUDE_PREDEFINED_MODELS } from '@/modules/providers/list/claude/claude-models.provider.js';
 import {
   abortClaudeSDKSession,
+  canClaudeSDKSessionTakeTurn,
   isClaudeSDKSessionMidTurn,
   listClaudeSDKBackgroundWork,
   queryClaudeSDK,
@@ -278,6 +279,34 @@ test('a held process is mid-turn only while the CLI answers a settled task', asy
     script.emit(result());
     await settle();
     assert.equal(isClaudeSDKSessionMidTurn(SESSION_ID), false);
+  });
+});
+
+test('a held process takes a queued turn only between turns', async () => {
+  // The queued-message dispatcher sends into a session whose agents still run
+  // only when the live process can take the turn on its stdin — never while a
+  // turn is being answered, and never once stdin is gone (a fresh process
+  // would stop the agents).
+  await withRun(async ({ script }) => {
+    script.emit(init());
+    script.emit(toolUse('toolu_agent', 'Agent', { prompt: 'count', run_in_background: true }));
+    script.emit(taskStarted('a1', 'toolu_agent', 'local_agent'));
+    await settle();
+    assert.equal(canClaudeSDKSessionTakeTurn(SESSION_ID), false, 'the first turn is still being answered');
+
+    script.emit(ack('toolu_agent', 'Async agent launched successfully.', { status: 'async_launched', agentId: 'a1' }));
+    script.emit(result());
+    await settle();
+    assert.equal(canClaudeSDKSessionTakeTurn(SESSION_ID), true, 'held for the agent, between turns');
+
+    script.emit(taskNotification('a1', 'toolu_agent', 'completed'));
+    script.emit({ type: 'assistant', session_id: NATIVE_ID, parent_tool_use_id: null, message: { role: 'assistant', content: [{ type: 'text', text: 'The agent is done.' }] } });
+    await settle();
+    assert.equal(canClaudeSDKSessionTakeTurn(SESSION_ID), false, 'the CLI answers the settled agent on its own');
+
+    script.emit(result());
+    await waitFor(() => script.released());
+    assert.equal(canClaudeSDKSessionTakeTurn(SESSION_ID), false, 'stdin is released, a turn would need a new process');
   });
 });
 
