@@ -25,6 +25,10 @@ import enTasks from '@/modules/i18n/locales/en/tasks.json';
 import enGit from '@/modules/i18n/locales/en/git.json';
 // oxlint-disable-next-line importx/order
 import enChannels from '@/modules/i18n/locales/en/channels.json';
+// oxlint-disable-next-line importx/order
+import enSchedules from '@/modules/i18n/locales/en/schedules.json';
+// oxlint-disable-next-line importx/order
+import enAgentTasks from '@/modules/i18n/locales/en/agentTasks.json';
 
 import frCommon from '@/modules/i18n/locales/fr/common.json';
 import frSettings from '@/modules/i18n/locales/fr/settings.json';
@@ -126,6 +130,10 @@ import csTasks from '@/modules/i18n/locales/cs/tasks.json';
 import csGit from '@/modules/i18n/locales/cs/git.json';
 // oxlint-disable-next-line importx/order
 import csChannels from '@/modules/i18n/locales/cs/channels.json';
+// oxlint-disable-next-line importx/order
+import csSchedules from '@/modules/i18n/locales/cs/schedules.json';
+// oxlint-disable-next-line importx/order
+import csAgentTasks from '@/modules/i18n/locales/cs/agentTasks.json';
 
 import heCommon from '@/modules/i18n/locales/he/common.json';
 import heSettings from '@/modules/i18n/locales/he/settings.json';
@@ -194,6 +202,8 @@ i18n
         tasks: enTasks,
 git: enGit,
         channels: enChannels,
+        schedules: enSchedules,
+        agentTasks: enAgentTasks,
       },
       fr: {
         common: frCommon,
@@ -296,6 +306,8 @@ git: enGit,
         tasks: csTasks,
         git: csGit,
         channels: csChannels,
+        schedules: csSchedules,
+        agentTasks: csAgentTasks,
       },
       he: {
         common: heCommon,
@@ -338,7 +350,7 @@ git: enGit,
     debug: false,
 
     // Namespaces - load only what's needed
-    ns: ['common', 'settings', 'auth', 'sidebar', 'chat', 'codeEditor', 'tasks', 'git', 'channels'],
+    ns: ['common', 'settings', 'auth', 'sidebar', 'chat', 'codeEditor', 'tasks', 'git', 'channels', 'schedules', 'agentTasks'],
     defaultNS: 'common',
 
     // Key separator for nested keys (default: '.')

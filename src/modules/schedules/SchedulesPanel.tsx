@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Loader2, Plus } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 import { api, readApiJson } from '@/shared/api';
 import { Button, Pill, PillBar, SettingSwitch } from '@/shared/ui';
@@ -17,6 +18,7 @@ const saveAutoApprove = async (value: boolean) => (await readApiJson<{ data: { a
 
 /** Rendered by WorkspaceMain for the admin-only Schedules tab: schedules on top, run history below. */
 export default function SchedulesPanel({ selectedProject }: Props) {
+  const { t } = useTranslation('schedules');
   const projectPath = selectedProject.fullPath || selectedProject.path || '';
   const [scope, setScope] = useState<'project' | 'all'>('project');
   const [runStatus, setRunStatus] = useState('');
@@ -42,16 +44,16 @@ export default function SchedulesPanel({ selectedProject }: Props) {
       <div className="mx-auto max-w-5xl space-y-6 p-4 md:p-6">
         <header className="flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-0">
-            <h1 className="text-lg font-semibold">Schedules</h1>
-            <p className="text-sm text-muted-foreground">AI prompts and scripts that run on their own. AI runs open as chats in the sidebar.</p>
+            <h1 className="text-lg font-semibold">{t('panel.title')}</h1>
+            <p className="text-sm text-muted-foreground">{t('panel.description')}</p>
           </div>
           <div className="flex items-center gap-2">
-            <PillBar aria-label="Which schedules">
-              <Pill isActive={scope === 'project'} aria-pressed={scope === 'project'} onClick={() => setScope('project')}>This project</Pill>
-              <Pill isActive={scope === 'all'} aria-pressed={scope === 'all'} onClick={() => setScope('all')}>All projects</Pill>
+            <PillBar aria-label={t('panel.scopeLabel')}>
+              <Pill isActive={scope === 'project'} aria-pressed={scope === 'project'} onClick={() => setScope('project')}>{t('panel.thisProject')}</Pill>
+              <Pill isActive={scope === 'all'} aria-pressed={scope === 'all'} onClick={() => setScope('all')}>{t('panel.allProjects')}</Pill>
             </PillBar>
             <Button size="sm" onClick={() => setEditing({ open: true, schedule: null })}>
-              <Plus className="mr-1 h-4 w-4" aria-hidden />New schedule
+              <Plus className="mr-1 h-4 w-4" aria-hidden />{t('panel.newSchedule')}
             </Button>
           </div>
         </header>
@@ -59,33 +61,31 @@ export default function SchedulesPanel({ selectedProject }: Props) {
         {error && <p role="alert" className="text-sm text-red-600 dark:text-red-300">{error}</p>}
 
         <SettingSwitch
-          label="Agents' schedules run without approval"
-          description="On: what an agent schedules through cloudcli-schedules is switched on right away. Off: it waits here as a proposal for your Approve."
+          label={t('panel.autoApproveLabel')}
+          description={t('panel.autoApproveDescription')}
           load={loadAutoApprove}
           save={saveAutoApprove}
         />
 
         {elsewhere > 0 && (
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-800 dark:text-amber-200">
-            <span>{elsewhere === 1 ? '1 proposal waits in another project.' : `${elsewhere} proposals wait in other projects.`}</span>
-            <Button size="sm" variant="outline" onClick={() => setScope('all')}>Show all projects</Button>
+            <span>{t('panel.proposalsElsewhere', { count: elsewhere })}</span>
+            <Button size="sm" variant="outline" onClick={() => setScope('all')}>{t('panel.showAllProjects')}</Button>
           </div>
         )}
 
         {loading ? (
-          <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" aria-hidden /> Loading schedules…</p>
+          <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" aria-hidden /> {t('panel.loading')}</p>
         ) : ordered.length === 0 ? (
           <div className="rounded-lg border border-dashed border-border/70 p-6 text-sm">
-            <p className="font-medium">No schedules {scope === 'project' ? 'in this project' : 'yet'}.</p>
-            <p className="mt-1 text-muted-foreground">
-              Create one here, or ask an agent in a chat — e.g. “every weekday at 8 check new orders and summarise them”. The agent proposes it and you approve it here.
-            </p>
+            <p className="font-medium">{t(scope === 'project' ? 'panel.emptyProject' : 'panel.emptyAll')}</p>
+            <p className="mt-1 text-muted-foreground">{t('panel.emptyHint')}</p>
           </div>
         ) : (
-          <section aria-label="Schedules" className="space-y-2">
+          <section aria-label={t('panel.listLabel')} className="space-y-2">
             {proposals.length > 0 && (
               <p className="text-sm text-amber-800 dark:text-amber-200">
-                {proposals.length === 1 ? 'An agent proposed a schedule.' : `Agents proposed ${proposals.length} schedules.`} Review and approve below.
+                {t('panel.proposed', { count: proposals.length })} {t('panel.reviewBelow')}
               </p>
             )}
             {ordered.map((schedule) => (

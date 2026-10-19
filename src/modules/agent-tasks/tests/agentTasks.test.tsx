@@ -58,6 +58,8 @@ vi.mock('@/shared/context/WebSocketContext', () => ({ useWebSocket: () => stable
 
 vi.mock('@/shared/hooks/useIsAdmin', () => ({ useIsAdmin: () => true }));
 
+// The assertions read the English labels.
+await import('@/modules/i18n');
 const { AgentTasksPanel, AgentTasksTabBadge, AllTasksButton, ProjectAttentionBadge } = await import('@/modules/agent-tasks');
 const { default: TaskDetail } = await import('@/modules/agent-tasks/TaskDetail');
 const { default: TaskForm } = await import('@/modules/agent-tasks/TaskForm');

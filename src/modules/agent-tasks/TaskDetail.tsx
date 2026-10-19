@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import type { ReactNode } from 'react';
+import type { TFunction } from 'i18next';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import {
   AlertCircle, Bot, Check, CircleUser, Cog, ExternalLink, Inbox, Loader2, Mail, Pencil, Send, Trash2, X, Zap,
@@ -12,7 +14,7 @@ import { Button, Dialog, DialogContent, DialogTitle } from '@/shared/ui';
 import { cn, formatDateTime } from '@/shared/utils';
 import type { AgentTask, AgentTaskEvent, AgentTaskMessage, AgentTaskStatus } from '@/shared/types';
 import { useAgentTaskDetail } from '@/modules/agent-tasks/hooks/useAgentTaskDetail';
-import { projectName, STATUS_LABELS } from '@/modules/agent-tasks/utils/agentTaskLabels';
+import { AGENT_TASK_STATUSES, projectName } from '@/modules/agent-tasks/utils/agentTaskLabels';
 
 type Props = {
   taskId: number | null;
@@ -27,31 +29,23 @@ type Props = {
 const FIELD_CLASS =
   'w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50';
 
-const WAKE_REASONS: Record<string, string> = {
-  created: 'new task',
-  message: 'a message arrived',
-  owner_comment: 'your comment',
-  owner_answer: 'your answer',
-  owner_wake: 'you woke it',
-  owner_edit: 'you edited the task',
-  mandate_confirmed: 'mandate confirmed',
-  reopened: 'reopened',
-  check: 'planned check',
-  restart: 'server restart',
-};
+/** Wake reasons the server writes into a wake entry; each reads as `detail.wakeReasons.<reason>`. */
+const WAKE_REASONS = ['created', 'message', 'owner_comment', 'owner_answer', 'owner_wake', 'owner_edit', 'mandate_confirmed', 'reopened', 'check', 'restart'];
 
-const AUTHOR_STYLE: Record<AgentTaskEvent['author'], { label: string; icon: typeof Bot; className: string }> = {
-  owner: { label: 'You', icon: CircleUser, className: 'text-sky-600 dark:text-sky-300' },
-  agent: { label: 'Agent', icon: Bot, className: 'text-violet-600 dark:text-violet-300' },
-  system: { label: 'System', icon: Cog, className: 'text-muted-foreground' },
-  external: { label: 'Incoming', icon: Inbox, className: 'text-emerald-600 dark:text-emerald-300' },
+/** Icon and color per diary author; the name is `detail.author.<author>`. */
+const AUTHOR_STYLE: Record<AgentTaskEvent['author'], { icon: typeof Bot; className: string }> = {
+  owner: { icon: CircleUser, className: 'text-sky-600 dark:text-sky-300' },
+  agent: { icon: Bot, className: 'text-violet-600 dark:text-violet-300' },
+  system: { icon: Cog, className: 'text-muted-foreground' },
+  external: { icon: Inbox, className: 'text-emerald-600 dark:text-emerald-300' },
 };
 
 const LONG_EVENT = 600;
 
 function CloseButton({ onClose }: { onClose: () => void }) {
+  const { t } = useTranslation('agentTasks');
   return (
-    <button type="button" aria-label="Close" onClick={onClose} className="absolute right-3 top-3 rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground">
+    <button type="button" aria-label={t('detail.close')} onClick={onClose} className="absolute right-3 top-3 rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground">
       <X className="h-4 w-4" aria-hidden />
     </button>
   );
@@ -69,18 +63,21 @@ function Section({ title, children, tone }: { title: string; children: ReactNode
   );
 }
 
-function wakeText(event: AgentTaskEvent): string {
+/** The server writes "Woke up: created, message." in English; the reasons are shown in the UI language. */
+function wakeText(event: AgentTaskEvent, t: TFunction): string {
   const reasons = event.text.replace(/^Woke up: /, '').replace(/\.$/, '').split(', ');
-  return `Woke up — ${reasons.map((reason) => WAKE_REASONS[reason] ?? reason).join(', ')}`;
+  return t('detail.wokeUp', { reasons: reasons.map((reason) => (WAKE_REASONS.includes(reason) ? t(`detail.wakeReasons.${reason}`) : reason)).join(', ') });
 }
 
 /** One diary entry; long ones fold so a supplier's e-mail does not push everything else away. */
 function DiaryEntry({ event, onOpenChat }: { event: AgentTaskEvent; onOpenChat: (sessionId: string) => void }) {
+  const { t } = useTranslation('agentTasks');
   // Whether a long entry is unfolded.
   const [expanded, setExpanded] = useState(false);
-  const style = AUTHOR_STYLE[event.author] ?? AUTHOR_STYLE.system;
+  const author = event.author in AUTHOR_STYLE ? event.author : 'system';
+  const style = AUTHOR_STYLE[author];
   const Icon = event.kind === 'message_in' || event.kind === 'message_out' ? Mail : event.kind === 'wake' ? Zap : style.icon;
-  const text = event.kind === 'wake' ? wakeText(event) : event.text;
+  const text = event.kind === 'wake' ? wakeText(event, t) : event.text;
   const long = text.length > LONG_EVENT;
 
   return (
@@ -88,11 +85,11 @@ function DiaryEntry({ event, onOpenChat }: { event: AgentTaskEvent; onOpenChat: 
       <Icon className={cn('mt-0.5 h-4 w-4 shrink-0', style.className)} aria-hidden />
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-baseline gap-x-2 text-xs">
-          <span className={cn('font-medium', style.className)}>{style.label}</span>
+          <span className={cn('font-medium', style.className)}>{t(`detail.author.${author}`)}</span>
           <span className="tabular-nums text-muted-foreground">{formatDateTime(event.at)}</span>
           {event.sessionId && (
             <button type="button" className="inline-flex items-center gap-0.5 text-muted-foreground underline-offset-2 hover:text-foreground hover:underline" onClick={() => onOpenChat(event.sessionId as string)}>
-              Open chat <ExternalLink className="h-3 w-3" aria-hidden />
+              {t('detail.openChat')} <ExternalLink className="h-3 w-3" aria-hidden />
             </button>
           )}
         </div>
@@ -101,7 +98,7 @@ function DiaryEntry({ event, onOpenChat }: { event: AgentTaskEvent; onOpenChat: 
         </p>
         {long && (
           <button type="button" className="mt-0.5 text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground" onClick={() => setExpanded((value) => !value)}>
-            {expanded ? 'Show less' : 'Show all'}
+            {t(expanded ? 'detail.showLess' : 'detail.showAll')}
           </button>
         )}
       </div>
@@ -110,6 +107,7 @@ function DiaryEntry({ event, onOpenChat }: { event: AgentTaskEvent; onOpenChat: 
 }
 
 function MessageDraft({ message, onDone }: { message: AgentTaskMessage; onDone: () => void }) {
+  const { t } = useTranslation('agentTasks');
   // Which button is waiting for the server.
   const [busy, setBusy] = useState<'send' | 'discard' | null>(null);
   // Failure of the last send/discard.
@@ -131,18 +129,18 @@ function MessageDraft({ message, onDone }: { message: AgentTaskMessage; onDone: 
   return (
     <li className="rounded-md border border-border/60 bg-background/70 p-2.5">
       <p className="text-xs text-muted-foreground">
-        To <span className="font-medium text-foreground">{message.to}</span>
+        {t('detail.draftTo')} <span className="font-medium text-foreground">{message.to}</span>
         {message.subject && <> · {message.subject}</>}
-        {message.status === 'failed' && <span className="text-red-600 dark:text-red-300"> · failed{message.statusDetail ? `: ${message.statusDetail}` : ''}</span>}
+        {message.status === 'failed' && <span className="text-red-600 dark:text-red-300"> · {message.statusDetail ? t('detail.draftFailedWithDetail', { detail: message.statusDetail }) : t('detail.draftFailed')}</span>}
       </p>
       <p className="mt-1 max-h-48 overflow-y-auto whitespace-pre-wrap text-sm [overflow-wrap:anywhere]">{message.text}</p>
       {error && <p role="alert" className="mt-1 text-xs text-red-600 dark:text-red-300">{error}</p>}
       <div className="mt-2 flex gap-2">
         <Button size="sm" onClick={() => void act('send')} disabled={busy !== null}>
           {busy === 'send' ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" aria-hidden /> : <Send className="mr-1 h-3.5 w-3.5" aria-hidden />}
-          {message.status === 'failed' ? 'Send again' : 'Send'}
+          {t(message.status === 'failed' ? 'detail.sendAgain' : 'detail.send')}
         </Button>
-        <Button size="sm" variant="outline" onClick={() => void act('discard')} disabled={busy !== null}>Discard</Button>
+        <Button size="sm" variant="outline" onClick={() => void act('discard')} disabled={busy !== null}>{t('detail.discard')}</Button>
       </div>
     </li>
   );
@@ -154,6 +152,7 @@ function MessageDraft({ message, onDone }: { message: AgentTaskMessage; onDone: 
  * the diary — and the ways to steer it.
  */
 export default function TaskDetail({ taskId, onClose, onEdit, wrapperClassName, onOpenChat }: Props) {
+  const { t } = useTranslation('agentTasks');
   const navigate = useNavigate();
   const { detail, error, reload } = useAgentTaskDetail(taskId);
   // Free-text answer to the open question, or a comment when there is none.
@@ -199,9 +198,9 @@ export default function TaskDetail({ taskId, onClose, onEdit, wrapperClassName, 
         {!task ? (
           <div className="relative p-5">
             <CloseButton onClose={onClose} />
-            <DialogTitle className="not-sr-only text-base font-semibold">Task #{taskId}</DialogTitle>
+            <DialogTitle className="not-sr-only text-base font-semibold">{t('detail.taskTitle', { id: taskId })}</DialogTitle>
             {error ? <p role="alert" className="mt-2 text-sm text-red-600 dark:text-red-300">{error}</p> : (
-              <p className="mt-2 flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" aria-hidden /> Loading…</p>
+              <p className="mt-2 flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" aria-hidden /> {t('detail.loading')}</p>
             )}
           </div>
         ) : (
@@ -211,13 +210,13 @@ export default function TaskDetail({ taskId, onClose, onEdit, wrapperClassName, 
               <div className="flex items-start gap-3 pr-8">
                 <div className="min-w-0 flex-1">
                   <p className="text-xs tabular-nums text-muted-foreground">
-                    #{task.id} · {projectName(task.projectPath)} · created {formatDateTime(task.createdAt)}{task.createdBy === 'agent' ? ' by an agent' : ''}
+                    {t(task.createdBy === 'agent' ? 'detail.metaByAgent' : 'detail.meta', { id: task.id, project: projectName(task.projectPath), date: formatDateTime(task.createdAt) })}
                   </p>
                   <DialogTitle className="not-sr-only mt-0.5 text-lg font-semibold leading-snug [overflow-wrap:anywhere]">{task.title}</DialogTitle>
                 </div>
               </div>
               <div className="mt-2 flex flex-wrap items-center gap-2">
-                <label className="sr-only" htmlFor={`task-status-${task.id}`}>Status</label>
+                <label className="sr-only" htmlFor={`task-status-${task.id}`}>{t('detail.status')}</label>
                 <select
                   id={`task-status-${task.id}`}
                   className="rounded-md border border-input bg-transparent px-2 py-1 text-sm"
@@ -226,38 +225,38 @@ export default function TaskDetail({ taskId, onClose, onEdit, wrapperClassName, 
                   onChange={(event) => {
                     const next = event.target.value as AgentTaskStatus;
                     if ((next === 'done' || next === 'cancelled') && !window.confirm(
-                      `Mark #${task.id} as ${STATUS_LABELS[next].toLowerCase()}? The agent stops${task.running ? ' (its current run too)' : ''} and unsent drafts are discarded.`,
+                      t(task.running ? 'detail.confirmCloseRunning' : 'detail.confirmClose', { id: task.id, status: t(`status.${next}`).toLowerCase() }),
                     )) return;
                     void act('status', () => api.agentTasks.setStatus(task.id, next));
                   }}
                 >
-                  {(Object.keys(STATUS_LABELS) as AgentTaskStatus[]).map((status) => (
-                    <option key={status} value={status}>{STATUS_LABELS[status]}</option>
+                  {AGENT_TASK_STATUSES.map((status) => (
+                    <option key={status} value={status}>{t(`status.${status}`)}</option>
                   ))}
                 </select>
                 {task.running ? (
                   <button type="button" onClick={() => openChat(task.running?.sessionId as string)} className="inline-flex items-center gap-1 rounded-full bg-violet-500/15 px-2 py-1 text-xs font-medium text-violet-700 hover:bg-violet-500/25 dark:text-violet-300">
-                    <Loader2 className="h-3 w-3 animate-spin" aria-hidden /> Agent working — open chat
+                    <Loader2 className="h-3 w-3 animate-spin" aria-hidden /> {t('detail.agentWorkingOpenChat')}
                   </button>
                 ) : !closed && task.nextCheckAt ? (
-                  <span className="text-xs tabular-nums text-muted-foreground">Next check {formatDateTime(task.nextCheckAt)}</span>
+                  <span className="text-xs tabular-nums text-muted-foreground">{t('detail.nextCheck', { date: formatDateTime(task.nextCheckAt) })}</span>
                 ) : null}
                 <div className="ml-auto flex flex-wrap gap-1.5">
                   {!closed && (
                     <Button size="sm" variant="outline" disabled={busy !== null || task.running !== null} onClick={() => void act('wake', () => api.agentTasks.wake(task.id))}>
-                      {spinner('wake') || <Zap className="mr-1 h-3.5 w-3.5" aria-hidden />}Wake now
+                      {spinner('wake') || <Zap className="mr-1 h-3.5 w-3.5" aria-hidden />}{t('detail.wakeNow')}
                     </Button>
                   )}
                   <Button size="sm" variant="outline" onClick={() => onEdit(task)} disabled={busy !== null}>
-                    <Pencil className="mr-1 h-3.5 w-3.5" aria-hidden />Edit
+                    <Pencil className="mr-1 h-3.5 w-3.5" aria-hidden />{t('detail.edit')}
                   </Button>
                   <Button
                     size="sm"
                     variant="ghost"
-                    aria-label="Delete task"
+                    aria-label={t('detail.deleteTask')}
                     disabled={busy !== null}
                     onClick={() => {
-                      if (!window.confirm(`Delete task #${task.id} “${task.title}” with its diary? Unsent drafts are discarded.`)) return;
+                      if (!window.confirm(t('detail.confirmDelete', { id: task.id, title: task.title }))) return;
                       void act('delete', () => api.agentTasks.remove(task.id), onClose);
                     }}
                   >
@@ -267,13 +266,13 @@ export default function TaskDetail({ taskId, onClose, onEdit, wrapperClassName, 
               </div>
               {actionError && <p role="alert" className="mt-2 text-sm text-red-600 dark:text-red-300">{actionError}</p>}
               {error && !actionError && (
-                <p role="alert" className="mt-2 text-sm text-red-600 dark:text-red-300">This task no longer exists or could not be loaded ({error}).</p>
+                <p role="alert" className="mt-2 text-sm text-red-600 dark:text-red-300">{t('detail.notFound', { error })}</p>
               )}
             </header>
 
             <div className="space-y-3 p-4 md:p-5">
               {task.question && (
-                <Section title={task.question.by === 'system' ? 'Decision needed' : 'Question for you'} tone="attention">
+                <Section title={t(task.question.by === 'system' ? 'detail.decisionNeeded' : 'detail.questionForYou')} tone="attention">
                   <p className="whitespace-pre-wrap text-sm font-medium [overflow-wrap:anywhere]">{task.question.text}</p>
                   {task.question.options.length > 0 && (
                     <div className="mt-2 flex flex-wrap gap-2">
@@ -292,7 +291,7 @@ export default function TaskDetail({ taskId, onClose, onEdit, wrapperClassName, 
                     </div>
                   )}
                   <label className="mt-3 block text-xs text-muted-foreground" htmlFor={`task-answer-${task.id}`}>
-                    {task.question.options.length ? 'Add a note to your choice, or answer in your own words' : 'Your answer'}
+                    {t(task.question.options.length ? 'detail.answerNoteLabel' : 'detail.yourAnswer')}
                   </label>
                   <textarea
                     id={`task-answer-${task.id}`}
@@ -302,34 +301,34 @@ export default function TaskDetail({ taskId, onClose, onEdit, wrapperClassName, 
                   />
                   <div className="mt-2 flex justify-end">
                     <Button size="sm" disabled={busy !== null || !answerText.trim()} onClick={() => void act('answer-text', () => api.agentTasks.answer(task.id, { text: answerText.trim() }), () => setAnswerText(''))}>
-                      {spinner('answer-text')}Send answer
+                      {spinner('answer-text')}{t('detail.sendAnswer')}
                     </Button>
                   </div>
                 </Section>
               )}
 
               {!task.mandateConfirmed && !closed && (
-                <Section title="Confirm the mandate" tone="attention">
-                  <p className="text-xs text-muted-foreground">An agent created this task. Until you confirm what it may do on its own, every message it writes waits here as a draft.</p>
-                  <p className="mt-2 whitespace-pre-wrap rounded-md bg-background/70 p-2 text-sm [overflow-wrap:anywhere]">{task.mandate || '(no mandate — it may not contact anyone)'}</p>
+                <Section title={t('detail.confirmMandateTitle')} tone="attention">
+                  <p className="text-xs text-muted-foreground">{t('detail.confirmMandateExplain')}</p>
+                  <p className="mt-2 whitespace-pre-wrap rounded-md bg-background/70 p-2 text-sm [overflow-wrap:anywhere]">{task.mandate || t('detail.noMandate')}</p>
                   <div className="mt-2 flex flex-wrap gap-2">
                     <Button size="sm" disabled={busy !== null} onClick={() => void act('confirm', () => api.agentTasks.confirmMandate(task.id))}>
-                      {spinner('confirm') || <Check className="mr-1 h-3.5 w-3.5" aria-hidden />}Confirm mandate
+                      {spinner('confirm') || <Check className="mr-1 h-3.5 w-3.5" aria-hidden />}{t('detail.confirmMandate')}
                     </Button>
-                    <Button size="sm" variant="outline" onClick={() => onEdit(task)}>Change it</Button>
+                    <Button size="sm" variant="outline" onClick={() => onEdit(task)}>{t('detail.changeIt')}</Button>
                   </div>
                 </Section>
               )}
 
               {drafts.length > 0 && (
-                <Section title={drafts.length === 1 ? 'Message to approve' : `${drafts.length} messages to approve`} tone="attention">
+                <Section title={t('detail.drafts', { count: drafts.length })} tone="attention">
                   <ul className="space-y-2">
                     {drafts.map((message) => <MessageDraft key={message.id} message={message} onDone={() => void reload()} />)}
                   </ul>
                 </Section>
               )}
 
-              <Section title="Where it stands">
+              <Section title={t('detail.whereItStands')}>
                 {task.summary ? (
                   <div className="prose prose-sm max-w-none break-words dark:prose-invert prose-table:my-2 prose-th:whitespace-nowrap prose-th:px-2 prose-td:whitespace-nowrap prose-td:px-2">
                     <div className="overflow-x-auto [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
@@ -337,12 +336,12 @@ export default function TaskDetail({ taskId, onClose, onEdit, wrapperClassName, 
                     </div>
                   </div>
                 ) : (
-                  <p className="text-sm text-muted-foreground">{task.running ? 'The agent is on its first step…' : 'The agent has not written a summary yet.'}</p>
+                  <p className="text-sm text-muted-foreground">{t(task.running ? 'detail.firstStep' : 'detail.noSummary')}</p>
                 )}
               </Section>
 
               {task.checklist.length > 0 && (
-                <Section title={`Plan · ${task.checklist.filter((item) => item.done).length}/${task.checklist.length}`}>
+                <Section title={t('detail.plan', { done: task.checklist.filter((item) => item.done).length, total: task.checklist.length })}>
                   <ul className="space-y-1">
                     {task.checklist.map((item, index) => (
                       <li key={`${index}-${item.text}`} className="flex items-start gap-2 text-sm">
@@ -356,36 +355,36 @@ export default function TaskDetail({ taskId, onClose, onEdit, wrapperClassName, 
                 </Section>
               )}
 
-              <Section title="Brief and mandate">
+              <Section title={t('detail.briefAndMandate')}>
                 <p className="whitespace-pre-wrap text-sm [overflow-wrap:anywhere]">{task.brief}</p>
                 <p className="mt-3 text-xs font-medium text-muted-foreground">
-                  The agent may on its own {task.mandateConfirmed ? '' : '(not confirmed yet)'}
+                  {t(task.mandateConfirmed ? 'detail.mayOnItsOwn' : 'detail.mayOnItsOwnUnconfirmed')}
                 </p>
                 <p className="mt-0.5 whitespace-pre-wrap text-sm [overflow-wrap:anywhere]">{task.mandate || '—'}</p>
               </Section>
 
-              <Section title={`Diary${detail && detail.eventCount > events.length ? ` · newest ${events.length} of ${detail.eventCount}` : ''}`}>
+              <Section title={detail && detail.eventCount > events.length ? t('detail.diaryNewest', { shown: events.length, total: detail.eventCount }) : t('detail.diary')}>
                 {!closed ? (
                   <div className="mb-2">
-                    <label className="sr-only" htmlFor={`task-comment-${task.id}`}>Message the agent</label>
+                    <label className="sr-only" htmlFor={`task-comment-${task.id}`}>{t('detail.messageAgent')}</label>
                     <textarea
                       id={`task-comment-${task.id}`}
                       className={cn(FIELD_CLASS, 'min-h-16')}
-                      placeholder="Message the agent — e.g. “prefer printers in Brno” (wakes it up)"
+                      placeholder={t('detail.commentPlaceholder')}
                       value={comment}
                       onChange={(event) => setComment(event.target.value)}
                     />
                     <div className="mt-1.5 flex justify-end">
                       <Button size="sm" disabled={busy !== null || !comment.trim()} onClick={() => void act('comment', () => api.agentTasks.comment(task.id, comment.trim()), () => setComment(''))}>
-                        {spinner('comment') || <Send className="mr-1 h-3.5 w-3.5" aria-hidden />}Send to agent
+                        {spinner('comment') || <Send className="mr-1 h-3.5 w-3.5" aria-hidden />}{t('detail.sendToAgent')}
                       </Button>
                     </div>
                   </div>
                 ) : (
-                  <p className="mb-2 flex items-center gap-1.5 text-xs text-muted-foreground"><AlertCircle className="h-3.5 w-3.5" aria-hidden /> Closed — move it back to Working to wake the agent.</p>
+                  <p className="mb-2 flex items-center gap-1.5 text-xs text-muted-foreground"><AlertCircle className="h-3.5 w-3.5" aria-hidden /> {t('detail.closedHint')}</p>
                 )}
                 {sent.length > 0 && (
-                  <p className="mb-1 text-xs text-muted-foreground">{sent.length} message{sent.length === 1 ? '' : 's'} sent so far.</p>
+                  <p className="mb-1 text-xs text-muted-foreground">{t('detail.sentSoFar', { count: sent.length })}</p>
                 )}
                 <ol className="divide-y divide-border/50">
                   {events.map((event) => <DiaryEntry key={event.id} event={event} onOpenChat={openChat} />)}

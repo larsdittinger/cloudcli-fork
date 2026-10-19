@@ -1,11 +1,13 @@
 import { Bot, TerminalSquare } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 import { cn } from '@/shared/utils';
 
 /** Used by ScheduleCard and RunsTable: AI work is violet (as background agents are elsewhere), scripts stay neutral. */
 export default function KindLabel({ kind, handoff, compact = false }: { kind: 'prompt' | 'script' | null; handoff?: boolean; compact?: boolean }) {
+  const { t } = useTranslation('schedules');
   if (!kind) return <span className="text-xs text-muted-foreground">—</span>;
-  const label = kind === 'prompt' ? 'AI prompt' : handoff ? 'Script → AI' : 'Script';
+  const label = t(kind === 'prompt' ? 'kind.prompt' : handoff ? 'kind.scriptHandoff' : 'kind.script');
   const Icon = kind === 'prompt' ? Bot : TerminalSquare;
   return (
     <span

@@ -160,7 +160,7 @@
     "create": "Vytvořit uživatele",
     "creating": "Vytváření…",
     "seesAllSessions": "Vidí všechny chaty v povolených projektech",
-    "seesAllSessionsHint": "Jen ke čtení, včetně vašich chatů a těch, které spouštějí agenti (Kanály, Plánované úlohy, Úkoly agentů). Psát mohou dál jen do svých vlastních chatů.",
+    "seesAllSessionsHint": "Jen ke čtení, včetně vašich chatů a těch, které spouštějí agenti (Kanály, Naplánované úlohy, Úkoly agentů). Psát mohou dál jen do svých vlastních chatů.",
     "sharedSessions": "Chaty sdílené s tímto uživatelem (jen ke čtení)",
     "stopSharing": "Přestat sdílet",
     "errors": {

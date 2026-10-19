@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Check, Copy, Loader2, Pause, Pencil, Play, Trash2, X } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 import { api, readApiJson } from '@/shared/api';
 import { Button } from '@/shared/ui';
@@ -18,36 +19,33 @@ type Props = {
 
 type Busy = 'run' | 'toggle' | 'duplicate' | 'delete' | 'approve' | null;
 
-const PERMISSION_LABEL: Record<string, string> = {
-  bypassPermissions: 'autonomous (nobody approves tool calls)',
-  acceptEdits: 'accept edits',
-  default: 'asks in the chat',
-  plan: 'plan only',
-};
+/** Permission modes with a written-out label (`card.permission.<mode>`); any other mode shows as is. */
+const KNOWN_PERMISSION_MODES = ['bypassPermissions', 'acceptEdits', 'default', 'plan'];
 
 /** Everything an approval lets run, written out in full — the approval is the only gate for agent proposals. */
 function ProposalDetails({ schedule }: { schedule: Schedule }) {
+  const { t } = useTranslation('schedules');
   const usesAgent = schedule.kind === 'prompt' || schedule.handoff === 'on_output';
-  const rows: Array<[string, string]> = [['Runs in', schedule.projectPath]];
-  if (schedule.kind === 'script') rows.push(['Timeout', `${Math.round(schedule.timeoutSec / 60)} min`]);
+  const rows: Array<[string, string]> = [[t('card.runsIn'), schedule.projectPath]];
+  if (schedule.kind === 'script') rows.push([t('card.timeout'), t('card.timeoutValue', { minutes: Math.round(schedule.timeoutSec / 60) })]);
   if (usesAgent) {
-    rows.push(['Agent', `${schedule.provider}${schedule.model ? ` / ${schedule.model}` : ''}${schedule.effort ? ` · ${schedule.effort}` : ''}`]);
-    rows.push(['Permissions', PERMISSION_LABEL[schedule.permissionMode] ?? schedule.permissionMode]);
-    rows.push(['Chat', schedule.sessionMode === 'continue' ? 'one chat across runs' : 'new chat each run']);
+    rows.push([t('card.agent'), `${schedule.provider}${schedule.model ? ` / ${schedule.model}` : ''}${schedule.effort ? ` · ${schedule.effort}` : ''}`]);
+    rows.push([t('card.permissions'), KNOWN_PERMISSION_MODES.includes(schedule.permissionMode) ? t(`card.permission.${schedule.permissionMode}`) : schedule.permissionMode]);
+    rows.push([t('card.chat'), t(schedule.sessionMode === 'continue' ? 'card.chatContinue' : 'card.chatNew')]);
   }
   const block = 'mt-1 max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-md bg-background/70 p-2 font-mono text-xs';
   return (
-    <section aria-label="What you approve" className="mt-2 space-y-2 text-xs">
+    <section aria-label={t('card.whatYouApprove')} className="mt-2 space-y-2 text-xs">
       {schedule.kind === 'script' && (
         <div>
-          <p className="font-medium">Command</p>
+          <p className="font-medium">{t('card.command')}</p>
           <pre className={block}>{schedule.command}</pre>
         </div>
       )}
       {usesAgent && (
         <div>
-          <p className="font-medium">{schedule.kind === 'script' ? 'Hand-off prompt (when the script prints something)' : 'Prompt'}</p>
-          <pre className={block}>{schedule.prompt || '(default hand-off prompt)'}</pre>
+          <p className="font-medium">{t(schedule.kind === 'script' ? 'card.handoffPrompt' : 'card.prompt')}</p>
+          <pre className={block}>{schedule.prompt || t('card.defaultHandoffPrompt')}</pre>
         </div>
       )}
       <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5">
@@ -68,6 +66,7 @@ function projectName(projectPath: string): string {
 
 /** Used by SchedulesPanel: one schedule with what it does, when it runs next and its actions. */
 export default function ScheduleCard({ schedule, showProject, onEdit, onChanged }: Props) {
+  const { t } = useTranslation('schedules');
   const [busy, setBusy] = useState<Busy>(null);
   const [error, setError] = useState<string | null>(null);
   const proposal = schedule.proposal;
@@ -103,8 +102,8 @@ export default function ScheduleCard({ schedule, showProject, onEdit, onChanged 
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
             <h3 className="font-medium">{schedule.name}</h3>
             <KindLabel kind={schedule.kind} handoff={schedule.handoff === 'on_output'} />
-            {showProject && <span className="text-xs text-muted-foreground" title={schedule.projectPath}>in {projectName(schedule.projectPath)}</span>}
-            {!proposal && !schedule.enabled && <span className="text-xs text-muted-foreground">Paused</span>}
+            {showProject && <span className="text-xs text-muted-foreground" title={schedule.projectPath}>{t('card.inProject', { name: projectName(schedule.projectPath) })}</span>}
+            {!proposal && !schedule.enabled && <span className="text-xs text-muted-foreground">{t('card.paused')}</span>}
           </div>
           <p className="text-sm">{schedule.summary}</p>
           {!proposal && (
@@ -113,25 +112,25 @@ export default function ScheduleCard({ schedule, showProject, onEdit, onChanged 
             </p>
           )}
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 pt-0.5 text-xs tabular-nums text-muted-foreground">
-            <span>Next: {schedule.enabled && !proposal ? formatDateTime(schedule.nextRunAt) : '—'}</span>
-            <span className="inline-flex items-center gap-1.5">Last: <StatusPill status={schedule.lastStatus} />{schedule.lastRunAt && formatDateTime(schedule.lastRunAt)}</span>
+            <span>{t('card.next', { date: schedule.enabled && !proposal ? formatDateTime(schedule.nextRunAt) : '—' })}</span>
+            <span className="inline-flex items-center gap-1.5">{t('card.last')} <StatusPill status={schedule.lastStatus} />{schedule.lastRunAt && formatDateTime(schedule.lastRunAt)}</span>
           </div>
         </div>
 
         {!proposal && (
           <div className="flex flex-wrap gap-1">
             <Button size="sm" variant="outline" onClick={() => act('run', () => api.schedules.runNow(schedule.id))} disabled={busy !== null}>
-              {spinner('run') || <Play className="h-3.5 w-3.5" aria-hidden />}<span className="ml-1">Run now</span>
+              {spinner('run') || <Play className="h-3.5 w-3.5" aria-hidden />}<span className="ml-1">{t('card.runNow')}</span>
             </Button>
-            <Button size="sm" variant="ghost" onClick={() => act('toggle', () => api.schedules.update(schedule.id, { enabled: !schedule.enabled }))} disabled={busy !== null} aria-label={schedule.enabled ? 'Pause' : 'Resume'}>
+            <Button size="sm" variant="ghost" onClick={() => act('toggle', () => api.schedules.update(schedule.id, { enabled: !schedule.enabled }))} disabled={busy !== null} aria-label={t(schedule.enabled ? 'card.pause' : 'card.resume')}>
               {spinner('toggle') || (schedule.enabled ? <Pause className="h-3.5 w-3.5" aria-hidden /> : <Play className="h-3.5 w-3.5" aria-hidden />)}
-              <span className="ml-1 hidden sm:inline">{schedule.enabled ? 'Pause' : 'Resume'}</span>
+              <span className="ml-1 hidden sm:inline">{t(schedule.enabled ? 'card.pause' : 'card.resume')}</span>
             </Button>
-            <Button size="sm" variant="ghost" onClick={onEdit} disabled={busy !== null} aria-label="Edit"><Pencil className="h-3.5 w-3.5" aria-hidden /></Button>
-            <Button size="sm" variant="ghost" onClick={() => act('duplicate', () => api.schedules.duplicate(schedule.id))} disabled={busy !== null} aria-label="Duplicate">
+            <Button size="sm" variant="ghost" onClick={onEdit} disabled={busy !== null} aria-label={t('card.edit')}><Pencil className="h-3.5 w-3.5" aria-hidden /></Button>
+            <Button size="sm" variant="ghost" onClick={() => act('duplicate', () => api.schedules.duplicate(schedule.id))} disabled={busy !== null} aria-label={t('card.duplicate')}>
               {spinner('duplicate') || <Copy className="h-3.5 w-3.5" aria-hidden />}
             </Button>
-            <Button size="sm" variant="ghost" onClick={() => act('delete', () => api.schedules.remove(schedule.id), `Delete “${schedule.name}” and its run history?`)} disabled={busy !== null} aria-label="Delete">
+            <Button size="sm" variant="ghost" onClick={() => act('delete', () => api.schedules.remove(schedule.id), t('card.confirmDelete', { name: schedule.name }))} disabled={busy !== null} aria-label={t('card.delete')}>
               {spinner('delete') || <Trash2 className="h-3.5 w-3.5" aria-hidden />}
             </Button>
           </div>
@@ -140,21 +139,21 @@ export default function ScheduleCard({ schedule, showProject, onEdit, onChanged 
 
       {proposal && (
         <div className="mt-3 border-t border-amber-500/30 pt-2 text-sm">
-          <p className="font-medium text-amber-800 dark:text-amber-200">Proposed by an agent — nothing runs until you approve it.</p>
+          <p className="font-medium text-amber-800 dark:text-amber-200">{t('card.proposedNotice')}</p>
           {proposal.note && <p className="mt-1 whitespace-pre-wrap">{proposal.note}</p>}
           <ProposalDetails schedule={schedule} />
           <p className="mt-1 text-xs text-muted-foreground">
-            Proposed {formatDateTime(proposal.createdAt)}
-            {proposal.projectPath && <span title={proposal.projectPath}> by an agent in {projectName(proposal.projectPath)}</span>}
+            {t('card.proposedAt', { date: formatDateTime(proposal.createdAt) })}
+            {proposal.projectPath && <span title={proposal.projectPath}> {t('card.proposedBy', { name: projectName(proposal.projectPath) })}</span>}
 
           </p>
           <div className="mt-2 flex flex-wrap gap-2">
             <Button size="sm" onClick={() => act('approve', () => api.schedules.approve(schedule.id))} disabled={busy !== null}>
-              {spinner('approve') || <Check className="h-3.5 w-3.5" aria-hidden />}<span className="ml-1">Approve</span>
+              {spinner('approve') || <Check className="h-3.5 w-3.5" aria-hidden />}<span className="ml-1">{t('card.approve')}</span>
             </Button>
-            <Button size="sm" variant="outline" onClick={onEdit} disabled={busy !== null}><Pencil className="h-3.5 w-3.5" aria-hidden /><span className="ml-1">Edit first</span></Button>
-            <Button size="sm" variant="ghost" onClick={() => act('delete', () => api.schedules.remove(schedule.id), `Reject and delete the proposed “${schedule.name}”?`)} disabled={busy !== null}>
-              {spinner('delete') || <X className="h-3.5 w-3.5" aria-hidden />}<span className="ml-1">Reject</span>
+            <Button size="sm" variant="outline" onClick={onEdit} disabled={busy !== null}><Pencil className="h-3.5 w-3.5" aria-hidden /><span className="ml-1">{t('card.editFirst')}</span></Button>
+            <Button size="sm" variant="ghost" onClick={() => act('delete', () => api.schedules.remove(schedule.id), t('card.confirmReject', { name: schedule.name }))} disabled={busy !== null}>
+              {spinner('delete') || <X className="h-3.5 w-3.5" aria-hidden />}<span className="ml-1">{t('card.reject')}</span>
             </Button>
           </div>
         </div>

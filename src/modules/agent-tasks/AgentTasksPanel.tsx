@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Loader2, Plus } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 import { api, readApiJson } from '@/shared/api';
 import { Button, SettingSwitch } from '@/shared/ui';
@@ -16,6 +17,7 @@ const saveTrust = async (value: boolean) => (await readApiJson<{ data: { trustAg
 
 /** Rendered by WorkspaceMain for the admin-only Agent tasks tab: the board of long-running tasks and their detail. */
 export default function AgentTasksPanel({ selectedProject }: Props) {
+  const { t } = useTranslation('agentTasks');
   const projectPath = selectedProject.fullPath || selectedProject.path || '';
   // Whether tasks closed more than 30 days ago are listed too.
   const [includeOld, setIncludeOld] = useState(false);
@@ -41,12 +43,12 @@ export default function AgentTasksPanel({ selectedProject }: Props) {
       <div className="mx-auto max-w-7xl space-y-4 p-4 md:p-6">
         <header className="flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-0">
-            <h1 className="text-lg font-semibold">Agent tasks</h1>
-            <p className="text-sm text-muted-foreground">Work that takes days. Each task wakes its agent when something happens; the card is its memory.</p>
+            <h1 className="text-lg font-semibold">{t('panel.title')}</h1>
+            <p className="text-sm text-muted-foreground">{t('panel.description')}</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Button size="sm" onClick={() => setForm({ task: null })}>
-              <Plus className="mr-1 h-4 w-4" aria-hidden />New task
+              <Plus className="mr-1 h-4 w-4" aria-hidden />{t('panel.newTask')}
             </Button>
           </div>
         </header>
@@ -54,21 +56,18 @@ export default function AgentTasksPanel({ selectedProject }: Props) {
         {error && <p role="alert" className="text-sm text-red-600 dark:text-red-300">{error}</p>}
 
         <SettingSwitch
-          label="Trust mandates written by agents"
-          description="On: a task an agent creates works within its mandate right away (messages go out as the account allows). Off: you confirm the mandate first and its messages wait as drafts."
+          label={t('panel.trustLabel')}
+          description={t('panel.trustDescription')}
           load={loadTrust}
           save={saveTrust}
         />
 
         {loading ? (
-          <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" aria-hidden /> Loading tasks…</p>
+          <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" aria-hidden /> {t('panel.loading')}</p>
         ) : tasks.length === 0 ? (
           <div className="rounded-lg border border-dashed border-border/70 p-6 text-sm">
-            <p className="font-medium">No tasks in this project.</p>
-            <p className="mt-1 max-w-2xl text-muted-foreground">
-              Create one here, or tell an agent in a chat — e.g. “find a printer for our labels, ask for prices and recommend one”.
-              It sets up the task, mails suppliers when you allow it, and wakes up whenever someone replies.
-            </p>
+            <p className="font-medium">{t('panel.empty')}</p>
+            <p className="mt-1 max-w-2xl text-muted-foreground">{t('panel.emptyHint')}</p>
           </div>
         ) : (
           <TaskBoard tasks={tasks} showProject={false} projectPath={projectPath} onChanged={reload} onOpen={(task) => setOpenId(task.id)} />
@@ -76,7 +75,7 @@ export default function AgentTasksPanel({ selectedProject }: Props) {
 
         <div>
           <button type="button" className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground" onClick={() => setIncludeOld((value) => !value)}>
-            {includeOld ? 'Hide tasks closed over 30 days ago' : 'Show older closed tasks'}
+            {t(includeOld ? 'panel.hideOlder' : 'panel.showOlder')}
           </button>
         </div>
       </div>

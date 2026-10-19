@@ -1,6 +1,7 @@
 import { useId, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Loader2 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 import { Button, Dialog, DialogContent, DialogTitle, Input } from '@/shared/ui';
 import { cn } from '@/shared/utils';
@@ -22,8 +23,6 @@ type Props = {
 const FIELD_CLASS =
   'w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50';
 
-const MANDATE_PLACEHOLDER = 'e.g. May e-mail up to 8 Czech printers asking for a quote and answer their questions. Must not order, pay or promise anything.';
-
 function Field({ label, hint, children }: { label: string; hint?: ReactNode; children: (id: string) => ReactNode }) {
   const id = useId();
   return (
@@ -37,6 +36,7 @@ function Field({ label, hint, children }: { label: string; hint?: ReactNode; chi
 
 /** Used by AgentTasksPanel to create a task or edit its brief, mandate and agent. */
 export default function TaskForm({ task, projectPath, onClose, onSubmit, wrapperClassName }: Props) {
+  const { t } = useTranslation('agentTasks');
   // The form's values; starts from the edited task or sensible defaults.
   const [values, setValues] = useState<AgentTaskInput>({
     title: task?.title ?? '',
@@ -56,7 +56,7 @@ export default function TaskForm({ task, projectPath, onClose, onSubmit, wrapper
   const set = <K extends keyof AgentTaskInput>(key: K, value: AgentTaskInput[K]) => setValues((current) => ({ ...current, [key]: value }));
 
   const submit = async () => {
-    const problem = validateTaskForm(values);
+    const problem = validateTaskForm(values, t);
     if (problem) {
       setError(problem);
       return;
@@ -90,11 +90,9 @@ export default function TaskForm({ task, projectPath, onClose, onSubmit, wrapper
   return (
     <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
       <DialogContent wrapperClassName={wrapperClassName} className="max-h-[92vh] w-[min(100vw-1rem,42rem)] max-w-none overflow-y-auto p-4 md:p-5">
-        <DialogTitle className="not-sr-only mb-1 text-base font-semibold">{task ? `Edit task #${task.id}` : 'New agent task'}</DialogTitle>
+        <DialogTitle className="not-sr-only mb-1 text-base font-semibold">{task ? t('form.editTitle', { id: task.id }) : t('form.newTitle')}</DialogTitle>
         <p className="mb-4 text-sm text-muted-foreground">
-          {task
-            ? 'The agent sees your changes on its next wake-up; changing the brief or mandate wakes it now.'
-            : 'For work that takes days. The agent works step by step, keeps the card up to date and asks you when it needs a decision.'}
+          {t(task ? 'form.editIntro' : 'form.newIntro')}
         </p>
         <form
           className="space-y-4"
@@ -103,31 +101,31 @@ export default function TaskForm({ task, projectPath, onClose, onSubmit, wrapper
             void submit();
           }}
         >
-          <Field label="Title">
-            {(id) => <Input id={id} value={values.title} onChange={(event) => set('title', event.target.value)} placeholder="Label printer: three quotes" maxLength={200} />}
+          <Field label={t('form.title')}>
+            {(id) => <Input id={id} value={values.title} onChange={(event) => set('title', event.target.value)} placeholder={t('form.titlePlaceholder')} maxLength={200} />}
           </Field>
-          <Field label="What should the agent achieve?" hint="Goal, what done looks like, deadlines and anything it must know.">
+          <Field label={t('form.brief')} hint={t('form.briefHint')}>
             {(id) => (
               <textarea
                 id={id}
                 className={cn(FIELD_CLASS, 'min-h-32')}
                 value={values.brief}
                 onChange={(event) => set('brief', event.target.value)}
-                placeholder="Find a printer for our 50×30 mm labels (matte, 4 designs), get prices for 1 000 and 5 000 pcs incl. delivery, compare them and recommend one."
+                placeholder={t('form.briefPlaceholder')}
               />
             )}
           </Field>
-          <Field label="What may it do on its own?" hint="The mandate. Anything outside it, the agent asks you first. Orders and payments always need you.">
-            {(id) => <textarea id={id} className={cn(FIELD_CLASS, 'min-h-20')} value={values.mandate} onChange={(event) => set('mandate', event.target.value)} placeholder={MANDATE_PLACEHOLDER} />}
+          <Field label={t('form.mandate')} hint={t('form.mandateHint')}>
+            {(id) => <textarea id={id} className={cn(FIELD_CLASS, 'min-h-20')} value={values.mandate} onChange={(event) => set('mandate', event.target.value)} placeholder={t('form.mandatePlaceholder')} />}
           </Field>
-          <Field label="Agent project" hint="The project whose agent runs the task — its AGENTS.md, subagents and MCP servers.">
+          <Field label={t('form.agentProject')} hint={t('form.agentProjectHint')}>
             {(id) => <Input id={id} value={values.projectPath} onChange={(event) => set('projectPath', event.target.value)} className="font-mono text-xs" />}
           </Field>
 
           <details className="rounded-lg border border-border/60 p-3 text-sm">
-            <summary className="cursor-pointer font-medium">Agent settings</summary>
+            <summary className="cursor-pointer font-medium">{t('form.agentSettings')}</summary>
             <div className="mt-3 grid gap-3 sm:grid-cols-2">
-              <Field label="Provider">
+              <Field label={t('form.provider')}>
                 {(id) => (
                   <select id={id} className={FIELD_CLASS} value={values.provider} onChange={(event) => set('provider', event.target.value)}>
                     <option value="claude">Claude Code</option>
@@ -137,24 +135,24 @@ export default function TaskForm({ task, projectPath, onClose, onSubmit, wrapper
                   </select>
                 )}
               </Field>
-              <Field label="Model" hint="Empty = provider default.">
-                {(id) => <Input id={id} value={values.model ?? ''} onChange={(event) => set('model', event.target.value)} placeholder="e.g. opus" />}
+              <Field label={t('form.model')} hint={t('form.modelHint')}>
+                {(id) => <Input id={id} value={values.model ?? ''} onChange={(event) => set('model', event.target.value)} placeholder={t('form.modelPlaceholder')} />}
               </Field>
-              <Field label="Effort" hint="Empty = default.">
-                {(id) => <Input id={id} value={values.effort ?? ''} onChange={(event) => set('effort', event.target.value)} placeholder="e.g. high" />}
+              <Field label={t('form.effort')} hint={t('form.effortHint')}>
+                {(id) => <Input id={id} value={values.effort ?? ''} onChange={(event) => set('effort', event.target.value)} placeholder={t('form.effortPlaceholder')} />}
               </Field>
               <p className="text-xs text-muted-foreground sm:col-span-2">
-                Runs are autonomous: nobody sits at the chat to approve tool calls. What the agent may do is set by the mandate above.
+                {t('form.autonomousNote')}
               </p>
             </div>
           </details>
 
           {error && <p role="alert" className="text-sm text-red-600 dark:text-red-300">{error}</p>}
           <div className="flex justify-end gap-2">
-            <Button type="button" variant="outline" onClick={onClose} disabled={saving}>Cancel</Button>
+            <Button type="button" variant="outline" onClick={onClose} disabled={saving}>{t('form.cancel')}</Button>
             <Button type="submit" disabled={saving}>
               {saving && <Loader2 className="mr-1 h-4 w-4 animate-spin" aria-hidden />}
-              {task ? 'Save' : 'Create and start'}
+              {t(task ? 'form.save' : 'form.createAndStart')}
             </Button>
           </div>
         </form>

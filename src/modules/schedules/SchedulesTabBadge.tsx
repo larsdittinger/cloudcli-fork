@@ -1,10 +1,13 @@
+import { useTranslation } from 'react-i18next';
+
 import { useScheduleProposals } from '@/modules/schedules/hooks/useScheduleProposals';
 
 /** Used by WorkspaceTabs on the Schedules tab: how many agent proposals wait for approval (nothing when none). */
 export default function SchedulesTabBadge() {
+  const { t } = useTranslation('schedules');
   const { proposals } = useScheduleProposals();
   if (proposals === 0) return null;
-  const label = `${proposals} schedule${proposals === 1 ? '' : 's'} waiting for approval`;
+  const label = t('tabBadge', { count: proposals });
   return (
     <span
       aria-label={label}

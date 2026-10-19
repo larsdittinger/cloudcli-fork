@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { ListTodo } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 import { Button, Tooltip } from '@/shared/ui';
 import { useIsAdmin } from '@/shared/hooks/useIsAdmin';
@@ -11,12 +12,13 @@ type Props = { className?: string; iconClassName?: string };
 
 /** Sidebar header entry to every project's agent tasks; the badge counts the ones that need the owner. */
 export default function AllTasksButton({ className, iconClassName }: Props) {
+  const { t } = useTranslation('agentTasks');
   const isAdmin = useIsAdmin();
   const [open, setOpen] = useState(false);
   const { total } = useAgentTasksAttention(isAdmin);
 
   if (!isAdmin) return null;
-  const label = total > 0 ? `All agent tasks — ${total} need${total === 1 ? 's' : ''} you` : 'All agent tasks';
+  const label = total > 0 ? t('allTasks.titleWithCount', { count: total }) : t('allTasks.title');
 
   return (
     <>
