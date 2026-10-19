@@ -1,5 +1,7 @@
 import express from 'express';
 
+import { requireAdmin } from '@/modules/auth/index.js';
+
 import type { createSettingsService } from './settings.service.js';
 
 type AuthenticatedRequest = express.Request & { user?: { id?: number | string } };
@@ -22,20 +24,23 @@ export function createSettingsRouter(
       try { res.json(await operation(req)); } catch (error) { next(error); }
     };
 
-  router.get('/api-keys', respond((req) => service.listApiKeys(userId(req))));
-  router.post('/api-keys', respond((req) => service.createApiKey(userId(req), req.body?.keyName)));
-  router.delete('/api-keys/:keyId', respond((req) => service.deleteApiKey(userId(req), Number(req.params.keyId))));
-  router.patch('/api-keys/:keyId/toggle', respond((req) => service.toggleApiKey(
+  // API keys open the external Agent API and credentials hold the GitHub
+  // tokens agent runs use: admin-only. Notification and push settings stay
+  // per user for everyone.
+  router.get('/api-keys', requireAdmin, respond((req) => service.listApiKeys(userId(req))));
+  router.post('/api-keys', requireAdmin, respond((req) => service.createApiKey(userId(req), req.body?.keyName)));
+  router.delete('/api-keys/:keyId', requireAdmin, respond((req) => service.deleteApiKey(userId(req), Number(req.params.keyId))));
+  router.patch('/api-keys/:keyId/toggle', requireAdmin, respond((req) => service.toggleApiKey(
     userId(req), Number(req.params.keyId), req.body?.isActive,
   )));
-  router.get('/credentials', respond((req) => service.listCredentials(
+  router.get('/credentials', requireAdmin, respond((req) => service.listCredentials(
     userId(req), queryString(req.query.type),
   )));
-  router.post('/credentials', respond((req) => service.createCredential(userId(req), req.body ?? {})));
-  router.delete('/credentials/:credentialId', respond((req) => service.deleteCredential(
+  router.post('/credentials', requireAdmin, respond((req) => service.createCredential(userId(req), req.body ?? {})));
+  router.delete('/credentials/:credentialId', requireAdmin, respond((req) => service.deleteCredential(
     userId(req), Number(req.params.credentialId),
   )));
-  router.patch('/credentials/:credentialId/toggle', respond((req) => service.toggleCredential(
+  router.patch('/credentials/:credentialId/toggle', requireAdmin, respond((req) => service.toggleCredential(
     userId(req), Number(req.params.credentialId), req.body?.isActive,
   )));
   router.get('/notification-preferences', respond((req) => service.getNotificationPreferences(userId(req))));

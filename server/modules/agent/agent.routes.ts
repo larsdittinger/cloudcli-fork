@@ -34,6 +34,8 @@ type AgentRouterDependencies = {
     getSessionById(sessionId: string): AgentSessionRow | null;
     getSessionByProviderSessionId(providerSessionId: string): AgentSessionRow | null;
     createAppSession(provider: string, projectPath: string, initialMessage: string): { sessionId: string };
+    /** Whether the authenticated user may write to (continue) this session. */
+    canAccess(user: unknown, sessionId: string): boolean;
   };
   /** The live-run registry the chat socket uses; registering here is what puts an API run on the running-sessions list. */
   runs: Pick<typeof import('../websocket/index.js').chatRunRegistry, 'startRun' | 'completeRunIfCurrent' | 'isProcessing'>;
@@ -88,6 +90,9 @@ export function createAgentRouter(dependencies: AgentRouterDependencies): expres
         if (!user) {
           return res.status(500).json({ error: 'Platform mode: No user found in database' });
         }
+        if (user.role && user.role !== 'admin') {
+          return res.status(403).json({ error: 'Admin access required' });
+        }
         req.user = user;
         return next();
       } catch (error) {
@@ -107,6 +112,12 @@ export function createAgentRouter(dependencies: AgentRouterDependencies): expres
 
     if (!user) {
       return res.status(401).json({ error: 'Invalid or inactive API key' });
+    }
+
+    // The Agent API runs autonomously in any project and can continue any
+    // session, so only an admin's key opens it.
+    if (user.role !== 'admin') {
+      return res.status(403).json({ error: 'Admin access required' });
     }
 
     req.user = user;
@@ -912,6 +923,9 @@ export function createAgentRouter(dependencies: AgentRouterDependencies): expres
       sessionRow = sessionGateway.getSessionById(sessionId) ?? sessionGateway.getSessionByProviderSessionId(sessionId);
       if (!sessionRow) {
         return res.status(404).json({ error: `Session "${sessionId}" was not found` });
+      }
+      if (!sessionGateway.canAccess(req.user, sessionRow.session_id)) {
+        return res.status(403).json({ error: 'Session access denied' });
       }
       if (requestedProvider !== null && requestedProvider !== sessionRow.provider) {
         return res.status(400).json({ error: `Session "${sessionRow.session_id}" belongs to provider "${sessionRow.provider}"` });

@@ -115,6 +115,20 @@ test('a fork inherits the model and effort of the conversation it branched from'
   });
 });
 
+test('a fork belongs to the user who made it', async () => {
+  await withForkableClaude(async ({ directory }) => {
+    seedSource(directory);
+
+    // A restricted user's fork must stay theirs, not fall to admin-only.
+    const restrictedFork = await sessionsService.forkSessionById(SOURCE_ID, {}, 7);
+    assert.equal(sessionsDb.getSessionOwnerId(restrictedFork.sessionId), 7);
+
+    // An admin's fork is unowned, like any chat an admin starts.
+    const adminFork = await sessionsService.forkSessionById(SOURCE_ID, {}, null);
+    assert.equal(sessionsDb.getSessionOwnerId(adminFork.sessionId), null);
+  });
+});
+
 test('forking replaces a row the watcher already made for the new transcript', async () => {
   await withForkableClaude(async ({ directory }) => {
     seedSource(directory);

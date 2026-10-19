@@ -5,6 +5,7 @@ import os from 'node:os';
 import { Octokit } from '@octokit/rest';
 import spawn from 'cross-spawn';
 
+import { canAccessSession } from '@/modules/auth/index.js';
 import {
   apiKeysDb,
   githubTokensDb,
@@ -54,6 +55,7 @@ export function createAgentModule(externalDependencies: AgentExternalDependencie
       getSessionByProviderSessionId: (providerSessionId) => sessionsDb.getSessionByProviderSessionId(providerSessionId),
       createAppSession: (provider, projectPath, initialMessage) =>
         sessionsService.createAppSession(provider as LLMProvider, projectPath, initialMessage),
+      canAccess: (user, sessionId) => canAccessSession(user as Parameters<typeof canAccessSession>[0], sessionId),
     },
     runs: chatRunRegistry,
     GithubClient: Octokit,

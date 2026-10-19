@@ -24,6 +24,7 @@ import {
   assertProjectPathAccess,
   assertSessionAccess,
   assertSessionRead,
+  canAccessProjectPath,
   requireAdmin,
   resolveSessionOwnerScope,
 } from '@/modules/auth/index.js';
@@ -688,6 +689,7 @@ router.get(
 /** Turns "use only my models" on or off for one provider and returns its new catalog. */
 router.put(
   '/:provider/models/custom-only',
+  requireAdmin,
   asyncHandler(async (req: Request, res: Response) => {
     const provider = parseProvider(req.params.provider);
     const enabled = parseCustomModelsOnlyPayload(req.body);
@@ -698,6 +700,7 @@ router.put(
 
 router.post(
   '/:provider/models',
+  requireAdmin,
   asyncHandler(async (req: Request, res: Response) => {
     const provider = parseProvider(req.params.provider);
     const input = parseCustomProviderModelPayload(req.body);
@@ -708,6 +711,7 @@ router.post(
 
 router.patch(
   '/:provider/models/:recordId',
+  requireAdmin,
   asyncHandler(async (req: Request, res: Response) => {
     const provider = parseProvider(req.params.provider);
     const recordId = parseModelRecordId(req.params.recordId);
@@ -719,6 +723,7 @@ router.patch(
 
 router.delete(
   '/:provider/models/:recordId',
+  requireAdmin,
   asyncHandler(async (req: Request, res: Response) => {
     const provider = parseProvider(req.params.provider);
     const recordId = parseModelRecordId(req.params.recordId);
@@ -783,6 +788,11 @@ router.get(
   asyncHandler(async (req: Request, res: Response) => {
     const provider = parseProvider(req.params.provider);
     const workspacePath = readOptionalQueryString(req.query.workspacePath);
+    // The chat's slash-command menu reads this, so a restricted user may list
+    // skills, but only for a project they were granted.
+    if (workspacePath && !canAccessProjectPath(readAuthenticatedUser(req), workspacePath)) {
+      throw new AppError('Project access denied', { code: 'PROJECT_ACCESS_DENIED', statusCode: 403 });
+    }
     const skills = await providerSkillsService.listProviderSkills(provider, { workspacePath });
     res.json(createApiSuccessResponse({ provider, skills }));
   }),
@@ -790,6 +800,7 @@ router.get(
 
 router.post(
   '/:provider/skills',
+  requireAdmin,
   asyncHandler(async (req: Request, res: Response) => {
     const provider = parseProvider(req.params.provider);
     const input = parseProviderSkillCreatePayload(req.body);
@@ -800,6 +811,7 @@ router.post(
 
 router.delete(
   '/:provider/skills/:directoryName',
+  requireAdmin,
   asyncHandler(async (req: Request, res: Response) => {
     const provider = parseProvider(req.params.provider);
     const result = await providerSkillsService.removeProviderSkill(provider, {
@@ -810,8 +822,11 @@ router.delete(
 );
 
 // ----------------- MCP routes -----------------
+// Admin-only, reads included: server env and headers hold tokens (the
+// cloudcli-* MCP servers among them), and only Settings lists them.
 router.get(
   '/:provider/mcp/servers',
+  requireAdmin,
   asyncHandler(async (req: Request, res: Response) => {
     const provider = parseProvider(req.params.provider);
     const workspacePath = readOptionalQueryString(req.query.workspacePath);
@@ -830,6 +845,7 @@ router.get(
 
 router.post(
   '/:provider/mcp/servers',
+  requireAdmin,
   asyncHandler(async (req: Request, res: Response) => {
     const provider = parseProvider(req.params.provider);
     const payload = parseMcpUpsertPayload(req.body);
@@ -840,6 +856,7 @@ router.post(
 
 router.delete(
   '/:provider/mcp/servers/:name',
+  requireAdmin,
   asyncHandler(async (req: Request, res: Response) => {
     const provider = parseProvider(req.params.provider);
     const scope = parseMcpScope(req.query.scope);
@@ -855,6 +872,7 @@ router.delete(
 
 router.post(
   '/mcp/servers/global',
+  requireAdmin,
   asyncHandler(async (req: Request, res: Response) => {
     const payload = parseMcpUpsertPayload(req.body);
     if (payload.scope === 'local') {
@@ -894,6 +912,7 @@ router.get(
 // Read-only: the rules Claude's own settings files add on top of the UI's lists.
 router.get(
   '/claude/settings-permissions',
+  requireAdmin,
   asyncHandler(async (_req: Request, res: Response) => {
     const sources = await claudeSettingsPermissionsService.listRuleSources();
     res.json(createApiSuccessResponse({ sources }));
@@ -1007,7 +1026,11 @@ router.post(
   '/sessions/:sessionId/fork',
   asyncHandler(async (req: Request, res: Response) => {
     const sessionId = parseSessionId(req.params.sessionId);
-    const result = await sessionsService.forkSessionById(sessionId, parseSessionForkPayload(req.body));
+    const result = await sessionsService.forkSessionById(
+      sessionId,
+      parseSessionForkPayload(req.body),
+      readSessionOwnerScope(req),
+    );
     res.status(201).json(createApiSuccessResponse(result));
   }),
 );

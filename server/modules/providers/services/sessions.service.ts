@@ -363,11 +363,13 @@ export const sessionsService = {
    * to `upToAnchorId` (the whole thing when omitted).
    *
    * The source is left completely untouched — this is the "try two approaches"
-   * action, not a destructive one.
+   * action, not a destructive one. `ownerUserId` is the forking user's owner
+   * scope (`null` for admins), so a restricted user keeps their fork.
    */
   async forkSessionById(
     sessionId: string,
     options: { upToAnchorId?: string; title?: string } = {},
+    ownerUserId: number | null = null,
   ): Promise<CreateAppSessionResult> {
     const source = sessionsDb.getSessionById(sessionId);
     if (!source) {
@@ -419,6 +421,7 @@ export const sessionsService = {
       // differently from the conversation it was branched from.
       model: source.model,
       effort: source.effort,
+      ownerUserId,
     });
 
     await broadcastSessionUpserted(forkSessionId);
