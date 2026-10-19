@@ -12,6 +12,7 @@ import {
   readBackgroundTaskId,
   readBackgroundTaskStatus,
 } from '@/modules/chat/utils/backgroundTasks';
+import { useViewedBackgroundTasks } from '@/modules/chat/context/BackgroundTasksContext';
 import { parseToolPayload } from '@/modules/chat/utils/messageTransforms';
 import { parseWorkflowMeta } from '@/modules/chat/utils/workflowScriptMeta';
 
@@ -100,9 +101,17 @@ function describeTask(message: ChatMessage, t: TFunction) {
  * background task — workflow, agent or command — that is still running, each
  * scrolling to its card when clicked and stoppable from its ✕. Renders
  * nothing while nothing runs, which is most of the time.
+ *
+ * Also nothing while the Claude runtime's own task list has entries: the
+ * composer's BackgroundTasksTab shows that same work (with a Stop per task),
+ * and a second list would only repeat it.
  */
 export const BackgroundTasksStrip = memo(({ messages, tasks, sessionId, sendMessage, onReveal, onLoadAll }: BackgroundTasksStripProps) => {
   const { t } = useTranslation();
+  const liveTasks = useViewedBackgroundTasks();
+  if (liveTasks && liveTasks.length > 0) {
+    return null;
+  }
   const running = listRunningBackgroundLaunches(messages);
   // A loaded row that has a word on its task — settled or not — is the word;
   // a task whose row is not loaded, or is loaded without one (a backgrounded

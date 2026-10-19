@@ -426,6 +426,15 @@ function ChatInterface({
   // Lets a workflow card fetch its agents' timelines for this session.
   const transcriptSessionValue = useMemo(() => ({ sessionId: currentSessionId }), [currentSessionId]);
 
+  // Stops one background task from the composer's tasks tab, as the strip
+  // above the transcript does for providers without that tab.
+  const stopBackgroundTask = useCallback((taskId: string) => {
+    const sessionId = selectedSession?.id || currentSessionId;
+    if (sessionId) {
+      sendMessage({ type: 'chat.stop-task', sessionId, taskId });
+    }
+  }, [currentSessionId, selectedSession?.id, sendMessage]);
+
   // A composer pick becomes the default for new chats and, when a session is
   // open, is recorded against that session so reopening it restores this model.
   const handleSelectComposerModel = useCallback(async (model: string) => {
@@ -570,6 +579,7 @@ function ChatInterface({
           activity={sessionActivity}
           isLoading={isProcessing}
           onAbortSession={handleAbortSession}
+          onStopBackgroundTask={isReadOnly ? undefined : stopBackgroundTask}
           permissionMode={permissionMode}
           availablePermissionModes={availablePermissionModes}
           onSelectPermissionMode={selectPermissionMode}

@@ -29,6 +29,7 @@ import CommandMenu from '@/modules/chat/composer/CommandMenu';
 import ActivityIndicator from '@/modules/chat/composer/ActivityIndicator';
 import BackgroundTasksTab from '@/modules/chat/composer/BackgroundTasksTab';
 import { useViewedBackgroundTasks } from '@/modules/chat/context/BackgroundTasksContext';
+import { activityBesideBackgroundTasks } from '@/modules/chat/utils/backgroundTasks';
 import ComposerAttachment from '@/modules/chat/composer/ComposerAttachment';
 import VoiceInputButton from '@/modules/chat/composer/VoiceInputButton';
 import PermissionRequestsBanner from '@/modules/chat/composer/PermissionRequestsBanner';
@@ -57,6 +58,8 @@ type ChatComposerProps = {
   activity: SessionActivity | null;
   isLoading: boolean;
   onAbortSession: () => void;
+  /** Stops one background task from the tasks tab; absent for a read-only viewer. */
+  onStopBackgroundTask?: (taskId: string) => void;
   permissionMode: PermissionMode;
   availablePermissionModes: PermissionMode[];
   onSelectPermissionMode: (mode: PermissionMode) => void;
@@ -137,6 +140,7 @@ export default function ChatComposer({
   activity,
   isLoading,
   onAbortSession,
+  onStopBackgroundTask,
   permissionMode,
   availablePermissionModes,
   onSelectPermissionMode,
@@ -265,6 +269,9 @@ export default function ChatComposer({
   // Agents left running after the reply get a tab in the same slot.
   const backgroundTasks = useViewedBackgroundTasks() ?? [];
   const hasBackgroundTasks = backgroundTasks.length > 0;
+  // A turn that ended with Claude's agents still running is shown by the tasks
+  // tab alone, not by upstream's "Background work…" tab beside it as well.
+  const shownActivity = activityBesideBackgroundTasks(activity, backgroundTasks);
   const hasActivityIndicator = Boolean((activity || hasBackgroundTasks) && !hasPendingPermissions);
 
   const hasQueuedDraft = Boolean(queuedDraft);
@@ -290,13 +297,13 @@ export default function ChatComposer({
         <div className="pointer-events-none absolute bottom-full left-1/2 z-10 w-[calc(100%-1rem)] max-w-[54.25rem] -translate-x-1/2 translate-y-px bg-transparent sm:w-[calc(100%-2rem)]">
           {/* No onAbort: a viewer watches the run, they cannot stop it. */}
           <ActivityIndicator
-            activity={activity}
+            activity={shownActivity}
             isInputFocused={false}
-            accessory={activity && hasBackgroundTasks
+            accessory={shownActivity && hasBackgroundTasks
               ? <BackgroundTasksTab tasks={backgroundTasks} isInputFocused={false} />
               : undefined}
           />
-          {!activity && hasBackgroundTasks && (
+          {!shownActivity && hasBackgroundTasks && (
             <div className="absolute bottom-0 left-0">
               <BackgroundTasksTab tasks={backgroundTasks} isInputFocused={false} />
             </div>
@@ -324,17 +331,17 @@ export default function ChatComposer({
       {!hasPendingPermissions && (
         <div className="pointer-events-none absolute bottom-full left-1/2 z-10 w-[calc(100%-1rem)] max-w-[54.25rem] -translate-x-1/2 translate-y-px bg-transparent sm:w-[calc(100%-2rem)]">
           <ActivityIndicator
-            activity={activity}
+            activity={shownActivity}
             onAbort={onAbortSession}
             isInputFocused={isInputFocused}
-            accessory={activity && hasBackgroundTasks
-              ? <BackgroundTasksTab tasks={backgroundTasks} isInputFocused={isInputFocused} />
+            accessory={shownActivity && hasBackgroundTasks
+              ? <BackgroundTasksTab tasks={backgroundTasks} isInputFocused={isInputFocused} onStopTask={onStopBackgroundTask} />
               : undefined}
           />
-          {!activity && hasBackgroundTasks && (
+          {!shownActivity && hasBackgroundTasks && (
             // Overlaps the "Thinking…" tab while that one fades out, instead of stacking above it.
             <div className="absolute bottom-0 left-0">
-              <BackgroundTasksTab tasks={backgroundTasks} isInputFocused={isInputFocused} />
+              <BackgroundTasksTab tasks={backgroundTasks} isInputFocused={isInputFocused} onStopTask={onStopBackgroundTask} />
             </div>
           )}
         </div>

@@ -1,6 +1,6 @@
 import type { TFunction } from 'i18next';
 
-import type { BackgroundTaskStatus, BackgroundTaskSummary, ChatMessage, WorkflowAgentProgress } from '@/shared/types';
+import type { BackgroundTask, BackgroundTaskStatus, BackgroundTaskSummary, ChatMessage, SessionActivity, WorkflowAgentProgress } from '@/shared/types';
 
 /**
  * Settles one background task's status from its two sources.
@@ -140,6 +140,24 @@ export function describeWorkflowAgent(agent: Pick<WorkflowAgentProgress, 'index'
 export function ownBackgroundTasks(allTasks: BackgroundTaskSummary[]): BackgroundTaskSummary[] {
   const own = allTasks.filter((task) => !task.nested);
   return own.length > 0 ? own : allTasks;
+}
+
+/**
+ * The activity ChatComposer's ActivityIndicator should draw next to the
+ * background-tasks tab.
+ *
+ * Claude's runtime reports its live task list (`tasks`, BackgroundTasksTab),
+ * which says more — tokens, last step, transcripts, a Stop per task — than
+ * upstream's "Background work…" tab for a turn that has ended. While that list
+ * has entries the background-only activity is dropped, so the work is shown
+ * once; a turn still being answered keeps its tab and Stop. Providers without
+ * such a list keep upstream's tab.
+ */
+export function activityBesideBackgroundTasks(
+  activity: SessionActivity | null,
+  tasks: BackgroundTask[],
+): SessionActivity | null {
+  return activity?.background && tasks.length > 0 ? null : activity;
 }
 
 /** One background task by kind and name: "Workflow audit", "Agent Survey the repo", "Command npm test". */

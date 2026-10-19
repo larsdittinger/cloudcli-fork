@@ -15,6 +15,8 @@ import { CLAIMS_ESCAPE_ATTRIBUTE } from '@/modules/chat/utils/escapeOwnership';
 type BackgroundTasksTabProps = {
   tasks: BackgroundTask[];
   isInputFocused?: boolean;
+  /** Stops one task (`chat.stop-task`); absent for a read-only viewer, who gets no Stop. */
+  onStopTask?: (taskId: string) => void;
 };
 
 const AGENT_TASK_TYPES = new Set(['local_agent', 'remote_agent', 'in_process_teammate']);
@@ -72,9 +74,10 @@ function iconForTask(taskType: string): LucideIcon {
  *
  * Rendered by ChatComposer in the activity indicator's slot: beside the
  * "Thinking…" tab while a turn runs, on its own once the turn is over. Opens
- * a list of what each task is doing and for how long.
+ * a list of what each task is doing and for how long, each with its own Stop
+ * (the Stop beside "Thinking…" interrupts the turn and every task with it).
  */
-export default function BackgroundTasksTab({ tasks, isInputFocused = false }: BackgroundTasksTabProps) {
+export default function BackgroundTasksTab({ tasks, isInputFocused = false, onStopTask }: BackgroundTasksTabProps) {
   const { t } = useTranslation('chat');
   // Whether the per-task list is unfolded; the tab alone only gives a count.
   const [isOpen, setIsOpen] = useState(false);
@@ -200,23 +203,36 @@ export default function BackgroundTasksTab({ tasks, isInputFocused = false }: Ba
               </>
             );
 
-            return canOpen ? (
-              <button
-                key={task.taskId}
-                type="button"
-                role="listitem"
-                onClick={() => {
-                  setOpenAgentId(task.taskId);
-                  setIsOpen(false);
-                }}
-                title={t('backgroundTasks.openTranscript', { defaultValue: 'Show what the agent is doing' })}
-                className="flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left hover:bg-muted"
-              >
-                {content}
-              </button>
-            ) : (
-              <div key={task.taskId} role="listitem" className="flex items-start gap-2 rounded-md px-2 py-1.5">
-                {content}
+            return (
+              <div key={task.taskId} role="listitem" className="flex items-start gap-1">
+                {canOpen ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOpenAgentId(task.taskId);
+                      setIsOpen(false);
+                    }}
+                    title={t('backgroundTasks.openTranscript', { defaultValue: 'Show what the agent is doing' })}
+                    className="flex min-w-0 flex-1 items-start gap-2 rounded-md px-2 py-1.5 text-left hover:bg-muted"
+                  >
+                    {content}
+                  </button>
+                ) : (
+                  <div className="flex min-w-0 flex-1 items-start gap-2 rounded-md px-2 py-1.5">
+                    {content}
+                  </div>
+                )}
+                {onStopTask && (
+                  <button
+                    type="button"
+                    onClick={() => onStopTask(task.taskId)}
+                    aria-label={t('workflow.stopTask', { ns: 'common', defaultValue: 'Stop' })}
+                    title={t('workflow.stopTask', { ns: 'common', defaultValue: 'Stop' })}
+                    className="mt-1 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded text-muted-foreground/60 hover:bg-muted hover:text-destructive"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
               </div>
             );
           })}
