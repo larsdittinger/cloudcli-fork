@@ -51,6 +51,13 @@ nasazuje — je v `../CLAUDE.md`.
   součet tokenů, řádek tokeny a „Poslední krok před…“ (po 5 min bez pokroku oranžově „Bez pokroku…“).
   Klik na agenta otevře dialog s jeho přepisem — `GET /api/providers/sessions/:id/agents/:agentId`
   čte `subagents/agent-<taskId>.jsonl` (taskId agenta = agentId), dialog ho čte znovu co 3 s.
+  **Jedno UI (2026-10-19):** dokud má náš seznam položky, upstream „Background work…“ tab
+  (`activityBesideBackgroundTasks`) i `BackgroundTasksStrip` nad přepisem se schovají; Stop po úkolech
+  (`chat.stop-task`) je v řádcích našeho seznamu (ne pro read-only). Ostatní provideři mají upstream UI.
+  **Fronta (2026-10-19):** zpráva ve frontě (`dispatchQueuedMessages`, upstream #1434 čeká na všechnu práci
+  na pozadí) u Claude odejde hned po konci tahu, když živý proces vezme tah do stdin
+  (`runtime.acceptsLiveTurn`: mezi tahy, ne navazující tah CLI, stdin drží) — agenti běží dál.
+  Naplánovaná zpráva (`interruptActiveRun`) dál přeruší jen běžící tah v popředí; mezi tahy jde taky do stdin.
   **Esc nad chatem:** globální zkratka Esc = Zastavit (`ChatInterface`) se nespustí, když je otevřený
   modální dialog (`aria-modal`) nebo popover s `data-claims-escape` (`utils/escapeOwnership.ts`) — jinak
   Esc zavírající okno přerušil CLI a zabil všechny agenty na pozadí.
