@@ -12,6 +12,11 @@ nasazuje — je v `../CLAUDE.md`.
 
 - **Multi-user**: role `admin` / `restricted`, tabulka `user_project_access`, admin UI
   v Settings → Users. Server-side guardy (`requireAdmin`, blok `/shell` websocketu).
+  **Konfigurace instance jen admin (2026-10-19):** v `provider.routes.ts` mají `requireAdmin` všechny zápisy
+  modelů/skills/MCP a čtení MCP serverů (env a headers nesou tokeny) i `settings-permissions`; `GET skills`
+  zůstává kvůli slash menu, ale jen pro přidělený projekt. `/api/settings/api-keys` a `/credentials` jen admin,
+  externí `POST /api/agent` přijme jen klíč admina (+ `canAccessSession` na `sessionId`), `/api/commands`
+  kontroluje přidělený projekt, fork chatu dědí vlastníka. Nová upstream routa, která mění instanci = `requireAdmin`.
   Chaty mají vlastníka (`sessions.owner_user_id`) — restricted uživatel vidí a otevře
   jen ty svoje, admin všechny; sessions bez vlastníka (staré, nebo založené přes CLI
   a cron) jsou jen pro admina. Vynuceno v `modules/auth/session-access.ts` a odtud
@@ -203,6 +208,11 @@ nasazuje — je v `../CLAUDE.md`.
 - **Odeslání nikdy tiše nespadne** (`useChatComposerState.handleSubmit`): zpráva jde do socketu
   dřív než echo; zavřený socket (`sendMessage` vrací `false`) nebo výjimka → text zůstane
   v composeru (u nového chatu v jeho konceptu) a nad ním je `sendError` (jen v chatu, kde vznikl).
+- **Překlady (2026-10-19):** vlastní moduly mají namespace `channels`, `schedules`, `agentTasks` (en + cs),
+  sdílená `BulkActionBar` bere hotovou větu `selectedLabel` (plurál z volajícího). Test
+  `src/modules/i18n/tests/localeCompleteness.test.ts` hlídá, že cs má každý en klíč (čeština `_one/_few/_many/_other`)
+  a naopak — **po merge upstreamu spadne, když přinese nové en texty: doplnit cs**. Nový text v UI = en + cs.
+  Nepřekládat texty pro agenty (prompty, `webhookAgentGuide.ts`, MCP popisy) ani hlášky serveru.
 - **Zastaralý tab po deployi** (`src/modules/stale-build`): po reconnectu socketu, návratu do tabu
   a co 10 min porovná vlastní `assets/index-*.js` s tím v aktuálním `index.html` a ukáže lištu
   Reload. Sám se nepřenačte (neuložený editor ve Files, formuláře). Bez toho běžel otevřený tab
