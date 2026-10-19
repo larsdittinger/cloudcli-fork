@@ -9,6 +9,7 @@ import BackgroundTasksTab from '@/modules/chat/composer/BackgroundTasksTab';
 import { BackgroundTasksContext } from '@/modules/chat/context/BackgroundTasksContext';
 import { useBackgroundTasks } from '@/modules/chat/hooks/useBackgroundTasks';
 import { SubagentPanel } from '@/modules/chat/tools/SubagentPanel';
+import { activityBesideBackgroundTasks } from '@/modules/chat/utils/backgroundTasks';
 import type { BackgroundTask, ServerEvent, SubagentInfo } from '@/shared/types';
 
 /**
@@ -79,6 +80,41 @@ test('the tab counts agents and unfolds what each one does', () => {
 test('a mix of agents and shells is counted as tasks', () => {
   render(<BackgroundTasksTab tasks={[agentTask(), agentTask({ taskId: 'b1', taskType: 'local_bash' })]} />);
   assert.match(screen.getByRole('button').textContent ?? '', /2 tasks/);
+});
+
+test('each listed task can be stopped on its own, which the upstream strip used to offer', () => {
+  const stopped: string[] = [];
+  render(
+    <BackgroundTasksTab
+      tasks={[agentTask(), agentTask({ taskId: 'b1', taskType: 'local_bash', description: 'npm test' })]}
+      onStopTask={(taskId) => stopped.push(taskId)}
+    />,
+  );
+  fireEvent.click(screen.getByRole('button', { expanded: false }));
+
+  const stops = screen.getAllByRole('button', { name: 'Stop' });
+  assert.equal(stops.length, 2);
+  fireEvent.click(stops[1]);
+  assert.deepEqual(stopped, ['b1']);
+  // Stopping is its own button, not a click through to the agent's transcript.
+  assert.equal(screen.queryByRole('dialog'), null);
+});
+
+test('a viewer without a stop handler gets no Stop', () => {
+  render(<BackgroundTasksTab tasks={[agentTask()]} />);
+  fireEvent.click(screen.getByRole('button', { expanded: false }));
+  assert.equal(screen.queryByRole('button', { name: 'Stop' }), null);
+});
+
+test('the upstream "Background work" tab steps aside for this tab, a running turn does not', () => {
+  const background = { statusText: null, canInterrupt: false, startedAt: 1, background: true };
+  const responding = { statusText: null, canInterrupt: true, startedAt: 1 };
+
+  assert.equal(activityBesideBackgroundTasks(background, [agentTask()]), null);
+  assert.equal(activityBesideBackgroundTasks(responding, [agentTask()]), responding);
+  // Other providers send no task list; their background work keeps upstream's tab.
+  assert.equal(activityBesideBackgroundTasks(background, []), background);
+  assert.equal(activityBesideBackgroundTasks(null, [agentTask()]), null);
 });
 
 test('useBackgroundTasks follows snapshots and subscribe acks per session', () => {

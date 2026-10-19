@@ -89,9 +89,17 @@ async function sendClaimedQueuedMessage(
  * that work can report back. A new turn replaces that process and stops the
  * work, which is why the composer asks before an interactive send. A queued
  * turn was promised to go "when this finishes", so it waits for that work too.
+ *
+ * Claude's runtime instead feeds a plain turn into the process it holds open
+ * (injectTurn), and the work keeps running — exactly like the composer's
+ * immediate send. So a session that can take such a turn is not busy once its
+ * foreground turn is over; waiting for its agents could take hours.
  */
 function isSessionBusy(sessionId: string, runtime: ProviderRuntimeGateway): boolean {
-  return chatRunRegistry.isProcessing(sessionId) || runtime.hasBackgroundWork(sessionId);
+  if (chatRunRegistry.isProcessing(sessionId)) {
+    return true;
+  }
+  return runtime.hasBackgroundWork(sessionId) && !runtime.acceptsLiveTurn(sessionId);
 }
 
 /** Sends every persisted queued turn whose session is currently idle. */

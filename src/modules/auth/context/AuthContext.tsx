@@ -252,19 +252,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
   }, [checkOnboardingStatus, clearSession]);
 
-  // checkAuthStatus is rebuilt whenever `token` changes, so without this guard
-  // login() -> setSession() -> new token re-runs the whole check and flips
-  // isLoading back on, dropping the freshly logged-in user back onto the
-  // loading screen. login() already sets user and token itself, so the check
-  // only belongs on mount.
-  const hasCheckedAuthOnMountRef = useRef(false);
-
   useEffect(() => {
-    if (hasCheckedAuthOnMountRef.current) {
-      return;
-    }
-    hasCheckedAuthOnMountRef.current = true;
-
     if (IS_PLATFORM) {
       setUser({ username: 'platform-user' });
       setNeedsSetup(false);

@@ -4,6 +4,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 
 import '@/modules/i18n';
 import { BackgroundTasksStrip } from '@/modules/chat/transcript/BackgroundTasksStrip';
+import { BackgroundTasksContext } from '@/modules/chat/context/BackgroundTasksContext';
 import { visibleCountToReveal } from '@/modules/chat/hooks/useChatSessionState';
 import { SESSION_MESSAGES_PAGE_SIZE } from '@/modules/chat/utils/sessionMessagePagination';
 import type { ChatMessage } from '@/shared/types';
@@ -397,6 +398,34 @@ describe('the background tasks strip, for tasks only the activity map has a word
     expect(chip.textContent).toBe('CommandSleep for 60 seconds');
     fireEvent.click(chip);
     expect(onLoadAll).not.toHaveBeenCalled();
+  });
+
+  it('steps aside while the Claude runtime\'s own task list reports the work', () => {
+    // The composer's tab lists the same tasks with tokens, last step and
+    // transcripts, and a Stop per task; a second list above the transcript
+    // would only repeat it.
+    const { container } = render(
+      <BackgroundTasksContext.Provider value={[{
+        taskId: 'a1', taskType: 'local_agent', description: 'Survey the repo', toolUseId: 'toolu_agent_1',
+        subagentType: null, startedAt: null, activity: null, toolUses: null,
+      }]}
+      >
+        <BackgroundTasksStrip
+          sessionId="session-1"
+          sendMessage={() => {}}
+          onReveal={() => {}}
+          onLoadAll={() => {}}
+          messages={[toolRow({
+            toolName: 'Agent',
+            toolId: 'toolu_agent_1',
+            isSubagentContainer: true,
+            taskStatus: { status: 'running', description: 'Survey the repo' },
+          })]}
+        />
+      </BackgroundTasksContext.Provider>,
+    );
+
+    expect(container.firstChild).toBeNull();
   });
 
   it('counts one agent in the singular', () => {

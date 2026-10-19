@@ -24,6 +24,12 @@ const MAXIMUM_BATCH = 200;
 
 const normalize = (value: string): string => value.replace(/\\/g, '/');
 
+// Backslashes are already normalized above, so a Windows path arrives as
+// `C:/…`; counting it as absolute lets a Windows server resolve it as-is and a
+// POSIX one answer an honest 404 instead of opening some other file.
+// Used by useFileOpenResolver (opening) and by the resolver below (linking).
+export const isAbsoluteRef = (value: string): boolean => /^(\/|[A-Za-z]:\/)/.test(value);
+
 // References inside chat messages are often bare basenames (`foo.ts`) or partial
 // paths (`utils/foo.ts`) rather than full paths, so match by path suffix and
 // fall back to filename equality.
@@ -97,6 +103,16 @@ export function createFileRefResolver({
     findBestMatch(await loadTree(), ref);
 
   const lookUp = async (ref: string): Promise<string | null> => {
+    // An absolute path names one exact file. The tree's suffix and filename
+    // matching would link `/elsewhere/CLAUDE.md` to the project's own
+    // CLAUDE.md, so only that exact path counts — and the server refuses one
+    // outside the project, where the editor could not open it anyway.
+    const normalizedRef = normalize(ref).trim();
+    if (isAbsoluteRef(normalizedRef)) {
+      const exact = (await loadTree()).find((file) => normalize(file.path) === normalizedRef);
+      if (exact) return exact.path;
+      return (await existsOnServer(ref)) ? ref : null;
+    }
     const inTree = findBestMatch(await loadTree(), ref);
     if (inTree) return inTree;
     const afterRefresh = findBestMatch(await refreshTree(), ref);

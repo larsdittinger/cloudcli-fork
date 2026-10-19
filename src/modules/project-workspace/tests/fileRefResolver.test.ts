@@ -98,3 +98,20 @@ test('the tree match used for opening never calls the server', async () => {
   assert.equal(await resolver.match('zzz.pdf'), null);
   assert.equal(existsCalls.length, 0);
 });
+
+test('an absolute path outside the project is never linked to a project file of the same name', async () => {
+  // `/jinde/CLAUDE.md` names one exact file; the basename fallback would
+  // have linked it to the project's own CLAUDE.md, and the click opened that.
+  const { resolver, existsCalls } = setup(['/w/p/CLAUDE.md', '/w/p/docs/jinde/CLAUDE.md']);
+  assert.equal(await resolver.resolve('/jinde/CLAUDE.md'), null);
+  // Only the server can tell, and it refuses paths outside the project.
+  assert.deepEqual(existsCalls, [['/jinde/CLAUDE.md']]);
+});
+
+test('an absolute path inside the project resolves to itself', async () => {
+  const { resolver, existsCalls } = setup(['/w/p/CLAUDE.md'], ['/w/p/.env.local']);
+  assert.equal(await resolver.resolve('/w/p/CLAUDE.md'), '/w/p/CLAUDE.md');
+  // Gitignored, so not in the tree: the server confirms the exact path.
+  assert.equal(await resolver.resolve('/w/p/.env.local'), '/w/p/.env.local');
+  assert.deepEqual(existsCalls, [['/w/p/.env.local']]);
+});

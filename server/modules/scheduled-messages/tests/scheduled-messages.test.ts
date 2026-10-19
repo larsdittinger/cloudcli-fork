@@ -42,10 +42,12 @@ function createRuntime(
   behaviour: 'ok' | 'throw' = 'ok',
   aborts: string[] = [],
   hasBackgroundWork: (sessionId: string) => boolean = () => false,
+  acceptsLiveTurn: (sessionId: string) => boolean = () => false,
 ) {
   return {
     hasRuntime: () => true,
     hasBackgroundWork,
+    acceptsLiveTurn,
     run: async (provider: string, command: string, options: Record<string, unknown>) => {
       if (behaviour === 'throw') {
         throw new Error('provider exploded');
@@ -157,6 +159,47 @@ test('a queued message waits for background work its session\'s last turn left r
     assert.equal(await dispatchQueuedMessages(runtime), 1);
     assert.equal(runs.length, 1);
     assert.equal(runs[0].command, 'send after the background job');
+    assert.equal(sessionDraftsDb.getDrafts(userId).length, 0);
+  });
+});
+
+test('a queued message goes into a live Claude process that waits on its agents', async () => {
+  await withIsolatedDatabase(async (userId) => {
+    sessionDraftsDb.saveDraft(userId, SESSION_ID, {
+      text: '',
+      queuedMessage: { content: 'next step while the agents work' },
+    });
+    // Queued while turn A ran; A ended with background agents still going.
+    const runA = chatRunRegistry.startRun({
+      appSessionId: SESSION_ID,
+      provider: 'claude',
+      providerSessionId: null,
+      connection: null,
+      userId,
+    });
+    runA!.writer.sendComplete({ exitCode: 0 });
+
+    let takesTurn = false;
+    const runs: RunCall[] = [];
+    const runtime = createRuntime(
+      runs,
+      'ok',
+      [],
+      (sessionId) => sessionId === SESSION_ID,
+      (sessionId) => sessionId === SESSION_ID && takesTurn,
+    );
+
+    // The process cannot take a turn right now (e.g. the CLI answers a settled
+    // agent on its own): the message keeps waiting.
+    assert.equal(await dispatchQueuedMessages(runtime), 0);
+    assert.equal(runs.length, 0);
+
+    // Between turns the Claude runtime feeds the message into that same
+    // process, so the agents keep running — no need to wait hours for them.
+    takesTurn = true;
+    assert.equal(await dispatchQueuedMessages(runtime), 1);
+    assert.equal(runs.length, 1);
+    assert.equal(runs[0].command, 'next step while the agents work');
     assert.equal(sessionDraftsDb.getDrafts(userId).length, 0);
   });
 });
