@@ -84,6 +84,27 @@
       "openPanel": "Otevřít panel nastavení",
       "draggingStatus": "Přetahování...",
       "toggleAndMove": "Kliknutím přepnete, přetažením přesunete"
+    },
+    "tabs": {
+      "settings": "Nastavení",
+      "commands": "Příkazy"
+    },
+    "pin": "Připnout panel",
+    "unpin": "Odepnout panel",
+    "close": "Zavřít panel",
+    "commands": {
+      "searchPlaceholder": "Hledat příkazy…",
+      "noProject": "Vyberte projekt, ať vidíte jeho příkazy.",
+      "loading": "Načítání příkazů…",
+      "empty": "Pro tento projekt nejsou k dispozici žádné příkazy.",
+      "noMatches": "Hledání neodpovídá žádný příkaz.",
+      "loadError": "Příkazy se nepodařilo načíst.",
+      "groups": {
+        "builtIn": "Vestavěné",
+        "custom": "Vlastní",
+        "skills": "Skilly"
+      },
+      "insertTitle": "Vložit {{command}} do chatu"
     }
   },
   "terminalShortcuts": {
@@ -113,7 +134,44 @@
     "browser": "Prohlížeč",
     "notifications": "Oznámení",
     "plugins": "Pluginy",
-    "about": "O aplikaci"
+    "users": "Uživatelé",
+    "about": "O aplikaci",
+    "channels": "Kanály"
+  },
+  "users": {
+    "title": "Uživatelé",
+    "description": "Správa účtů. Omezení uživatelé vidí jen projekty, které jim přidělíte, a mohou používat jen chat. Chcete-li jim ukázat některý ze svých chatů, použijte v jeho menu „Sdílet s uživateli…“.",
+    "roleAdmin": "Správce",
+    "roleRestricted": "Omezený",
+    "allowedProjects": "Povolené projekty",
+    "noProjects": "Zatím nejsou k dispozici žádné projekty.",
+    "changePassword": "Změnit heslo",
+    "newPasswordPlaceholder": "Nové heslo (min. 6 znaků)",
+    "passwordChanged": "Heslo bylo změněno",
+    "save": "Uložit",
+    "cancel": "Zrušit",
+    "deleteUser": "Smazat uživatele",
+    "confirmDelete": "Potvrdit smazání",
+    "loading": "Načítání uživatelů…",
+    "addTitle": "Přidat omezeného uživatele",
+    "addDescription": "Nový účet se může přihlásit, ale vidí jen přidělené projekty a chat.",
+    "usernamePlaceholder": "Uživatelské jméno (min. 3 znaky)",
+    "passwordPlaceholder": "Heslo (min. 6 znaků)",
+    "create": "Vytvořit uživatele",
+    "creating": "Vytváření…",
+    "seesAllSessions": "Vidí všechny chaty v povolených projektech",
+    "seesAllSessionsHint": "Jen ke čtení, včetně vašich chatů a těch, které spouštějí agenti (Kanály, Plánované úlohy, Úkoly agentů). Psát mohou dál jen do svých vlastních chatů.",
+    "sharedSessions": "Chaty sdílené s tímto uživatelem (jen ke čtení)",
+    "stopSharing": "Přestat sdílet",
+    "errors": {
+      "load": "Uživatele se nepodařilo načíst",
+      "create": "Uživatele se nepodařilo vytvořit",
+      "delete": "Uživatele se nepodařilo smazat",
+      "changePassword": "Heslo se nepodařilo změnit",
+      "updateProjects": "Přístup k projektům se nepodařilo upravit",
+      "updateVisibility": "Viditelnost chatů se nepodařilo změnit",
+      "stopSharing": "Sdílení se nepodařilo zrušit"
+    }
   },
   "notifications": {
     "title": "Oznámení",
@@ -151,6 +209,13 @@
     "darkMode": {
       "label": "Tmavý režim",
       "description": "Přepínání mezi světlým a tmavým motivem"
+    },
+    "theme": {
+      "label": "Motiv",
+      "description": "Zvolte světlý nebo tmavý vzhled, případně se řiďte operačním systémem",
+      "light": "Světlý",
+      "dark": "Tmavý",
+      "system": "Podle vzhledu systému"
     },
     "projectSorting": {
       "label": "Řazení projektů",
@@ -372,6 +437,19 @@
       }
     },
     "connectionStatus": "Stav připojení",
+    "subscriptionOverride": {
+      "title": "Vaše přihlášení k předplatnému se nepoužívá",
+      "description": "{{variable}} je nastavená v {{source}}, takže Claude Code účtuje každý požadavek na tento klíč jako placené využití API místo vašeho přihlášení k předplatnému.",
+      "descriptionWithEmail": "{{variable}} je nastavená v {{source}}, takže Claude Code účtuje každý požadavek na tento klíč jako placené využití API místo vašeho přihlášení k předplatnému ({{email}}).",
+      "source": {
+        "process_env": "prostředí serveru",
+        "settings_file": "~/.claude/settings.json"
+      },
+      "fix": {
+        "process_env": "Chcete-li používat předplatné, odstraňte {{variable}} tam, kde se server spouští (.env, profil shellu, unit služby), a server restartujte.",
+        "settings_file": "Chcete-li používat předplatné, odstraňte {{variable}} z bloku \"env\" v ~/.claude/settings.json."
+      }
+    },
     "login": {
       "title": "Přihlášení",
       "reAuthenticate": "Znovu ověřit",
@@ -504,6 +582,7 @@
       "count_few": "({{count}}):",
       "count_many": "({{count}}):",
       "count_other": "({{count}}):",
+      "count": "({{count}}):",
       "more_one": "+{{count}} další",
       "more_few": "+{{count}} další",
       "more_many": "+{{count}} dalšího",
@@ -615,6 +694,12 @@
       "name": "Využití GLM",
       "badge": "neoficiální",
       "description": "Sledujte aktuální kvóty programovacího plánu GLM/Zhipu a 30denní historii tokenů.",
+      "install": "Instalovat"
+    },
+    "agentMonitorPlugin": {
+      "name": "Agent Monitor",
+      "badge": "neoficiální",
+      "description": "Ukazuje subagenty a shelly na pozadí, které běží dál i po skončení chatu, a umožňuje je zastavit.",
       "install": "Instalovat"
     },
     "morePlugins": "Další",
@@ -745,7 +830,34 @@
     "statusReadySession": "připraveno",
     "statusStoppedSession": "zastaveno",
     "statusUnavailableSession": "nedostupné",
-    "installFailed": "Nepodařilo se nainstalovat běhové prostředí prohlížeče"
+    "installFailed": "Nepodařilo se nainstalovat běhové prostředí prohlížeče",
+    "devtools": {
+      "toggle": "Konzole a síť",
+      "console": "konzole",
+      "network": "síť",
+      "messages_one": "{{count}} zpráva",
+      "messages_few": "{{count}} zprávy",
+      "messages_many": "{{count}} zprávy",
+      "messages_other": "{{count}} zpráv",
+      "requests_one": "{{count}} požadavek",
+      "requests_few": "{{count}} požadavky",
+      "requests_many": "{{count}} požadavku",
+      "requests_other": "{{count}} požadavků",
+      "close": "Zavřít devtools",
+      "noConsole": "Konzole zatím nic nezachytila.",
+      "noRequests": "Zatím nebyly zachyceny žádné požadavky.",
+      "loadFailed": "Devtools se nepodařilo načíst"
+    },
+    "openUrlPlaceholder": "Otevřít URL...",
+    "touch": "dotyk",
+    "deviceGroups": {
+      "phone": "Telefon",
+      "tablet": "Tablet",
+      "desktop": "Počítač"
+    },
+    "emulateDevice": "Emulovat zobrazení zařízení",
+    "device": "Zařízení",
+    "inputFailed": "Ovládání prohlížeče selhalo"
   },
   "browserUseSettings": {
     "sectionTitle": "Prohlížeč",
@@ -813,5 +925,22 @@
     "teamManagementDescription": "Více uživatelů, přístup podle rolí a sdílené projekty pro váš tým.",
     "licensed": "Šířeno pod licencí AGPL-3.0",
     "proCta": "K dispozici v CloudCLI Pro"
+  },
+  "channels": {
+    "sectionTitle": "Kanály",
+    "sectionDescription": "Spouštějte agenty příchozím e-mailem, zprávou na WhatsAppu nebo webhookem a nechte je odpovídat.",
+    "enableLabel": "Zapnout Kanály",
+    "enableDescription": "Připojí níže uvedené účty a zaregistruje MCP server cloudcli-channels, aby agenti mohli odpovídat.",
+    "accountsTitle": "Účty",
+    "accountsDescription": "Odkud zprávy přicházejí. Každý účet je jedna schránka, jedno číslo WhatsApp nebo jedna URL webhooku.",
+    "copyAgentGuide": "Kopírovat návod pro agenta (.md)",
+    "guideCopied": "Návod zkopírován",
+    "previewAgentGuide": "Náhled návodu v Markdownu",
+    "agentGuideDescription": "Předejte tento návod agentovi, který píše vaši integraci. Obsahuje URL tohoto webhooku, aktuální pravidla, formáty dat a zpracování odpovědí a předání člověku. Token nastavte v prostředí aplikace.",
+    "agentGuideCopyFailed": "Kopírování se nezdařilo. Označte a zkopírujte Markdown z náhledu níže.",
+    "rulesTitle": "Pravidla",
+    "rulesDescription": "První pravidlo, které odpovídá, rozhodne, ve kterém projektu agent poběží, s jakým promptem a oprávněními a jestli smí odpovědět.",
+    "agentsTitle": "Agenti: vlastní nastavení a odkazy s promptem",
+    "agentsDescription": "Co agenti s Kanály zvládnou přes MCP server cloudcli-channels."
   }
 }

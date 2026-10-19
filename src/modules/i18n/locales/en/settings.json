@@ -111,6 +111,7 @@
     "title": "Terminal Shortcuts",
     "sectionKeys": "Keys",
     "sectionNavigation": "Navigation",
+    "paste": "Paste",
     "escape": "Escape",
     "tab": "Tab",
     "shiftTab": "Shift+Tab",
@@ -139,7 +140,7 @@
   },
   "users": {
     "title": "Users",
-    "description": "Manage accounts. Restricted users only see the projects you assign to them and can only use the chat.",
+    "description": "Manage accounts. Restricted users only see the projects you assign to them and can only use the chat. To show them one of your chats, use “Share with users…” in the chat’s menu.",
     "roleAdmin": "Admin",
     "roleRestricted": "Restricted",
     "allowedProjects": "Allowed projects",
@@ -157,7 +158,20 @@
     "usernamePlaceholder": "Username (min 3 characters)",
     "passwordPlaceholder": "Password (min 6 characters)",
     "create": "Create user",
-    "creating": "Creating…"
+    "creating": "Creating…",
+    "seesAllSessions": "Sees all chats in allowed projects",
+    "seesAllSessionsHint": "Read only, including your chats and the ones agents start (Channels, Schedules, Tasks). They still write only into their own chats.",
+    "sharedSessions": "Chats shared with this user (read only)",
+    "stopSharing": "Stop sharing",
+    "errors": {
+      "load": "Failed to load users",
+      "create": "Failed to create user",
+      "delete": "Failed to delete user",
+      "changePassword": "Failed to change password",
+      "updateProjects": "Failed to update project access",
+      "updateVisibility": "Failed to update chat visibility",
+      "stopSharing": "Failed to stop sharing"
+    }
   },
   "notifications": {
     "title": "Notifications",
@@ -803,7 +817,28 @@
     "statusReadySession": "ready",
     "statusStoppedSession": "stopped",
     "statusUnavailableSession": "unavailable",
-    "installFailed": "Failed to install browser runtime"
+    "installFailed": "Failed to install browser runtime",
+    "devtools": {
+      "toggle": "Console and network",
+      "console": "console",
+      "network": "network",
+      "messages": "{{count}} messages",
+      "requests": "{{count}} requests",
+      "close": "Close devtools",
+      "noConsole": "No console output captured yet.",
+      "noRequests": "No requests captured yet.",
+      "loadFailed": "Failed to read devtools"
+    },
+    "openUrlPlaceholder": "Open URL...",
+    "touch": "touch",
+    "deviceGroups": {
+      "phone": "Phone",
+      "tablet": "Tablet",
+      "desktop": "Desktop"
+    },
+    "emulateDevice": "Emulate a device viewport",
+    "device": "Device",
+    "inputFailed": "Browser input failed"
   },
   "browserUseSettings": {
     "sectionTitle": "Browser",

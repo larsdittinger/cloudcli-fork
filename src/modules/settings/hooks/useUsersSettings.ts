@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+
 import { api } from '@/shared/api';
 
 export type AdminUser = {
@@ -33,6 +35,7 @@ async function readErrorMessage(response: Response, fallback: string): Promise<s
 }
 
 export function useUsersSettings() {
+  const { t } = useTranslation('settings');
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [projects, setProjects] = useState<AdminProjectOption[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -47,7 +50,7 @@ export function useUsersSettings() {
         api.projects(),
       ]);
       if (!usersResponse.ok) {
-        setError(await readErrorMessage(usersResponse, 'Failed to load users'));
+        setError(await readErrorMessage(usersResponse, t('users.errors.load', 'Failed to load users')));
         return;
       }
       const usersPayload = (await usersResponse.json()) as { users?: AdminUser[] };
@@ -68,11 +71,11 @@ export function useUsersSettings() {
       }
     } catch (loadError) {
       console.error('Error loading users:', loadError);
-      setError('Failed to load users');
+      setError(t('users.errors.load', 'Failed to load users'));
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     void refresh();
@@ -82,70 +85,70 @@ export function useUsersSettings() {
     async (username: string, password: string): Promise<string | null> => {
       const response = await api.admin.createUser(username, password);
       if (!response.ok) {
-        return readErrorMessage(response, 'Failed to create user');
+        return readErrorMessage(response, t('users.errors.create', 'Failed to create user'));
       }
       await refresh();
       return null;
     },
-    [refresh]
+    [refresh, t]
   );
 
   const deleteUser = useCallback(
     async (userId: number): Promise<string | null> => {
       const response = await api.admin.deleteUser(userId);
       if (!response.ok) {
-        return readErrorMessage(response, 'Failed to delete user');
+        return readErrorMessage(response, t('users.errors.delete', 'Failed to delete user'));
       }
       await refresh();
       return null;
     },
-    [refresh]
+    [refresh, t]
   );
 
   const setUserPassword = useCallback(
     async (userId: number, password: string): Promise<string | null> => {
       const response = await api.admin.setUserPassword(userId, password);
       if (!response.ok) {
-        return readErrorMessage(response, 'Failed to change password');
+        return readErrorMessage(response, t('users.errors.changePassword', 'Failed to change password'));
       }
       return null;
     },
-    []
+    [t]
   );
 
   const setUserProjects = useCallback(
     async (userId: number, projectIds: string[]): Promise<string | null> => {
       const response = await api.admin.setUserProjects(userId, projectIds);
       if (!response.ok) {
-        return readErrorMessage(response, 'Failed to update project access');
+        return readErrorMessage(response, t('users.errors.updateProjects', 'Failed to update project access'));
       }
       setUsers((current) =>
         current.map((user) => (user.id === userId ? { ...user, projectIds } : user))
       );
       return null;
     },
-    []
+    [t]
   );
 
   const setUserSeesAllSessions = useCallback(
     async (userId: number, enabled: boolean): Promise<string | null> => {
       const response = await api.admin.setUserSeesAllSessions(userId, enabled);
       if (!response.ok) {
-        return readErrorMessage(response, 'Failed to update chat visibility');
+        return readErrorMessage(response, t('users.errors.updateVisibility', 'Failed to update chat visibility'));
       }
       setUsers((current) =>
         current.map((user) => (user.id === userId ? { ...user, seesAllSessions: enabled } : user))
       );
       return null;
     },
-    []
+    [t]
   );
 
   const stopSharingSession = useCallback(
     async (userId: number, sessionId: string): Promise<string | null> => {
       const response = await api.admin.removeSessionShare(sessionId, userId);
       if (!response.ok) {
-        return readErrorMessage(response, 'Failed to stop sharing');
+        return readErrorMessage(response, t('users.errors.stopSharing', 'Failed to stop sharing'));
       }
       setUsers((current) =>
         current.map((user) => (user.id === userId
@@ -154,7 +157,7 @@ export function useUsersSettings() {
       );
       return null;
     },
-    []
+    [t]
   );
 
   return {
