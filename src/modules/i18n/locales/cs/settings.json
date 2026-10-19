@@ -113,7 +113,8 @@
     "browser": "Prohlížeč",
     "notifications": "Oznámení",
     "plugins": "Pluginy",
-    "about": "O aplikaci"
+    "about": "O aplikaci",
+    "channels": "Kanály"
   },
   "notifications": {
     "title": "Oznámení",
@@ -813,5 +814,22 @@
     "teamManagementDescription": "Více uživatelů, přístup podle rolí a sdílené projekty pro váš tým.",
     "licensed": "Šířeno pod licencí AGPL-3.0",
     "proCta": "K dispozici v CloudCLI Pro"
+  },
+  "channels": {
+    "sectionTitle": "Kanály",
+    "sectionDescription": "Spouštějte agenty příchozím e-mailem, zprávou z WhatsAppu nebo webhookem a nechte je odpovídat.",
+    "enableLabel": "Zapnout kanály",
+    "enableDescription": "Připojí účty níže a zaregistruje MCP server cloudcli-channels, aby agenti mohli odpovídat.",
+    "accountsTitle": "Účty",
+    "accountsDescription": "Odkud zprávy přicházejí. Každý účet je jedna schránka, jedno číslo WhatsApp nebo jedna URL webhooku.",
+    "copyAgentGuide": "Kopírovat návod pro agenta (.md)",
+    "guideCopied": "Návod zkopírován",
+    "previewAgentGuide": "Náhled návodu v Markdownu",
+    "agentGuideDescription": "Předejte tento návod agentovi, který píše vaši integraci. Obsahuje URL tohoto webhooku, aktuální pravidla, payloady a zpracování odpovědí a předání. Token nastavte v prostředí aplikace.",
+    "agentGuideCopyFailed": "Kopírování selhalo. Označte a zkopírujte Markdown z náhledu níže.",
+    "rulesTitle": "Pravidla",
+    "rulesDescription": "První odpovídající pravidlo určí, v jakém projektu agent poběží, s jakým promptem a oprávněními a jestli smí odpovědět.",
+    "agentsTitle": "Agenti: samostatné nastavení a odkazy s promptem",
+    "agentsDescription": "Co mohou agenti s kanály dělat přes MCP server cloudcli-channels."
   }
 }

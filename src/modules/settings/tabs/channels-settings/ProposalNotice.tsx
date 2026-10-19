@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Bot, Check, Loader2, X } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 import { Button } from '@/shared/ui';
 import { formatWhen } from '@/modules/channels';
@@ -18,6 +19,7 @@ type Props = {
  * MCP: it stays disabled until the admin approves it here.
  */
 export default function ProposalNotice({ proposal, warning, onApprove, onReject }: Props) {
+  const { t } = useTranslation('channels');
   const [busy, setBusy] = useState<'approve' | 'reject' | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -37,23 +39,23 @@ export default function ProposalNotice({ proposal, warning, onApprove, onReject 
     <div className="mt-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-xs">
       <div className="flex flex-wrap items-center gap-1.5 font-medium text-amber-800 dark:text-amber-200">
         <Bot className="h-3.5 w-3.5" aria-hidden />
-        Proposed by an agent · waiting for approval
+        {t('proposal.title')}
         <span className="font-normal text-muted-foreground">
-          {formatWhen(proposal.createdAt)}{proposal.projectPath ? ` · from ${proposal.projectPath}` : ''}
+          {formatWhen(proposal.createdAt)}{proposal.projectPath ? t('proposal.fromProject', { path: proposal.projectPath }) : ''}
         </span>
       </div>
       {proposal.note && <p className="mt-1 whitespace-pre-wrap text-foreground">{proposal.note}</p>}
-      <p className="mt-1 text-muted-foreground">Disabled until approved. Check the settings above (Edit to change them), then approve.</p>
+      <p className="mt-1 text-muted-foreground">{t('proposal.hint')}</p>
       {warning && <p className="mt-1 text-amber-800 dark:text-amber-200">{warning}</p>}
       {error && <p role="alert" className="mt-1 text-red-600 dark:text-red-300">{error}</p>}
       <div className="mt-2 flex gap-2">
         <Button size="sm" onClick={() => { void run('approve', onApprove); }} disabled={busy !== null}>
           {busy === 'approve' ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" aria-hidden /> : <Check className="mr-1 h-3.5 w-3.5" aria-hidden />}
-          Approve
+          {t('proposal.approve')}
         </Button>
         <Button size="sm" variant="outline" onClick={() => { void run('reject', onReject); }} disabled={busy !== null}>
           {busy === 'reject' ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" aria-hidden /> : <X className="mr-1 h-3.5 w-3.5" aria-hidden />}
-          Reject
+          {t('proposal.reject')}
         </Button>
       </div>
     </div>

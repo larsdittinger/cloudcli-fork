@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Inbox } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 import { Button, Tooltip } from '@/shared/ui';
 import { useIsAdmin } from '@/shared/hooks/useIsAdmin';
@@ -8,6 +9,7 @@ import { useChannelsSummary } from '@/modules/channels/hooks/useChannelsSummary'
 
 /** Sidebar entry to the channels inbox; the badge counts what needs a human (held, no rule, failed, drafts, agent proposals). */
 export default function InboxButton() {
+  const { t } = useTranslation('channels');
   const isAdmin = useIsAdmin();
   const [open, setOpen] = useState(false);
   const summary = useChannelsSummary();
@@ -17,12 +19,12 @@ export default function InboxButton() {
 
   return (
     <>
-      <Tooltip content="Inbox — messages from e-mail, WhatsApp and webhooks" position="bottom">
+      <Tooltip content={t('inboxButton.tooltip')} position="bottom">
         <Button
           variant="ghost"
           size="icon"
           className="relative h-8 w-8"
-          aria-label="Open channels inbox"
+          aria-label={t('inboxButton.ariaLabel')}
           onClick={() => setOpen(true)}
         >
           <Inbox className="h-4 w-4" aria-hidden />

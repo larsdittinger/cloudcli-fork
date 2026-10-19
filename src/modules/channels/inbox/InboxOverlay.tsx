@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { CheckCheck, CheckSquare, EyeOff, Loader2, MoreHorizontal, ShieldAlert, Trash2, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 
 import { api, readApiJson } from '@/shared/api';
 import { ActionMenu, BulkActionBar, Button, Dialog, DialogContent, DialogTitle, Pill, PillBar } from '@/shared/ui';
@@ -25,16 +26,8 @@ type Props = {
 
 type Tab = 'messages' | 'outbox';
 
-const MESSAGE_FILTERS: Array<{ value: MessageStatus | ''; label: string }> = [
-  { value: '', label: 'All' },
-  { value: 'held', label: 'Waits for you' },
-  { value: 'unmatched', label: 'No rule' },
-  { value: 'failed', label: 'Failed' },
-  { value: 'dispatched', label: 'With the agent' },
-  { value: 'queued', label: 'Queued for the agent' },
-  { value: 'task', label: 'With a task' },
-  { value: 'ignored', label: 'Ignored' },
-];
+/** Status filter options in display order; '' = all. Labels are the status badge texts. */
+const MESSAGE_FILTERS: Array<MessageStatus | ''> = ['', 'held', 'unmatched', 'failed', 'dispatched', 'queued', 'task', 'ignored'];
 
 /** Statuses that need the owner while unread — the ones the Inbox badge counts. */
 const ATTENTION_STATUSES = new Set<MessageStatus>(['unmatched', 'held', 'failed']);
@@ -51,6 +44,7 @@ function MessagesTab({ accounts, onOpenChat, onDetailOpen, initialMessageId }: {
   /** Tells the inbox a message is open above it, so Escape closes only that. */
   onDetailOpen: (open: boolean) => void;
 }) {
+  const { t } = useTranslation('channels');
   const [messages, setMessages] = useState<ChannelMessage[]>([]);
   const [drafts, setDrafts] = useState<OutboxItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -127,25 +121,25 @@ function MessagesTab({ accounts, onOpenChat, onDetailOpen, initialMessageId }: {
   const deleteSelected = () => {
     const ids = [...selection.selected];
     // Deleting cannot be undone; chats the messages started stay.
-    if (!window.confirm(`Delete ${ids.length === 1 ? 'this message' : `${ids.length} messages`} from the Inbox? Chats and replies they started stay.`)) return;
+    if (!window.confirm(t('inbox.deleteConfirm', { count: ids.length }))) return;
     void runBulk(api.channels.deleteMessages, ids);
   };
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2">
-        <select aria-label="Status filter" className={cn(FIELD_CLASS, 'w-auto')} value={status} onChange={(event) => setStatus(event.target.value as MessageStatus | '')}>
-          {MESSAGE_FILTERS.map((filter) => <option key={filter.value} value={filter.value}>{filter.label}</option>)}
+        <select aria-label={t('inbox.statusFilter')} className={cn(FIELD_CLASS, 'w-auto')} value={status} onChange={(event) => setStatus(event.target.value as MessageStatus | '')}>
+          {MESSAGE_FILTERS.map((filter) => <option key={filter} value={filter}>{filter ? t(`status.message.${filter}`) : t('inbox.filterAll')}</option>)}
         </select>
         {accounts.length > 1 && (
-          <select aria-label="Account filter" className={cn(FIELD_CLASS, 'w-auto')} value={accountId} onChange={(event) => setAccountId(event.target.value)}>
-            <option value="">All accounts</option>
+          <select aria-label={t('inbox.accountFilter')} className={cn(FIELD_CLASS, 'w-auto')} value={accountId} onChange={(event) => setAccountId(event.target.value)}>
+            <option value="">{t('inbox.allAccounts')}</option>
             {accounts.map((account) => <option key={account.id} value={account.id}>{account.label}</option>)}
           </select>
         )}
         <ActionMenu
-          label="Inbox actions"
-          ariaLabel="Inbox actions"
+          label={t('inbox.actions')}
+          ariaLabel={t('inbox.actions')}
           icon={MoreHorizontal}
           iconOnly
           variant="ghost"
@@ -154,8 +148,8 @@ function MessagesTab({ accounts, onOpenChat, onDetailOpen, initialMessageId }: {
           triggerClassName="h-8 w-8 text-muted-foreground"
           menuClassName="w-[260px] rounded-xl p-1.5 shadow-xl"
           items={[
-            { key: 'read-all', label: 'Mark all as read', description: 'Clears the badge; nothing is sent or ignored.', icon: CheckCheck, onSelect: () => { void markAllRead(); } },
-            { key: 'select', label: 'Select messages', description: `Or ${selection.modifierLabel}-click and Shift-click rows.`, icon: CheckSquare, onSelect: selection.startSelecting },
+            { key: 'read-all', label: t('inbox.markAllRead'), description: t('inbox.markAllReadDescription'), icon: CheckCheck, onSelect: () => { void markAllRead(); } },
+            { key: 'select', label: t('inbox.selectMessages'), description: t('inbox.selectMessagesDescription', { modifier: selection.modifierLabel }), icon: CheckSquare, onSelect: selection.startSelecting },
           ]}
         />
       </div>
@@ -163,23 +157,23 @@ function MessagesTab({ accounts, onOpenChat, onDetailOpen, initialMessageId }: {
       {selection.isSelecting && (
         <BulkActionBar
           count={selection.selected.size}
-          noun={['message', 'messages']}
+          noun={[t('inbox.nounOne'), t('inbox.nounOther')]}
           busy={bulkBusy}
           onSelectAll={selection.selectAll}
           onClear={selection.clear}
           actions={[
-            { key: 'read', label: 'Mark as read', icon: CheckCheck, onSelect: () => { void runBulk(api.channels.markMessagesRead, [...selection.selected]); } },
-            { key: 'ignore', label: 'Ignore', icon: EyeOff, onSelect: () => { void runBulk(api.channels.ignoreMessages, [...selection.selected]); } },
-            { key: 'delete', label: 'Delete', icon: Trash2, isDanger: true, onSelect: deleteSelected },
+            { key: 'read', label: t('inbox.markRead'), icon: CheckCheck, onSelect: () => { void runBulk(api.channels.markMessagesRead, [...selection.selected]); } },
+            { key: 'ignore', label: t('inbox.ignore'), icon: EyeOff, onSelect: () => { void runBulk(api.channels.ignoreMessages, [...selection.selected]); } },
+            { key: 'delete', label: t('inbox.delete'), icon: Trash2, isDanger: true, onSelect: deleteSelected },
           ]}
         />
       )}
       {bulkError && <p role="alert" className="text-sm text-red-600 dark:text-red-300">{bulkError}</p>}
 
       {loading ? (
-        <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" aria-hidden /> Loading…</div>
+        <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" aria-hidden /> {t('common.loading')}</div>
       ) : messages.length === 0 ? (
-        <p className="py-8 text-center text-sm text-muted-foreground">{status ? 'No messages with this status.' : 'Nothing here yet. Messages arrive once an account is connected.'}</p>
+        <p className="py-8 text-center text-sm text-muted-foreground">{status ? t('inbox.emptyFiltered') : t('inbox.empty')}</p>
       ) : (
         <ul className="min-h-0 flex-1 divide-y divide-border/60 overflow-y-auto rounded-md border border-border/60">
           {messages.map((message) => {
@@ -206,17 +200,17 @@ function MessagesTab({ accounts, onOpenChat, onDetailOpen, initialMessageId }: {
                 <ChannelIcon channel={message.channel} className="mt-0.5 flex-shrink-0 text-muted-foreground" />
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                    {isUnread && <span className="h-2 w-2 flex-shrink-0 rounded-full bg-primary" aria-label="Unread" />}
+                    {isUnread && <span className="h-2 w-2 flex-shrink-0 rounded-full bg-primary" aria-label={t('inbox.unread')} />}
                     <span className={cn('truncate text-sm', isUnread ? 'font-semibold' : 'font-medium')}>{message.from.name || message.from.address}</span>
                     <span className="text-xs text-muted-foreground">{formatWhen(message.receivedAt)}</span>
                     <MessageStatusBadge status={message.status} />
                     {isQuarantined(message) && (
                       <span className="inline-flex items-center gap-1 rounded-full border border-red-500/40 bg-red-500/10 px-1.5 text-[11px] font-medium text-red-700 dark:text-red-300">
-                        <ShieldAlert className="h-3 w-3" aria-hidden /> Possible prompt injection
+                        <ShieldAlert className="h-3 w-3" aria-hidden /> {t('inbox.possibleInjection')}
                       </span>
                     )}
                     {waitingReply.has(message.id) && (
-                      <span className="rounded-full border border-amber-500/40 bg-amber-500/10 px-1.5 text-[11px] font-medium text-amber-700 dark:text-amber-300">Reply waits for you</span>
+                      <span className="rounded-full border border-amber-500/40 bg-amber-500/10 px-1.5 text-[11px] font-medium text-amber-700 dark:text-amber-300">{t('inbox.replyWaits')}</span>
                     )}
                     {message.ruleName && <span className="text-xs text-muted-foreground">{message.ruleName}</span>}
                   </div>
@@ -246,6 +240,7 @@ function MessagesTab({ accounts, onOpenChat, onDetailOpen, initialMessageId }: {
 }
 
 function OutboxTab({ onOpenChat }: { onOpenChat: (sessionId: string) => void }) {
+  const { t } = useTranslation('channels');
   const [items, setItems] = useState<OutboxItem[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -263,10 +258,10 @@ function OutboxTab({ onOpenChat }: { onOpenChat: (sessionId: string) => void }) 
   const outbox = useOutboxActions(load);
 
   if (loading) {
-    return <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" aria-hidden /> Loading…</div>;
+    return <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" aria-hidden /> {t('common.loading')}</div>;
   }
   if (items.length === 0) {
-    return <p className="py-8 text-center text-sm text-muted-foreground">No outgoing messages. Drafts appear here when an agent replies.</p>;
+    return <p className="py-8 text-center text-sm text-muted-foreground">{t('inbox.outboxEmpty')}</p>;
   }
 
   return (
@@ -289,6 +284,7 @@ function OutboxTab({ onOpenChat }: { onOpenChat: (sessionId: string) => void }) 
 
 /** The admin's inbox: every message the channels received, and everything agents want to send. */
 export default function InboxOverlay({ open, onOpenChange, summary, initialMessageId }: Props) {
+  const { t } = useTranslation('channels');
   const navigate = useNavigate();
   const [tab, setTab] = useState<Tab>('messages');
   const [accounts, setAccounts] = useState<ChannelAccount[]>([]);
@@ -318,22 +314,22 @@ export default function InboxOverlay({ open, onOpenChange, summary, initialMessa
     <Dialog open={open} onOpenChange={(next) => { if (next || !detailOpen) onOpenChange(next); }}>
       <DialogContent wrapperClassName="z-[10000]" className="max-w-none flex h-[min(90vh,52rem)] w-[min(100vw-1rem,56rem)] flex-col gap-3 p-4 md:p-5">
         <div className="flex items-center gap-3">
-          <DialogTitle className="not-sr-only text-base font-semibold">Inbox</DialogTitle>
-          <PillBar aria-label="Inbox view">
+          <DialogTitle className="not-sr-only text-base font-semibold">{t('inbox.title')}</DialogTitle>
+          <PillBar aria-label={t('inbox.viewAriaLabel')}>
             <Pill isActive={tab === 'messages'} aria-pressed={tab === 'messages'} onClick={() => setTab('messages')}>
-              Messages<Count value={needsYou} />
+              {t('inbox.messagesTab')}<Count value={needsYou} />
             </Pill>
             <Pill isActive={tab === 'outbox'} aria-pressed={tab === 'outbox'} onClick={() => setTab('outbox')}>
-              To send<Count value={summary?.drafts ?? 0} />
+              {t('inbox.outboxTab')}<Count value={summary?.drafts ?? 0} />
             </Pill>
           </PillBar>
-          <Button variant="ghost" size="icon" className="ml-auto shrink-0" aria-label="Close" onClick={() => onOpenChange(false)}>
+          <Button variant="ghost" size="icon" className="ml-auto shrink-0" aria-label={t('common.close')} onClick={() => onOpenChange(false)}>
             <X className="h-4 w-4" aria-hidden />
           </Button>
         </div>
         {proposals > 0 && (
           <p className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-800 dark:text-amber-200">
-            {proposals === 1 ? 'An agent proposed' : `Agents proposed ${proposals} items of`} channel setup — review and approve in Settings → Channels.
+            {t('inbox.proposals', { count: proposals })}
           </p>
         )}
         {tab === 'messages' ? <MessagesTab accounts={accounts} onOpenChat={openChat} onDetailOpen={setDetailOpen} initialMessageId={initialMessageId} /> : <OutboxTab onOpenChat={openChat} />}

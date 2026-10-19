@@ -1,7 +1,9 @@
 import { Mail, MessageCircle, Webhook } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 import { Badge } from '@/shared/ui';
 import { cn } from '@/shared/utils';
+import { i18n } from '@/modules/i18n';
 import type { AccountStatus, ChannelType, MessageStatus, OutboxStatus } from '@/modules/channels/types';
 
 /** Small shared pieces used by the settings tab, the inbox and the chat card. */
@@ -23,16 +25,9 @@ const ACCOUNT_STATUS_CLASS: Record<AccountStatus, string> = {
   disconnected: 'bg-muted text-muted-foreground border-border',
 };
 
-const ACCOUNT_STATUS_LABEL: Record<AccountStatus, string> = {
-  connected: 'Connected',
-  connecting: 'Connecting…',
-  needs_pairing: 'Needs pairing',
-  error: 'Error',
-  disconnected: 'Disconnected',
-};
-
 export function AccountStatusBadge({ status }: { status: AccountStatus }) {
-  return <Badge variant="outline" className={cn('font-normal', ACCOUNT_STATUS_CLASS[status])}>{ACCOUNT_STATUS_LABEL[status]}</Badge>;
+  const { t } = useTranslation('channels');
+  return <Badge variant="outline" className={cn('font-normal', ACCOUNT_STATUS_CLASS[status])}>{t(`status.account.${status}`)}</Badge>;
 }
 
 const MESSAGE_STATUS_CLASS: Record<MessageStatus, string> = {
@@ -46,19 +41,9 @@ const MESSAGE_STATUS_CLASS: Record<MessageStatus, string> = {
   ignored: 'bg-muted text-muted-foreground border-border',
 };
 
-const MESSAGE_STATUS_LABEL: Record<MessageStatus, string> = {
-  dispatched: 'With the agent',
-  manual: 'With the agent',
-  task: 'With a task',
-  queued: 'Queued for the agent',
-  unmatched: 'No rule',
-  held: 'Waits for you',
-  failed: 'Failed',
-  ignored: 'Ignored',
-};
-
 export function MessageStatusBadge({ status }: { status: MessageStatus }) {
-  return <Badge variant="outline" className={cn('font-normal', MESSAGE_STATUS_CLASS[status])}>{MESSAGE_STATUS_LABEL[status]}</Badge>;
+  const { t } = useTranslation('channels');
+  return <Badge variant="outline" className={cn('font-normal', MESSAGE_STATUS_CLASS[status])}>{t(`status.message.${status}`)}</Badge>;
 }
 
 const OUTBOX_STATUS_CLASS: Record<OutboxStatus, string> = {
@@ -70,17 +55,9 @@ const OUTBOX_STATUS_CLASS: Record<OutboxStatus, string> = {
   discarded: 'bg-muted text-muted-foreground border-border',
 };
 
-const OUTBOX_STATUS_LABEL: Record<OutboxStatus, string> = {
-  draft: 'Waiting for approval',
-  approved: 'Approved',
-  sending: 'Sending…',
-  sent: 'Sent',
-  failed: 'Failed',
-  discarded: 'Discarded',
-};
-
 export function OutboxStatusBadge({ status }: { status: OutboxStatus }) {
-  return <Badge variant="outline" className={cn('font-normal', OUTBOX_STATUS_CLASS[status])}>{OUTBOX_STATUS_LABEL[status]}</Badge>;
+  const { t } = useTranslation('channels');
+  return <Badge variant="outline" className={cn('font-normal', OUTBOX_STATUS_CLASS[status])}>{t(`status.outbox.${status}`)}</Badge>;
 }
 
 /**
@@ -97,9 +74,11 @@ export function formatWhen(iso: string | null | undefined): string {
   const date = parseServerTime(iso);
   if (Number.isNaN(date.getTime())) return '';
   const sameDay = date.toDateString() === new Date().toDateString();
+  // The UI language, not the browser's, so dates read like the rest of the page.
+  const locale = i18n.language || undefined;
   return sameDay
-    ? date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
-    : date.toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+    ? date.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })
+    : date.toLocaleString(locale, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 }
 
 /** Form control classes matching `Input` for native selects and textareas. */

@@ -1,3 +1,4 @@
+import { i18n } from '@/modules/i18n';
 import type { PermissionMode, ReplyMode, RuleConditions } from '@/modules/channels';
 
 /**
@@ -15,10 +16,10 @@ export function ruleOpenAutonomyError(rule: {
   const open = senders.length === 0 || senders.includes('*');
   if (!open) return null;
   if (rule.permissionMode !== 'default') {
-    return 'A rule without a sender filter must keep the default permission mode: anyone who writes in would steer the agent. List the senders you trust to use another mode.';
+    return i18n.t('channels:validation.openPermission');
   }
   if (rule.replyMode === 'auto' && !accountAllowsAutoReply) {
-    return 'To reply automatically to anyone, pick one account above and switch on "Reply automatically to anyone" in that account\'s settings. Or keep drafts and list the senders to answer right away.';
+    return i18n.t('channels:validation.openAutoReply');
   }
   return null;
 }

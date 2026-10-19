@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useTranslation } from 'react-i18next';
+import { Trans, useTranslation } from 'react-i18next';
 import { Check, Copy, Loader2, Pencil, Plug, RefreshCw, Trash2 } from 'lucide-react';
 
 import { api, readApiJson } from '@/shared/api';
@@ -44,11 +44,10 @@ function CopyButton({ value, label }: { value: string; label: string }) {
   );
 }
 
-const AGENT_SEND_LABEL = { off: 'agents cannot send', draft: 'agent sends need approval', auto: 'agents send freely' } as const;
-
 /** Used by Settings to manage a channel account and hand its webhook contract to an integration agent. */
 export default function AccountCard({ account, rules, channelsEnabled, tokenOnce, onEdit, onDelete, onChanged }: Props) {
-  const { t } = useTranslation('settings');
+  const { t: tSettings } = useTranslation('settings');
+  const { t } = useTranslation('channels');
   // Shows copy confirmation or opens the manual-copy preview when clipboard access fails.
   const [guideCopyStatus, setGuideCopyStatus] = useState<'idle' | 'copied' | 'error'>('idle');
   const [busy, setBusy] = useState<'test' | 'reconnect' | 'delete' | 'toggle' | null>(null);
@@ -96,7 +95,7 @@ export default function AccountCard({ account, rules, channelsEnabled, tokenOnce
   };
 
   const remove = async () => {
-    if (!window.confirm(`Delete “${account.label}”? Rules pointing at it stop matching.`)) return;
+    if (!window.confirm(t('account.deleteConfirm', { label: account.label }))) return;
     setBusy('delete');
     try {
       await onDelete();
@@ -116,13 +115,13 @@ export default function AccountCard({ account, rules, channelsEnabled, tokenOnce
             <span className="font-medium">{account.label}</span>
             <span className="text-xs text-muted-foreground">{channelName(account.type)}</span>
             <AccountStatusBadge status={account.enabled ? account.status : 'disconnected'} />
-            {!account.enabled && <span className="text-xs text-muted-foreground">{account.proposal ? '(proposed)' : '(paused)'}</span>}
+            {!account.enabled && <span className="text-xs text-muted-foreground">{account.proposal ? t('account.proposed') : t('account.paused')}</span>}
           </div>
           <div className="mt-0.5 text-xs text-muted-foreground">
             {account.type === 'email' && <span>{String(account.config.user ?? '')} · {String(account.config.host ?? '')}</span>}
-            {account.type === 'whatsapp' && <span>{String(account.config.phoneNumber ?? 'number not set')}</span>}
-            {account.type === 'webhook' && <span>POST JSON to the URL below</span>}
-            <span> · {AGENT_SEND_LABEL[account.agentSend]}</span>
+            {account.type === 'whatsapp' && <span>{String(account.config.phoneNumber ?? t('account.numberNotSet'))}</span>}
+            {account.type === 'webhook' && <span>{t('account.webhookSummary')}</span>}
+            <span> · {t(`account.agentSend.${account.agentSend}`)}</span>
           </div>
           {account.statusDetail && account.status !== 'needs_pairing' && (
             <p className={`mt-1 text-xs ${account.status === 'error' ? 'text-red-600 dark:text-red-300' : 'text-muted-foreground'}`}>{account.statusDetail}</p>
@@ -130,18 +129,18 @@ export default function AccountCard({ account, rules, channelsEnabled, tokenOnce
         </div>
         <div className="flex flex-wrap gap-1">
           {account.type !== 'webhook' && (
-            <Button size="sm" variant="ghost" onClick={test} disabled={busy !== null} aria-label="Test connection">
+            <Button size="sm" variant="ghost" onClick={test} disabled={busy !== null} aria-label={t('account.testConnection')}>
               {busy === 'test' ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : <Plug className="h-3.5 w-3.5" aria-hidden />}
             </Button>
           )}
           {!account.proposal && (
-            <Button size="sm" variant="ghost" onClick={reconnect} disabled={busy !== null || !account.enabled} aria-label="Reconnect">
+            <Button size="sm" variant="ghost" onClick={reconnect} disabled={busy !== null || !account.enabled} aria-label={t('account.reconnect')}>
               {busy === 'reconnect' ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : <RefreshCw className="h-3.5 w-3.5" aria-hidden />}
             </Button>
           )}
-          <Button size="sm" variant="ghost" onClick={onEdit} disabled={busy !== null} aria-label="Edit"><Pencil className="h-3.5 w-3.5" aria-hidden /></Button>
-          {!account.proposal && <Button size="sm" variant="ghost" onClick={toggle} disabled={busy !== null}>{account.enabled ? 'Pause' : 'Resume'}</Button>}
-          <Button size="sm" variant="ghost" onClick={remove} disabled={busy !== null} aria-label="Delete">
+          <Button size="sm" variant="ghost" onClick={onEdit} disabled={busy !== null} aria-label={t('account.edit')}><Pencil className="h-3.5 w-3.5" aria-hidden /></Button>
+          {!account.proposal && <Button size="sm" variant="ghost" onClick={toggle} disabled={busy !== null}>{account.enabled ? t('account.pause') : t('account.resume')}</Button>}
+          <Button size="sm" variant="ghost" onClick={remove} disabled={busy !== null} aria-label={t('account.delete')}>
             {busy === 'delete' ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : <Trash2 className="h-3.5 w-3.5" aria-hidden />}
           </Button>
         </div>
@@ -150,10 +149,10 @@ export default function AccountCard({ account, rules, channelsEnabled, tokenOnce
       {account.proposal && (
         <ProposalNotice
           proposal={account.proposal}
-          warning={account.type === 'email' && !account.hasSecrets ? 'No password yet — open Edit and add the (app) password before approving.' : null}
+          warning={account.type === 'email' && !account.hasSecrets ? t('account.noPasswordWarning') : null}
           onApprove={async () => { await readApiJson(await api.channels.approveAccount(account.id)); onChanged(); }}
           onReject={async () => {
-            if (!window.confirm(`Reject and delete the proposed account “${account.label}”?`)) return;
+            if (!window.confirm(t('account.rejectConfirm', { label: account.label }))) return;
             await onDelete();
           }}
         />
@@ -167,27 +166,36 @@ export default function AccountCard({ account, rules, channelsEnabled, tokenOnce
         <div className="mt-2 space-y-1 text-xs">
           <div className="flex items-center gap-1">
             <code className="truncate rounded bg-muted px-1.5 py-0.5">{webhookUrl}</code>
-            <CopyButton value={webhookUrl} label="Copy webhook URL" />
+            <CopyButton value={webhookUrl} label={t('account.copyWebhookUrl')} />
           </div>
           {tokenOnce ? (
             <div className="flex items-center gap-1">
-              <span className="text-muted-foreground">Token (shown once):</span>
+              <span className="text-muted-foreground">{t('account.tokenOnce')}</span>
               <code className="truncate rounded bg-muted px-1.5 py-0.5">{tokenOnce}</code>
-              <CopyButton value={tokenOnce} label="Copy webhook token" />
+              <CopyButton value={tokenOnce} label={t('account.copyWebhookToken')} />
             </div>
           ) : (
-            <p className="text-muted-foreground">Send with <code>Authorization: Bearer &lt;token&gt;</code> and a JSON body <code>{'{ from, text, subject?, name?, id?, thread?, metadata?, attachments? }'}</code>.</p>
+            <p className="text-muted-foreground">
+              <Trans
+                t={t}
+                i18nKey="account.webhookUsage"
+                // `shouldUnescape`: the header's `<token>` is escaped on the way through Trans.
+                shouldUnescape
+                values={{ header: 'Authorization: Bearer <token>', body: '{ from, text, subject?, name?, id?, thread?, metadata?, attachments? }' }}
+                components={{ code: <code /> }}
+              />
+            </p>
           )}
           <div className="pt-2">
             <Button size="sm" variant="outline" onClick={() => { void copyAgentGuide(); }}>
               {guideCopyStatus === 'copied' ? <Check className="mr-1 h-3.5 w-3.5" aria-hidden /> : <Copy className="mr-1 h-3.5 w-3.5" aria-hidden />}
-              {t(guideCopyStatus === 'copied' ? 'channels.guideCopied' : 'channels.copyAgentGuide')}
+              {tSettings(guideCopyStatus === 'copied' ? 'channels.guideCopied' : 'channels.copyAgentGuide')}
             </Button>
-            <p className="mt-1 text-muted-foreground">{t('channels.agentGuideDescription')}</p>
-            {guideCopyStatus === 'error' && <p role="alert" className="mt-1 text-red-600 dark:text-red-300">{t('channels.agentGuideCopyFailed')}</p>}
+            <p className="mt-1 text-muted-foreground">{tSettings('channels.agentGuideDescription')}</p>
+            {guideCopyStatus === 'error' && <p role="alert" className="mt-1 text-red-600 dark:text-red-300">{tSettings('channels.agentGuideCopyFailed')}</p>}
             <details className="mt-2" open={guideCopyStatus === 'error' ? true : undefined}>
-              <summary className="cursor-pointer text-muted-foreground">{t('channels.previewAgentGuide')}</summary>
-              <textarea readOnly value={agentGuide} aria-label={t('channels.previewAgentGuide')} className="mt-2 h-64 w-full rounded-md border border-border bg-muted/50 p-2 font-mono text-xs" />
+              <summary className="cursor-pointer text-muted-foreground">{tSettings('channels.previewAgentGuide')}</summary>
+              <textarea readOnly value={agentGuide} aria-label={tSettings('channels.previewAgentGuide')} className="mt-2 h-64 w-full rounded-md border border-border bg-muted/50 p-2 font-mono text-xs" />
             </details>
           </div>
         </div>

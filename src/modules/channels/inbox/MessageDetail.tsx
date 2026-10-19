@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { EyeOff, Loader2, MessageSquare, Paperclip, Play, ShieldCheck, X } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 import { api, readApiJson } from '@/shared/api';
 import { Button, DialogTitle } from '@/shared/ui';
@@ -21,13 +22,8 @@ type Props = {
 /** Statuses where the agent already has (or is getting) the message. */
 const WITH_AGENT: MessageStatus[] = ['dispatched', 'manual', 'queued', 'task'];
 
-/** Why the agent has not seen a message yet, in the owner's words. */
-const WAITING_REASON: Partial<Record<MessageStatus, string>> = {
-  held: 'The rule waits for you: the agent has not seen this message yet.',
-  unmatched: 'No rule matched, so no agent has seen this message.',
-  failed: 'Handing it to the agent failed.',
-  ignored: 'You ignored this message.',
-};
+/** Statuses with a "why the agent has not seen it" line (`message.waiting.<status>`). */
+const WAITING_REASON_STATUSES: MessageStatus[] = ['held', 'unmatched', 'failed', 'ignored'];
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -41,6 +37,7 @@ function formatSize(bytes: number): string {
  * message to an agent to work on — it never answers the sender.
  */
 export default function MessageDetail({ messageId, onClose, onChanged, onOpenChat }: Props) {
+  const { t } = useTranslation('channels');
   const [message, setMessage] = useState<ChannelMessage | null>(null);
   const [rules, setRules] = useState<ChannelRule[]>([]);
   const [replies, setReplies] = useState<OutboxItem[]>([]);
@@ -94,10 +91,10 @@ export default function MessageDetail({ messageId, onClose, onChanged, onOpenCha
   const header = (
     <div className="mb-3 flex items-start justify-between gap-3">
       <DialogTitle className="not-sr-only text-base font-semibold">
-        {message ? `Message from ${message.from.name || message.from.address}` : 'Message'}
+        {message ? t('message.titleFrom', { name: message.from.name || message.from.address }) : t('message.title')}
       </DialogTitle>
       {onClose && (
-        <Button variant="ghost" size="icon" className="-mr-1 -mt-1 h-8 w-8 shrink-0" aria-label="Close" onClick={onClose}>
+        <Button variant="ghost" size="icon" className="-mr-1 -mt-1 h-8 w-8 shrink-0" aria-label={t('common.close')} onClick={onClose}>
           <X className="h-4 w-4" aria-hidden />
         </Button>
       )}
@@ -110,7 +107,7 @@ export default function MessageDetail({ messageId, onClose, onChanged, onOpenCha
         {header}
         {error
           ? <p className="text-sm text-red-600 dark:text-red-300">{error}</p>
-          : <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" aria-hidden /> Loading…</div>}
+          : <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" aria-hidden /> {t('common.loading')}</div>}
       </>
     );
   }
@@ -121,7 +118,7 @@ export default function MessageDetail({ messageId, onClose, onChanged, onOpenCha
   const sendToAgent = (label: string) => (
     <div className="flex flex-wrap items-center gap-2">
       {rules.length > 1 && (
-        <select aria-label="Rule" className={`${FIELD_CLASS} w-auto min-w-40 flex-1`} value={ruleId} onChange={(event) => setRuleId(event.target.value)} disabled={busy}>
+        <select aria-label={t('message.ruleAriaLabel')} className={`${FIELD_CLASS} w-auto min-w-40 flex-1`} value={ruleId} onChange={(event) => setRuleId(event.target.value)} disabled={busy}>
           {ruleOptions}
         </select>
       )}
@@ -140,19 +137,19 @@ export default function MessageDetail({ messageId, onClose, onChanged, onOpenCha
           <span>{channelName(message.channel)}{message.accountLabel ? ` · ${message.accountLabel}` : ''}</span>
           <span>· {formatWhen(message.receivedAt)}</span>
           <MessageStatusBadge status={message.status} />
-          {message.ruleName && <span>· rule “{message.ruleName}”</span>}
+          {message.ruleName && <span>{t('common.ruleName', { name: message.ruleName })}</span>}
         </div>
 
         <div className="grid gap-1">
-          <div><span className="text-muted-foreground">From:</span> {message.from.name ? `${message.from.name} <${message.from.address}>` : message.from.address}</div>
-          {message.to.length > 0 && <div><span className="text-muted-foreground">To:</span> {message.to.join(', ')}</div>}
-          {message.subject && <div><span className="text-muted-foreground">Subject:</span> {message.subject}</div>}
-          {message.isGroup && <div className="text-muted-foreground">Group chat</div>}
+          <div><span className="text-muted-foreground">{t('message.from')}</span> {message.from.name ? `${message.from.name} <${message.from.address}>` : message.from.address}</div>
+          {message.to.length > 0 && <div><span className="text-muted-foreground">{t('message.to')}</span> {message.to.join(', ')}</div>}
+          {message.subject && <div><span className="text-muted-foreground">{t('message.subject')}</span> {message.subject}</div>}
+          {message.isGroup && <div className="text-muted-foreground">{t('message.groupChat')}</div>}
         </div>
 
         {message.injection && <InjectionNotice scan={message.injection} quarantined={quarantined} />}
 
-        <pre className="max-h-[40vh] overflow-auto whitespace-pre-wrap rounded-md border border-border/60 bg-muted/40 p-3 font-sans text-sm">{message.text || '(no text)'}</pre>
+        <pre className="max-h-[40vh] overflow-auto whitespace-pre-wrap rounded-md border border-border/60 bg-muted/40 p-3 font-sans text-sm">{message.text || t('message.noText')}</pre>
 
         {message.attachments.length > 0 && (
           <ul className="space-y-1">
@@ -172,8 +169,8 @@ export default function MessageDetail({ messageId, onClose, onChanged, onOpenCha
         )}
 
         {replies.length > 0 && (
-          <section aria-label="Replies waiting for you" className="space-y-2">
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">The agent's reply — waits for you</h3>
+          <section aria-label={t('message.repliesAriaLabel')} className="space-y-2">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t('message.repliesHeading')}</h3>
             {replies.map((item) => (
               <PendingReplyCard key={item.id} item={item} busy={outbox.busyId === item.id} onApprove={outbox.approve} onDiscard={outbox.discard} onRetry={outbox.retry} />
             ))}
@@ -191,37 +188,37 @@ export default function MessageDetail({ messageId, onClose, onChanged, onOpenCha
             <div className="flex flex-wrap items-center gap-2">
               {message.sessionId && onOpenChat && (
                 <Button size="sm" onClick={() => onOpenChat(message.sessionId as string)}>
-                  <MessageSquare className="mr-1 h-3.5 w-3.5" aria-hidden /> Open the agent's chat
+                  <MessageSquare className="mr-1 h-3.5 w-3.5" aria-hidden /> {t('message.openAgentChat')}
                 </Button>
               )}
               {!rerun && rules.length > 0 && message.status !== 'task' && (
                 <button type="button" className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground" onClick={() => setRerun(true)}>
-                  Hand it to an agent again…
+                  {t('message.handAgain')}
                 </button>
               )}
             </div>
           ) : quarantined ? (
             <div className="space-y-2">
               <Button size="sm" disabled={busy} onClick={() => act(() => api.channels.releaseMessage(message.id))}>
-                {busy ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" aria-hidden /> : <ShieldCheck className="mr-1 h-3.5 w-3.5" aria-hidden />} It is safe — release it
+                {busy ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" aria-hidden /> : <ShieldCheck className="mr-1 h-3.5 w-3.5" aria-hidden />} {t('message.release')}
               </Button>
-              <p className="text-xs text-muted-foreground">It goes where it would have gone: its task or the matching rule's agent, with a warning in the prompt. Ignore it if it is an attack.</p>
+              <p className="text-xs text-muted-foreground">{t('message.releaseHint')}</p>
             </div>
           ) : (
-            <p className="text-muted-foreground">{WAITING_REASON[message.status]}</p>
+            <p className="text-muted-foreground">{WAITING_REASON_STATUSES.includes(message.status) ? t(`message.waiting.${message.status}`) : null}</p>
           )}
 
           {!quarantined && (!withAgent || rerun) && rules.length > 0 && (
             <>
-              {sendToAgent(withAgent ? 'Send to agent again' : 'Send to agent')}
-              <p className="text-xs text-muted-foreground">The agent gets the message to work on. Nothing goes to the sender until you approve a reply (or the rule replies on its own).</p>
+              {sendToAgent(withAgent ? t('message.sendToAgentAgain') : t('message.sendToAgent'))}
+              <p className="text-xs text-muted-foreground">{t('message.sendHint')}</p>
             </>
           )}
-          {!quarantined && !withAgent && rules.length === 0 && <p className="text-xs text-muted-foreground">Create a rule in Settings → Channels to hand messages to an agent.</p>}
+          {!quarantined && !withAgent && rules.length === 0 && <p className="text-xs text-muted-foreground">{t('message.noRules')}</p>}
 
           {!withAgent && message.status !== 'ignored' && (
             <Button size="sm" variant="ghost" disabled={busy} onClick={() => act(() => api.channels.ignoreMessage(message.id))}>
-              <EyeOff className="mr-1 h-3.5 w-3.5" aria-hidden /> Ignore
+              <EyeOff className="mr-1 h-3.5 w-3.5" aria-hidden /> {t('message.ignore')}
             </Button>
           )}
         </div>

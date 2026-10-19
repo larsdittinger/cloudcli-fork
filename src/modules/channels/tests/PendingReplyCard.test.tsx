@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
+import '@/modules/i18n';
 import PendingReplyCard from '@/modules/channels/chat/PendingReplyCard';
 import type { OutboxItem } from '@/modules/channels/types';
 
