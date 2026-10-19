@@ -257,3 +257,34 @@ test('signing in before onboarding shows onboarding without mounting the workspa
   assert.notEqual(localStorage.getItem('auth-token'), null);
   assert.equal(workspaceMounts, 0);
 });
+
+test('signing in from the login screen does not re-run the auth bootstrap (fork 7356e88e)', async () => {
+  // On a phone the sign-in used to end on a grey page: the new token re-ran
+  // the startup check, which flipped isLoading back on. The bootstrap now
+  // reads the stored token instead of depending on it, so it runs once.
+  let login: ((username: string, password: string) => Promise<unknown>) | null = null;
+  function LoginProbe() {
+    const { login: authLogin } = useAuth();
+    useEffect(() => {
+      login = authLogin;
+    }, [authLogin]);
+    return null;
+  }
+
+  render(
+    <AuthProvider>
+      <LoginProbe />
+      <Gate />
+    </AuthProvider>,
+  );
+  await screen.findByText('login');
+
+  await act(async () => {
+    await login?.('triage', 'triage-pass-123');
+  });
+  await screen.findByText('workspace');
+
+  assert.equal(requestedPaths.filter((path) => path === '/api/auth/status').length, 1);
+  assert.equal(loadingPasses, 1);
+  assert.equal(workspaceMounts, 1);
+});
