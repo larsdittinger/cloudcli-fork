@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Loader2 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 import { api, readApiJson } from '@/shared/api';
 import { Button, Dialog, DialogContent, DialogTitle, Input } from '@/shared/ui';
@@ -17,7 +18,8 @@ type Props = {
   onSubmit: (values: ChannelRuleInput) => Promise<void>;
 };
 
-const DEFAULT_TEMPLATE_HINT = `Leave empty for the default prompt. Placeholders: {{channel}} {{account}} {{from}} {{fromName}} {{to}} {{subject}} {{text}} {{metadata}} {{threadKey}} {{receivedAt}} {{attachments}} {{messageId}} {{replyInstructions}}`;
+/** Prompt-template placeholders the server fills in; passed to the hint as a value so i18next leaves them alone. */
+const TEMPLATE_PLACEHOLDERS = '{{channel}} {{account}} {{from}} {{fromName}} {{to}} {{subject}} {{text}} {{metadata}} {{threadKey}} {{receivedAt}} {{attachments}} {{messageId}} {{replyInstructions}}';
 
 type FormState = {
   name: string;
@@ -123,6 +125,7 @@ function Field({ label, hint, children, className }: { label: string; hint?: str
 }
 
 export default function RuleEditor({ open, rule, accounts, onOpenChange, onSubmit }: Props) {
+  const { t } = useTranslation('channels');
   const [form, setForm] = useState<FormState>(() => toForm(rule));
   const [projects, setProjects] = useState<Project[]>([]);
   const [saving, setSaving] = useState(false);
@@ -169,58 +172,58 @@ export default function RuleEditor({ open, rule, accounts, onOpenChange, onSubmi
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent wrapperClassName="z-[10000]" className="max-h-[92vh] w-[min(100vw-1rem,44rem)] max-w-none overflow-y-auto p-4 md:p-5">
-        <DialogTitle className="mb-3 text-base font-semibold">{rule ? `Edit rule “${rule.name}”` : 'New rule'}</DialogTitle>
+        <DialogTitle className="mb-3 text-base font-semibold">{rule ? t('ruleEditor.editTitle', { name: rule.name }) : t('ruleEditor.newTitle')}</DialogTitle>
 
         <div className="space-y-5">
-          <Field label="Name"><Input value={form.name} onChange={(event) => set('name', event.target.value)} placeholder="Orders from customers" /></Field>
+          <Field label={t('ruleEditor.name')}><Input value={form.name} onChange={(event) => set('name', event.target.value)} placeholder={t('ruleEditor.namePlaceholder')} /></Field>
 
           <section className="space-y-3">
-            <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">When</h3>
-            <Field label="Account">
+            <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">{t('ruleEditor.when')}</h3>
+            <Field label={t('ruleEditor.account')}>
               <select className={FIELD_CLASS} value={form.target} onChange={(event) => set('target', event.target.value)}>
-                <option value="">Any account</option>
-                <option value="type:email">Any e-mail account</option>
-                <option value="type:whatsapp">Any WhatsApp account</option>
-                <option value="type:webhook">Any webhook</option>
+                <option value="">{t('ruleEditor.anyAccount')}</option>
+                <option value="type:email">{t('ruleEditor.anyEmail')}</option>
+                <option value="type:whatsapp">{t('ruleEditor.anyWhatsapp')}</option>
+                <option value="type:webhook">{t('ruleEditor.anyWebhook')}</option>
                 {accounts.map((account) => <option key={account.id} value={account.id}>{account.label}</option>)}
               </select>
             </Field>
             <div className="grid gap-3 sm:grid-cols-2">
-              <Field label="Senders" hint="One per line. E-mail, @domain.cz, +420…, or a glob like +420*. Empty = anyone: then the default permission mode only, and automatic replies only if the account allows replying to anyone.">
+              <Field label={t('ruleEditor.senders')} hint={t('ruleEditor.sendersHint')}>
                 <textarea className={cn(FIELD_CLASS, 'min-h-[72px]')} value={form.senders} onChange={(event) => set('senders', event.target.value)} />
               </Field>
-              <Field label="Exclude senders" hint="Never match these.">
+              <Field label={t('ruleEditor.excludeSenders')} hint={t('ruleEditor.excludeSendersHint')}>
                 <textarea className={cn(FIELD_CLASS, 'min-h-[72px]')} value={form.excludeSenders} onChange={(event) => set('excludeSenders', event.target.value)} />
               </Field>
-              <Field label="Subject contains" hint="Comma-separated, any of them."><Input value={form.subjectContains} onChange={(event) => set('subjectContains', event.target.value)} /></Field>
-              <Field label="Subject regex"><Input value={form.subjectRegex} onChange={(event) => set('subjectRegex', event.target.value)} placeholder="^\\[ticket-\\d+\\]" /></Field>
-              <Field label="Text contains" hint="Comma-separated, any of them."><Input value={form.textContains} onChange={(event) => set('textContains', event.target.value)} /></Field>
-              <Field label="Text regex"><Input value={form.textRegex} onChange={(event) => set('textRegex', event.target.value)} /></Field>
-              <Field label="Chat type (WhatsApp)">
+              <Field label={t('ruleEditor.subjectContains')} hint={t('ruleEditor.containsHint')}><Input value={form.subjectContains} onChange={(event) => set('subjectContains', event.target.value)} /></Field>
+              <Field label={t('ruleEditor.subjectRegex')}><Input value={form.subjectRegex} onChange={(event) => set('subjectRegex', event.target.value)} placeholder="^\\[ticket-\\d+\\]" /></Field>
+              <Field label={t('ruleEditor.textContains')} hint={t('ruleEditor.containsHint')}><Input value={form.textContains} onChange={(event) => set('textContains', event.target.value)} /></Field>
+              <Field label={t('ruleEditor.textRegex')}><Input value={form.textRegex} onChange={(event) => set('textRegex', event.target.value)} /></Field>
+              <Field label={t('ruleEditor.chatType')}>
                 <select className={FIELD_CLASS} value={form.groupMode} onChange={(event) => set('groupMode', event.target.value as FormState['groupMode'])}>
-                  <option value="any">Direct and groups</option>
-                  <option value="dm">Direct messages only</option>
-                  <option value="group">Groups only</option>
+                  <option value="any">{t('ruleEditor.chatTypeAny')}</option>
+                  <option value="dm">{t('ruleEditor.chatTypeDm')}</option>
+                  <option value="group">{t('ruleEditor.chatTypeGroup')}</option>
                 </select>
               </Field>
-              <Field label="Attachments">
+              <Field label={t('ruleEditor.attachments')}>
                 <select className={FIELD_CLASS} value={form.hasAttachments} onChange={(event) => set('hasAttachments', event.target.value as FormState['hasAttachments'])}>
-                  <option value="any">Doesn't matter</option>
-                  <option value="yes">Only with attachments</option>
-                  <option value="no">Only without</option>
+                  <option value="any">{t('ruleEditor.attachmentsAny')}</option>
+                  <option value="yes">{t('ruleEditor.attachmentsYes')}</option>
+                  <option value="no">{t('ruleEditor.attachmentsNo')}</option>
                 </select>
               </Field>
             </div>
             <label className="flex items-center gap-2 text-sm">
               <input type="checkbox" checked={form.mentionsMe} onChange={(event) => set('mentionsMe', event.target.checked)} />
-              In groups, only when my number is mentioned
+              {t('ruleEditor.mentionsMe')}
             </label>
           </section>
 
           <section className="space-y-3">
-            <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Then</h3>
+            <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">{t('ruleEditor.then')}</h3>
             <div className="grid gap-3 sm:grid-cols-2">
-              <Field label="Project" className="sm:col-span-2">
+              <Field label={t('ruleEditor.project')} className="sm:col-span-2">
                 {projects.length > 0 ? (
                   <select className={FIELD_CLASS} value={form.projectPath} onChange={(event) => set('projectPath', event.target.value)}>
                     {!projects.some((project) => project.fullPath === form.projectPath) && form.projectPath && <option value={form.projectPath}>{form.projectPath}</option>}
@@ -230,7 +233,7 @@ export default function RuleEditor({ open, rule, accounts, onOpenChange, onSubmi
                   <Input value={form.projectPath} onChange={(event) => set('projectPath', event.target.value)} placeholder="/workspace/project" />
                 )}
               </Field>
-              <Field label="Provider">
+              <Field label={t('ruleEditor.provider')}>
                 <select className={FIELD_CLASS} value={form.provider} onChange={(event) => set('provider', event.target.value)}>
                   <option value="claude">Claude Code</option>
                   <option value="codex">Codex</option>
@@ -238,58 +241,58 @@ export default function RuleEditor({ open, rule, accounts, onOpenChange, onSubmi
                   <option value="opencode">OpenCode</option>
                 </select>
               </Field>
-              <Field label="Permission mode">
+              <Field label={t('ruleEditor.permissionMode')}>
                 <select className={FIELD_CLASS} value={form.permissionMode} onChange={(event) => set('permissionMode', event.target.value as PermissionMode)}>
-                  <option value="default">Default (asks in the chat)</option>
-                  <option value="acceptEdits">Accept edits</option>
-                  <option value="plan">Plan only</option>
-                  <option value="bypassPermissions">Bypass permissions (autonomous)</option>
+                  <option value="default">{t('ruleEditor.permissionDefault')}</option>
+                  <option value="acceptEdits">{t('ruleEditor.permissionAcceptEdits')}</option>
+                  <option value="plan">{t('ruleEditor.permissionPlan')}</option>
+                  <option value="bypassPermissions">{t('ruleEditor.permissionBypass')}</option>
                 </select>
               </Field>
-              <Field label="Model" hint="Empty = provider default."><Input value={form.model} onChange={(event) => set('model', event.target.value)} placeholder="e.g. opus" /></Field>
-              <Field label="Reasoning effort" hint="Empty = default."><Input value={form.effort} onChange={(event) => set('effort', event.target.value)} placeholder="low / medium / high" /></Field>
-              <Field label="When a message matches" className="sm:col-span-2">
+              <Field label={t('ruleEditor.model')} hint={t('ruleEditor.modelHint')}><Input value={form.model} onChange={(event) => set('model', event.target.value)} placeholder={t('ruleEditor.modelPlaceholder')} /></Field>
+              <Field label={t('ruleEditor.effort')} hint={t('ruleEditor.effortHint')}><Input value={form.effort} onChange={(event) => set('effort', event.target.value)} placeholder="low / medium / high" /></Field>
+              <Field label={t('ruleEditor.onMatch')} className="sm:col-span-2">
                 <select className={FIELD_CLASS} value={form.holdInbound ? 'hold' : 'run'} onChange={(event) => set('holdInbound', event.target.value === 'hold')}>
-                  <option value="run">Hand it to the agent right away</option>
-                  <option value="hold">Wait in the Inbox until I send it to the agent</option>
+                  <option value="run">{t('ruleEditor.onMatchRun')}</option>
+                  <option value="hold">{t('ruleEditor.onMatchHold')}</option>
                 </select>
               </Field>
-              <Field label="Conversation">
+              <Field label={t('ruleEditor.conversation')}>
                 <select className={FIELD_CLASS} value={form.conversation} onChange={(event) => set('conversation', event.target.value as ConversationMode)}>
-                  <option value="thread">Continue the same chat per thread</option>
-                  <option value="sender">Continue the same chat per sender</option>
-                  <option value="new">Always start a new chat</option>
+                  <option value="thread">{t('ruleEditor.conversationThread')}</option>
+                  <option value="sender">{t('ruleEditor.conversationSender')}</option>
+                  <option value="new">{t('ruleEditor.conversationNew')}</option>
                 </select>
               </Field>
-              <Field label="Replies">
+              <Field label={t('ruleEditor.replies')}>
                 <select className={FIELD_CLASS} value={form.replyMode} onChange={(event) => set('replyMode', event.target.value as ReplyMode)}>
-                  <option value="none">Agent may not reply</option>
-                  <option value="draft">Agent drafts, I approve</option>
-                  <option value="auto">Agent replies automatically</option>
+                  <option value="none">{t('ruleEditor.repliesNone')}</option>
+                  <option value="draft">{t('ruleEditor.repliesDraft')}</option>
+                  <option value="auto">{t('ruleEditor.repliesAuto')}</option>
                 </select>
               </Field>
               {form.replyMode === 'draft' && (
                 <Field
-                  label="Reply without approval to"
+                  label={t('ruleEditor.autoReplySenders')}
                   className="sm:col-span-2"
-                  hint="One per line: an address or @domain.cz. The agent answers these senders right away, everyone else gets a draft. “Send, then always for this sender” on a draft adds to this list."
+                  hint={t('ruleEditor.autoReplySendersHint')}
                 >
                   <textarea className={cn(FIELD_CLASS, 'min-h-[56px]')} value={form.autoReplySenders} onChange={(event) => set('autoReplySenders', event.target.value)} placeholder="jana@seznam.cz" />
                 </Field>
               )}
-              <Field label="Reply scope">
+              <Field label={t('ruleEditor.replyScope')}>
                 <select className={FIELD_CLASS} value={form.replyScope} onChange={(event) => set('replyScope', event.target.value as ReplyScope)}>
-                  <option value="sender">Only to the original sender</option>
-                  <option value="anyone">Anyone (uses account setting)</option>
+                  <option value="sender">{t('ruleEditor.replyScopeSender')}</option>
+                  <option value="anyone">{t('ruleEditor.replyScopeAnyone')}</option>
                 </select>
               </Field>
             </div>
-            <Field label="Prompt template" hint={DEFAULT_TEMPLATE_HINT}>
-              <textarea className={cn(FIELD_CLASS, 'min-h-[120px] font-mono text-xs')} value={form.promptTemplate} onChange={(event) => set('promptTemplate', event.target.value)} placeholder="Default prompt" />
+            <Field label={t('ruleEditor.promptTemplate')} hint={t('ruleEditor.promptTemplateHint', { placeholders: TEMPLATE_PLACEHOLDERS })}>
+              <textarea className={cn(FIELD_CLASS, 'min-h-[120px] font-mono text-xs')} value={form.promptTemplate} onChange={(event) => set('promptTemplate', event.target.value)} placeholder={t('ruleEditor.promptTemplatePlaceholder')} />
             </Field>
             <label className="flex items-center gap-2 text-sm">
               <input type="checkbox" checked={form.enabled} onChange={(event) => set('enabled', event.target.checked)} />
-              Rule enabled
+              {t('ruleEditor.enabled')}
             </label>
           </section>
 
@@ -299,9 +302,9 @@ export default function RuleEditor({ open, rule, accounts, onOpenChange, onSubmi
           {error && <p className="text-sm text-red-600 dark:text-red-300">{error}</p>}
 
           <div className="flex justify-end gap-2">
-            <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={saving}>Cancel</Button>
+            <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={saving}>{t('common.cancel')}</Button>
             <Button onClick={submit} disabled={saving || !canSave}>
-              {saving && <Loader2 className="mr-1 h-4 w-4 animate-spin" aria-hidden />} {rule ? 'Save rule' : 'Create rule'}
+              {saving && <Loader2 className="mr-1 h-4 w-4 animate-spin" aria-hidden />} {rule ? t('ruleEditor.save') : t('ruleEditor.create')}
             </Button>
           </div>
         </div>

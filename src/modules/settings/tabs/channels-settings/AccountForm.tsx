@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Loader2 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 import { Button, Dialog, DialogContent, DialogTitle, Input } from '@/shared/ui';
 import { cn } from '@/shared/utils';
@@ -46,6 +47,7 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
 
 /** Create / edit dialog for one account; secrets are write-only and left blank to keep the stored value. */
 export default function AccountForm({ open, account, onOpenChange, onSubmit }: Props) {
+  const { t } = useTranslation('channels');
   const [values, setValues] = useState<AccountFormValues>(() => initialValues(account));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -79,7 +81,7 @@ export default function AccountForm({ open, account, onOpenChange, onSubmit }: P
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent wrapperClassName="z-[10000]" className="max-h-[90vh] w-[min(100vw-1rem,36rem)] max-w-none overflow-y-auto p-4 md:p-5">
-        <DialogTitle className="mb-3 text-base font-semibold">{account ? `Edit ${account.label}` : 'Add account'}</DialogTitle>
+        <DialogTitle className="mb-3 text-base font-semibold">{account ? t('accountForm.editTitle', { label: account.label }) : t('accountForm.addTitle')}</DialogTitle>
 
         <div className="space-y-4">
           {!account && (
@@ -101,57 +103,57 @@ export default function AccountForm({ open, account, onOpenChange, onSubmit }: P
             </div>
           )}
 
-          <Field label="Label">
-            <Input value={values.label} onChange={(event) => setValues((current) => ({ ...current, label: event.target.value }))} placeholder={values.type === 'email' ? 'Work Gmail' : values.type === 'whatsapp' ? 'My WhatsApp' : 'n8n hook'} />
+          <Field label={t('accountForm.label')}>
+            <Input value={values.label} onChange={(event) => setValues((current) => ({ ...current, label: event.target.value }))} placeholder={values.type === 'email' ? t('accountForm.labelPlaceholderEmail') : values.type === 'whatsapp' ? t('accountForm.labelPlaceholderWhatsapp') : t('accountForm.labelPlaceholderWebhook')} />
           </Field>
 
           {values.type === 'email' && (
             <>
               <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                Preset:
+                {t('accountForm.preset')}
                 <Button type="button" size="sm" variant="outline" onClick={() => setConfig({ ...GMAIL })}>Gmail</Button>
-                <span>Gmail needs an app password (Google account → Security → 2-step verification → App passwords).</span>
+                <span>{t('accountForm.gmailHint')}</span>
               </div>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <Field label="IMAP host"><Input value={String(config.host ?? '')} onChange={(event) => setConfig({ host: event.target.value })} /></Field>
-                <Field label="IMAP port"><Input type="number" value={String(config.port ?? 993)} onChange={(event) => setConfig({ port: Number(event.target.value) })} /></Field>
-                <Field label="User (e-mail)"><Input value={String(config.user ?? '')} onChange={(event) => setConfig({ user: event.target.value })} autoComplete="off" /></Field>
-                <Field label={account?.hasSecrets ? 'Password (leave blank to keep)' : 'Password'}>
+                <Field label={t('accountForm.imapHost')}><Input value={String(config.host ?? '')} onChange={(event) => setConfig({ host: event.target.value })} /></Field>
+                <Field label={t('accountForm.imapPort')}><Input type="number" value={String(config.port ?? 993)} onChange={(event) => setConfig({ port: Number(event.target.value) })} /></Field>
+                <Field label={t('accountForm.user')}><Input value={String(config.user ?? '')} onChange={(event) => setConfig({ user: event.target.value })} autoComplete="off" /></Field>
+                <Field label={account?.hasSecrets ? t('accountForm.passwordKeep') : t('accountForm.password')}>
                   <Input type="password" value={values.secrets.password ?? ''} onChange={(event) => setSecret('password', event.target.value)} autoComplete="new-password" />
                 </Field>
-                <Field label="Mailbox" hint="Folder to watch, usually INBOX."><Input value={String(config.mailbox ?? 'INBOX')} onChange={(event) => setConfig({ mailbox: event.target.value })} /></Field>
-                <Field label="From address" hint="Optional; defaults to the user."><Input value={String(config.fromAddress ?? '')} onChange={(event) => setConfig({ fromAddress: event.target.value })} /></Field>
-                <Field label="SMTP host" hint="Optional; derived from the IMAP host."><Input value={String(config.smtpHost ?? '')} onChange={(event) => setConfig({ smtpHost: event.target.value })} /></Field>
-                <Field label="SMTP port"><Input type="number" value={String(config.smtpPort ?? 465)} onChange={(event) => setConfig({ smtpPort: Number(event.target.value) })} /></Field>
+                <Field label={t('accountForm.mailbox')} hint={t('accountForm.mailboxHint')}><Input value={String(config.mailbox ?? 'INBOX')} onChange={(event) => setConfig({ mailbox: event.target.value })} /></Field>
+                <Field label={t('accountForm.fromAddress')} hint={t('accountForm.fromAddressHint')}><Input value={String(config.fromAddress ?? '')} onChange={(event) => setConfig({ fromAddress: event.target.value })} /></Field>
+                <Field label={t('accountForm.smtpHost')} hint={t('accountForm.smtpHostHint')}><Input value={String(config.smtpHost ?? '')} onChange={(event) => setConfig({ smtpHost: event.target.value })} /></Field>
+                <Field label={t('accountForm.smtpPort')}><Input type="number" value={String(config.smtpPort ?? 465)} onChange={(event) => setConfig({ smtpPort: Number(event.target.value) })} /></Field>
               </div>
               <label className="flex items-center gap-2 text-sm">
                 <input type="checkbox" checked={config.secure !== false} onChange={(event) => setConfig({ secure: event.target.checked, smtpSecure: event.target.checked })} />
-                Use TLS (IMAP 993 / SMTP 465)
+                {t('accountForm.useTls')}
               </label>
             </>
           )}
 
           {values.type === 'whatsapp' && (
             <>
-              <Field label="Phone number" hint="Optional; used for the pairing-code method and to ignore your own messages.">
+              <Field label={t('accountForm.phoneNumber')} hint={t('accountForm.phoneNumberHint')}>
                 <Input value={String(config.phoneNumber ?? '')} onChange={(event) => setConfig({ phoneNumber: event.target.value })} placeholder="+420 777 123 456" />
               </Field>
               <p className="rounded-md border border-amber-500/30 bg-amber-500/10 p-2 text-xs text-amber-800 dark:text-amber-200">
-                WhatsApp does not officially support linked-device automation. Use a secondary number if you can; a ban is rare but possible.
+                {t('accountForm.whatsappWarning')}
               </p>
             </>
           )}
 
           {values.type === 'webhook' && (
             <>
-              <Field label="Reply URL" hint="Optional. Receives JSON decisions ({ id, action: reply or escalate, to, text, subject, inReplyTo }). Only reply goes to the customer; escalate is an internal handoff. Leave blank to poll results with the webhook token.">
+              <Field label={t('accountForm.replyUrl')} hint={t('accountForm.replyUrlHint')}>
                 <Input value={String(config.replyUrl ?? '')} onChange={(event) => setConfig({ replyUrl: event.target.value })} placeholder="https://…" />
               </Field>
               <label className="flex items-start gap-2 text-sm">
                 <input type="checkbox" checked={config.allowEscalation === true} onChange={(event) => setConfig({ allowEscalation: event.target.checked })} />
-                My application handles action=escalate as an internal notification, never as a customer reply
+                {t('accountForm.allowEscalation')}
               </label>
-              <Field label="Callback token" hint="Optional. Sent as Authorization: Bearer to the Reply URL. Leave blank to keep the saved value.">
+              <Field label={t('accountForm.callbackToken')} hint={t('accountForm.callbackTokenHint')}>
                 <Input type="password" value={values.secrets.replyToken ?? ''} onChange={(event) => setSecret('replyToken', event.target.value)} autoComplete="new-password" />
               </Field>
             </>
@@ -161,29 +163,28 @@ export default function AccountForm({ open, account, onOpenChange, onSubmit }: P
             <label className="flex items-start gap-2 text-sm">
               <input type="checkbox" className="mt-0.5" checked={config.autoReplyAnyone === true} onChange={(event) => setConfig({ autoReplyAnyone: event.target.checked })} />
               <span>
-                Reply automatically to anyone
+                {t('accountForm.autoReplyAnyone')}
                 <span className="block text-xs text-muted-foreground">
-                  Lets rules of this account without a sender filter (e.g. a support mailbox) send the agent's replies without your approval.
-                  The agent still has no extra permissions; anyone who writes in can make it answer them.
+                  {t('accountForm.autoReplyAnyoneDescription')}
                 </span>
               </span>
             </label>
           )}
 
-          <Field label="Agents may send new messages" hint="Replies to inbound messages are governed by the rule that handled them; this covers everything else.">
+          <Field label={t('accountForm.agentSend')} hint={t('accountForm.agentSendHint')}>
             <select className={FIELD_CLASS} value={values.agentSend} onChange={(event) => setValues((current) => ({ ...current, agentSend: event.target.value as AgentSendMode }))}>
-              <option value="off">No</option>
-              <option value="draft">Only as drafts I approve</option>
-              <option value="auto">Yes, automatically</option>
+              <option value="off">{t('accountForm.agentSendOff')}</option>
+              <option value="draft">{t('accountForm.agentSendDraft')}</option>
+              <option value="auto">{t('accountForm.agentSendAuto')}</option>
             </select>
           </Field>
 
           {error && <p className="text-sm text-red-600 dark:text-red-300">{error}</p>}
 
           <div className="flex justify-end gap-2">
-            <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={saving}>Cancel</Button>
+            <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={saving}>{t('common.cancel')}</Button>
             <Button onClick={submit} disabled={saving || !values.label.trim()}>
-              {saving && <Loader2 className="mr-1 h-4 w-4 animate-spin" aria-hidden />} {account ? 'Save' : 'Add account'}
+              {saving && <Loader2 className="mr-1 h-4 w-4 animate-spin" aria-hidden />} {account ? t('accountForm.save') : t('accountForm.add')}
             </Button>
           </div>
         </div>

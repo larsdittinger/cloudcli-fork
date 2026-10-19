@@ -23,6 +23,8 @@ import enCodeEditor from '@/modules/i18n/locales/en/codeEditor.json';
 import enTasks from '@/modules/i18n/locales/en/tasks.json';
 // oxlint-disable-next-line importx/order
 import enGit from '@/modules/i18n/locales/en/git.json';
+// oxlint-disable-next-line importx/order
+import enChannels from '@/modules/i18n/locales/en/channels.json';
 
 import frCommon from '@/modules/i18n/locales/fr/common.json';
 import frSettings from '@/modules/i18n/locales/fr/settings.json';
@@ -122,6 +124,8 @@ import csCodeEditor from '@/modules/i18n/locales/cs/codeEditor.json';
 import csTasks from '@/modules/i18n/locales/cs/tasks.json';
 // oxlint-disable-next-line importx/order
 import csGit from '@/modules/i18n/locales/cs/git.json';
+// oxlint-disable-next-line importx/order
+import csChannels from '@/modules/i18n/locales/cs/channels.json';
 
 import heCommon from '@/modules/i18n/locales/he/common.json';
 import heSettings from '@/modules/i18n/locales/he/settings.json';
@@ -189,6 +193,7 @@ i18n
         codeEditor: enCodeEditor,
         tasks: enTasks,
 git: enGit,
+        channels: enChannels,
       },
       fr: {
         common: frCommon,
@@ -290,6 +295,7 @@ git: enGit,
         codeEditor: csCodeEditor,
         tasks: csTasks,
         git: csGit,
+        channels: csChannels,
       },
       he: {
         common: heCommon,
@@ -332,7 +338,7 @@ git: enGit,
     debug: false,
 
     // Namespaces - load only what's needed
-    ns: ['common', 'settings', 'auth', 'sidebar', 'chat', 'codeEditor', 'tasks', 'git'],
+    ns: ['common', 'settings', 'auth', 'sidebar', 'chat', 'codeEditor', 'tasks', 'git', 'channels'],
     defaultNS: 'common',
 
     // Key separator for nested keys (default: '.')

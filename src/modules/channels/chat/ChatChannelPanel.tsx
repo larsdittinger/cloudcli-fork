@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { ExternalLink } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 import { Dialog, DialogContent } from '@/shared/ui';
 import { ChannelIcon, channelName } from '@/modules/channels/ChannelBits';
@@ -14,6 +15,7 @@ type Props = { sessionId: string | null; slot: 'top' | 'bottom' };
  * from, the `bottom` slot shows replies waiting for approval above the composer.
  */
 export default function ChatChannelPanel({ sessionId, slot }: Props) {
+  const { t } = useTranslation('channels');
   const { origin, drafts, busyId, approve, discard, retry } = useSessionChannelContext(sessionId);
   const [showMessage, setShowMessage] = useState(false);
 
@@ -25,16 +27,16 @@ export default function ChatChannelPanel({ sessionId, slot }: Props) {
       <>
         <div className="flex flex-shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-border/60 bg-muted/40 px-3 py-1.5 text-xs text-muted-foreground">
           <ChannelIcon channel={message.channel} className="h-3.5 w-3.5" />
-          <span>From {channelName(message.channel)}</span>
+          <span>{t('chatPanel.fromChannel', { channel: channelName(message.channel) })}</span>
           <span className="text-foreground">{who}</span>
           {message.subject && <span className="truncate">· {message.subject}</span>}
-          {rule && <span className="hidden sm:inline">· rule “{rule.name}”</span>}
+          {rule && <span className="hidden sm:inline">{t('common.ruleName', { name: rule.name })}</span>}
           <button
             type="button"
             className="ml-auto inline-flex items-center gap-1 text-primary hover:underline"
             onClick={() => setShowMessage(true)}
           >
-            View message <ExternalLink className="h-3 w-3" aria-hidden />
+            {t('chatPanel.viewMessage')} <ExternalLink className="h-3 w-3" aria-hidden />
           </button>
         </div>
         <Dialog open={showMessage} onOpenChange={setShowMessage}>

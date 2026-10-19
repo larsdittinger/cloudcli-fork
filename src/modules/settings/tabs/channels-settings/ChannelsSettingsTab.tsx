@@ -32,7 +32,8 @@ type ChannelsSettings = {
 
 /** Rendered by Settings for the "channels" tab: accounts, rules and the master switch. */
 export default function ChannelsSettingsTab() {
-  const { t } = useTranslation('settings');
+  const { t: tSettings } = useTranslation('settings');
+  const { t } = useTranslation('channels');
   const [settings, setSettings] = useState<ChannelsSettings | null>(null);
   const [accounts, setAccounts] = useState<ChannelAccount[]>([]);
   const [rules, setRules] = useState<ChannelRule[]>([]);
@@ -122,67 +123,67 @@ export default function ChannelsSettingsTab() {
   };
 
   if (loading) {
-    return <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" aria-hidden /> Loading…</div>;
+    return <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" aria-hidden /> {t('common.loading')}</div>;
   }
 
   return (
     <div className="space-y-8">
-      <SettingsSection title={t('channels.sectionTitle')} description={t('channels.sectionDescription')}>
+      <SettingsSection title={tSettings('channels.sectionTitle')} description={tSettings('channels.sectionDescription')}>
         <SettingsCard>
-          <SettingsRow label={t('channels.enableLabel')} description={t('channels.enableDescription')}>
-            <SettingsToggle checked={Boolean(settings?.enabled)} onChange={toggleEnabled} ariaLabel={t('channels.enableLabel')} disabled={saving} />
+          <SettingsRow label={tSettings('channels.enableLabel')} description={tSettings('channels.enableDescription')}>
+            <SettingsToggle checked={Boolean(settings?.enabled)} onChange={toggleEnabled} ariaLabel={tSettings('channels.enableLabel')} disabled={saving} />
           </SettingsRow>
         </SettingsCard>
         {settings?.enabled && settings.mcpError && (
-          <p className="mt-2 text-sm text-amber-700 dark:text-amber-300">Agents cannot reply yet — registering the {settings.mcpServerName} MCP server failed: {settings.mcpError}</p>
+          <p className="mt-2 text-sm text-amber-700 dark:text-amber-300">{t('settings.mcpError', { name: settings.mcpServerName, error: settings.mcpError })}</p>
         )}
         {error && <p className="mt-2 text-sm text-red-600 dark:text-red-300">{error}</p>}
       </SettingsSection>
 
       <SettingsSection
-        title="Prompt-injection filter"
-        description="Every inbound message is checked before any agent sees it — e-mail (including text hidden in HTML), WhatsApp, webhooks and replies to agent tasks. A message that looks like an attempt to give the agent orders waits in the Inbox until you release it; agents cannot read it until then."
+        title={t('settings.injectionTitle')}
+        description={t('settings.injectionDescription')}
       >
         <SettingsCard>
           <SettingsRow
-            label="Hold suspected prompt injection"
-            description="On: a message under the threshold still reaches the agent, with a warning in its prompt when it looked suspicious. Off: nothing is checked or held; messages already held stay held until you release or ignore them."
+            label={t('settings.holdLabel')}
+            description={t('settings.holdDescription')}
           >
             <SettingsToggle
               checked={settings?.injectionFilter !== false}
               onChange={(value) => void saveSettings({ injectionFilter: value })}
-              ariaLabel="Hold suspected prompt injection"
+              ariaLabel={t('settings.holdLabel')}
               disabled={saving}
             />
           </SettingsRow>
           <SettingsRow
-            label="Sensitivity"
-            description="Strict holds two medium signals together (more attacks caught; a mail about AI or prompts may wait for you). Normal holds only strong ones."
+            label={t('settings.sensitivityLabel')}
+            description={t('settings.sensitivityDescription')}
           >
             <select
-              aria-label="Prompt-injection filter sensitivity"
+              aria-label={t('settings.sensitivityAriaLabel')}
               className="rounded-md border border-border bg-background px-2 py-1 text-sm"
               value={settings?.injectionSensitivity ?? 'strict'}
               disabled={saving || settings?.injectionFilter === false}
               onChange={(event) => void saveSettings({ injectionSensitivity: event.target.value as InjectionSensitivity })}
             >
-              <option value="strict">Strict (recommended)</option>
-              <option value="normal">Normal</option>
+              <option value="strict">{t('settings.sensitivityStrict')}</option>
+              <option value="normal">{t('settings.sensitivityNormal')}</option>
             </select>
           </SettingsRow>
         </SettingsCard>
       </SettingsSection>
 
-      <SettingsSection title={t('channels.agentsTitle')} description={t('channels.agentsDescription')}>
+      <SettingsSection title={tSettings('channels.agentsTitle')} description={tSettings('channels.agentsDescription')}>
         <SettingsCard className="mb-3">
           <SettingsRow
-            label="Agents set up channels without approval"
-            description="On: accounts and rules an agent proposes are approved and switched on right away (safety checks such as sender filters for auto-replies still apply). Off: they wait for your Approve."
+            label={t('settings.autoApproveLabel')}
+            description={t('settings.autoApproveDescription')}
           >
             <SettingsToggle
               checked={Boolean(settings?.agentsAutoApprove)}
               onChange={(value) => void saveSettings({ agentsAutoApprove: value })}
-              ariaLabel="Agents set up channels without approval"
+              ariaLabel={t('settings.autoApproveLabel')}
               disabled={saving}
             />
           </SettingsRow>
@@ -190,7 +191,7 @@ export default function ChannelsSettingsTab() {
         <AgentSetupHelp />
       </SettingsSection>
 
-      <SettingsSection title={t('channels.accountsTitle')} description={t('channels.accountsDescription')}>
+      <SettingsSection title={tSettings('channels.accountsTitle')} description={tSettings('channels.accountsDescription')}>
         <div className="space-y-2">
           {accounts.map((account) => (
             <AccountCard
@@ -205,16 +206,16 @@ export default function ChannelsSettingsTab() {
             />
           ))}
           <Button variant="outline" size="sm" onClick={() => setAccountDialog({ open: true, account: null })}>
-            <Plus className="mr-1 h-4 w-4" aria-hidden /> Add account
+            <Plus className="mr-1 h-4 w-4" aria-hidden /> {t('settings.addAccount')}
           </Button>
         </div>
       </SettingsSection>
 
-      <SettingsSection title={t('channels.rulesTitle')} description={t('channels.rulesDescription')}>
+      <SettingsSection title={tSettings('channels.rulesTitle')} description={tSettings('channels.rulesDescription')}>
         <div className="space-y-3">
           <RuleList rules={rules} accounts={accounts} onEdit={(rule) => setRuleDialog({ open: true, rule })} onChanged={() => { void load(); }} />
           <Button variant="outline" size="sm" onClick={() => setRuleDialog({ open: true, rule: null })}>
-            <Plus className="mr-1 h-4 w-4" aria-hidden /> New rule
+            <Plus className="mr-1 h-4 w-4" aria-hidden /> {t('settings.newRule')}
           </Button>
         </div>
       </SettingsSection>

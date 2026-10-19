@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ExternalLink, Loader2, RotateCcw, Send, ShieldCheck, Trash2 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 import { Button } from '@/shared/ui';
 import { cn } from '@/shared/utils';
@@ -29,14 +30,15 @@ function canTrustSender(item: OutboxItem): boolean {
  * message's detail and in the inbox's "To send" list.
  */
 export default function PendingReplyCard({ item, busy, onApprove, onDiscard, onRetry, onOpenChat, className }: PendingReplyCardProps) {
+  const { t } = useTranslation('channels');
   const [text, setText] = useState(item.text);
   useEffect(() => { setText(item.text); }, [item.id, item.text]);
 
   const editable = item.status === 'draft';
   const sent = item.status === 'sent';
   const title = item.action === 'escalate'
-    ? (sent ? 'Handoff published' : 'Hand off to a human')
-    : sent ? 'Reply sent' : item.task_id ? `Message from task #${item.task_id}` : 'Reply drafted by the agent';
+    ? (sent ? t('reply.handoffPublished') : t('reply.handoff'))
+    : sent ? t('reply.sent') : item.task_id ? t('reply.fromTask', { id: item.task_id }) : t('reply.drafted');
 
   return (
     <div
@@ -49,20 +51,20 @@ export default function PendingReplyCard({ item, busy, onApprove, onDiscard, onR
     >
       <div className="mb-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
         <span className="font-medium text-foreground">{title}</span>
-        <span>{item.action === 'escalate' ? `Internal note about ${item.to_address} — not a customer reply` : `to ${item.to_address}`}</span>
+        <span>{item.action === 'escalate' ? t('reply.internalNote', { to: item.to_address }) : t('reply.to', { to: item.to_address })}</span>
         {item.subject && <span className="min-w-0 truncate">· {item.subject}</span>}
         <OutboxStatusBadge status={item.status} />
         <span>{formatWhen(item.sent_at ?? item.created_at)}</span>
         {onOpenChat && item.session_id && (
           <button type="button" className="ml-auto inline-flex items-center gap-1 text-primary hover:underline" onClick={() => onOpenChat(item.session_id as string)}>
-            Open chat <ExternalLink className="h-3 w-3" aria-hidden />
+            {t('reply.openChat')} <ExternalLink className="h-3 w-3" aria-hidden />
           </button>
         )}
       </div>
 
       {editable ? (
         <textarea
-          aria-label="Reply text"
+          aria-label={t('reply.textAriaLabel')}
           className={cn(FIELD_CLASS, 'min-h-[72px] resize-y')}
           value={text}
           onChange={(event) => setText(event.target.value)}
@@ -79,11 +81,11 @@ export default function PendingReplyCard({ item, busy, onApprove, onDiscard, onR
       {!sent && item.status !== 'discarded' && item.status !== 'sending' && item.status !== 'approved' && (
         <div className="mt-2 flex flex-wrap items-center justify-end gap-2">
           <Button size="sm" variant="ghost" disabled={busy} onClick={() => onDiscard(item.id)}>
-            <Trash2 className="mr-1 h-3.5 w-3.5" aria-hidden /> Discard
+            <Trash2 className="mr-1 h-3.5 w-3.5" aria-hidden /> {t('reply.discard')}
           </Button>
           {item.status === 'failed' ? (
             <Button size="sm" disabled={busy} onClick={() => onRetry(item.id)}>
-              {busy ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" aria-hidden /> : <RotateCcw className="mr-1 h-3.5 w-3.5" aria-hidden />} Retry
+              {busy ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" aria-hidden /> : <RotateCcw className="mr-1 h-3.5 w-3.5" aria-hidden />} {t('reply.retry')}
             </Button>
           ) : (
             <>
@@ -92,14 +94,14 @@ export default function PendingReplyCard({ item, busy, onApprove, onDiscard, onR
                   size="sm"
                   variant="outline"
                   disabled={busy || !text.trim()}
-                  title={`Sends this reply and lets the agent answer ${item.to_address} on its own from now on (Settings → Channels → the rule).`}
+                  title={t('reply.trustSenderTitle', { to: item.to_address })}
                   onClick={() => onApprove(item.id, text, true)}
                 >
-                  <ShieldCheck className="mr-1 h-3.5 w-3.5" aria-hidden /> Send, then always for this sender
+                  <ShieldCheck className="mr-1 h-3.5 w-3.5" aria-hidden /> {t('reply.trustSender')}
                 </Button>
               )}
               <Button size="sm" disabled={busy || !text.trim()} onClick={() => onApprove(item.id, text)}>
-                {busy ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" aria-hidden /> : <Send className="mr-1 h-3.5 w-3.5" aria-hidden />} Send
+                {busy ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" aria-hidden /> : <Send className="mr-1 h-3.5 w-3.5" aria-hidden />} {t('reply.send')}
               </Button>
             </>
           )}

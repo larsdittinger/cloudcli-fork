@@ -2,6 +2,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import '@/modules/i18n';
 import type { ChannelMessage, ChannelRule, OutboxItem } from '@/modules/channels/types';
 
 const calls: Array<{ name: string; args: unknown[] }> = [];
