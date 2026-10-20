@@ -289,3 +289,39 @@ test('isolated dispatch: the run token carries the session the message is attach
     });
   });
 });
+
+test('a rule repointed from a plain project to an isolated open one never continues the old thread in the plain project', async () => {
+  await withIsolatedDatabase(async (tempDir) => {
+    const dir = fs.realpathSync(tempDir);
+    await withIsolationEnvUnder(dir, async () => {
+      const plain = path.join(dir, 'ethia_ceo');
+      const isolated = path.join(dir, 'isolated', 'podpora');
+      fs.mkdirSync(plain, { recursive: true });
+      fs.mkdirSync(isolated, { recursive: true });
+      const { project } = projectsDb.createProjectPath(isolated, 'podpora');
+      isolationDb.markIsolated(project!.project_id, 20001);
+      const adopt = mock.method(daemonClient, 'adopt', async () => ({ ok: true, warnings: [] }));
+      try {
+        // A plain rule with a sender filter remembers the thread's chat in the plain project.
+        const { account, rule } = seed({ permissionMode: 'default' }, plain);
+        const runs: RunCall[] = [];
+        const first = await dispatchMessage(channelMessagesDb.insert(makeMessage({ accountId: account.id, threadKey: 't-move' }), 'unmatched')!.id, rule.id, createRuntime(runs));
+        assert.equal(first.started, true);
+        assert.equal(sessionsDb.getSessionById(first.sessionId!)?.project_path, plain);
+
+        // Lars repoints the rule: isolated project, open to anyone, bypass.
+        channelRulesDb.update(rule.id, { projectPath: isolated, conditions: {}, permissionMode: 'bypassPermissions' });
+        const second = await dispatchMessage(channelMessagesDb.insert(makeMessage({ accountId: account.id, threadKey: 't-move', from: { address: 'cizi@evil.example' } }), 'unmatched')!.id, rule.id, createRuntime(runs));
+        assert.equal(second.started, true);
+        assert.notEqual(second.sessionId, first.sessionId);
+        assert.equal(sessionsDb.getSessionById(second.sessionId!)?.project_path, isolated);
+        assert.equal(channelThreadsDb.get(rule.id, 't-move'), second.sessionId);
+        assert.equal(runs.length, 2);
+        assert.equal(runs[1].options.permissionMode, 'bypassPermissions');
+        assert.equal(runs[1].options.projectPath, isolated);
+      } finally {
+        adopt.mock.restore();
+      }
+    });
+  });
+});

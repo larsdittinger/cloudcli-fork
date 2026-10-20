@@ -55,7 +55,8 @@ function sessionName(message: ChannelMessageRow): string {
  *
  * `thread` keys on the conversation (e-mail thread, WhatsApp chat), `sender`
  * on who wrote, `new` never reuses. A remembered session that has since been
- * deleted is replaced rather than failing the message.
+ * deleted, or that belongs to another project than the rule's (the rule was
+ * repointed), is replaced rather than failing the message.
  */
 export async function resolveSessionForMessage(
   rule: ChannelRuleRow,
@@ -69,7 +70,10 @@ export async function resolveSessionForMessage(
 
   if (key) {
     const remembered = channelThreadsDb.get(rule.id, key);
-    if (remembered && sessionsDb.getSessionById(remembered)) {
+    const session = remembered ? sessionsDb.getSessionById(remembered) : null;
+    // Only while it still is a chat of the rule's project: a rule repointed elsewhere (e.g. at an isolated
+    // project with bypass) must not keep running the old thread where the rule no longer points.
+    if (remembered && session && session.project_path === rule.project_path) {
       return { sessionId: remembered, created: false };
     }
   }
@@ -142,6 +146,11 @@ export async function dispatchMessage(
     return fail(messageId, error instanceof Error ? error.message : String(error));
   }
   channelMessagesDb.attachRule(messageId, rule.id, sessionId);
+  // The run goes to the session's project: checks and staging follow that path, not the rule's.
+  const runProjectPath = sessionsDb.getSessionById(sessionId)?.project_path ?? rule.project_path;
+  if (runProjectPath !== rule.project_path && rule.permission_mode && rule.permission_mode !== 'default' && isOpenRule(parseConditions(rule.conditions)) && !openAutonomyAllowed(runProjectPath)) {
+    return fail(messageId, 'Open rule with bypass is allowed only for isolated projects.');
+  }
 
   if (chatRunRegistry.isProcessing(sessionId)) {
     channelMessagesDb.setStatus(messageId, 'queued', null);
@@ -152,7 +161,7 @@ export async function dispatchMessage(
   // An isolated agent cannot see the app's attachment store: it gets copies in its project, under these paths.
   const inbound = rowToInboundMessage(message);
   try {
-    inbound.attachments = await stageForSandbox(rule.project_path, message.id, inbound.attachments);
+    inbound.attachments = await stageForSandbox(runProjectPath, message.id, inbound.attachments);
   } catch (error) {
     return fail(messageId, `Attachments could not be copied into the isolated project: ${error instanceof Error ? error.message : String(error)}`);
   }
