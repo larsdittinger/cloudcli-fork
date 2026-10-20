@@ -137,12 +137,22 @@ export type IsolatedGitDependencies = {
   fileSystem: ReturnType<typeof createIsolatedGitFileSystem>;
 };
 
-function readProjectId(request: express.Request): string | null {
-  const fromQuery = request.query?.project;
-  if (typeof fromQuery === 'string' && fromQuery) return fromQuery;
-  const fromBody = (request.body as { project?: unknown } | undefined)?.project;
-  return typeof fromBody === 'string' && fromBody ? fromBody : null;
+/**
+ * The project a Git request names. The routes read `project` from the query (GET) or the body (POST), so both are
+ * looked at: a non-string value or two different values is a 400, never a guess (a mismatch could send the
+ * request past this guard while the route acts on the other one).
+ */
+function readProjectId(request: express.Request): { projectId: string | null } | { error: string } {
+  const candidates = [request.query?.project, (request.body as { project?: unknown } | undefined)?.project]
+    .filter((value) => value !== undefined && value !== null && value !== '');
+  if (candidates.some((value) => typeof value !== 'string')) return { error: 'Invalid project id' };
+  const ids = [...new Set(candidates as string[])];
+  if (ids.length > 1) return { error: 'The project in the query and in the body differ' };
+  return { projectId: ids[0] ?? null };
 }
+
+/** Express matches routes case-insensitively and ignores a trailing slash; so does this check. */
+const routeOf = (requestPath: string) => requestPath.toLowerCase().replace(/\/+$/, '') || '/';
 
 /**
  * Wraps the Git router: a request for an isolated project goes to a router built with `createIsolatedRouter`
@@ -160,14 +170,19 @@ export function guardIsolatedGit(
   const guard = express.Router();
   guard.use(async (request, response, next) => {
     try {
-      const projectId = readProjectId(request);
+      const requested = readProjectId(request);
+      if ('error' in requested) {
+        response.status(400).json({ success: false, error: requested.error });
+        return;
+      }
+      const { projectId } = requested;
       const projectPath = projectId ? await options.resolveProjectPathById(projectId) : null;
       if (!projectPath || !touchesIsolatedArea(projectPath)) {
         router(request, response, next);
         return;
       }
       const project = isolationDb.getByPath(projectPath);
-      if (!project || REFUSED_ROUTES.has(request.path)) {
+      if (!project || REFUSED_ROUTES.has(routeOf(request.path))) {
         response.status(409).json({ success: false, error: GIT_ISOLATED_REFUSED_TEXT });
         return;
       }

@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { sessionsDb } from '@/modules/database/index.js';
-import { openIsolatedPath } from '@/modules/isolation/isolated-fs.js';
+import { isolatedAreaOf, openIsolatedPath } from '@/modules/isolation/isolated-fs.js';
 import { isolationConfig } from '@/modules/isolation/isolation.config.js';
 import { isolationDb } from '@/modules/isolation/isolation.db.js';
 
@@ -99,9 +99,12 @@ export class TranscriptRefusedError extends Error {}
 const hasProcFd = fs.existsSync('/proc/self/fd');
 const DIR_FLAGS = fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | fs.constants.O_NOFOLLOW;
 
-/** Whether `filePath` lies in an isolated home, i.e. in a tree the agent writes. */
+/**
+ * Whether `filePath` lies in an isolated home, i.e. in a tree the agent writes. Without the homes env, any isolated
+ * tree the DB still knows (see isolatedAreaOf) counts too.
+ */
 export function isIsolatedTranscriptPath(filePath: string): boolean {
-  return homeProjectId(filePath) !== null;
+  return homeProjectId(filePath) !== null || isolatedAreaOf(filePath) !== null;
 }
 
 /**
@@ -109,14 +112,22 @@ export function isIsolatedTranscriptPath(filePath: string): boolean {
  * openIsolatedPath); a file must be a regular file. Returns the fd; throws TranscriptRefusedError otherwise.
  */
 function openUnderHomes(target: string, kind: 'file' | 'dir'): number {
-  const homes = path.resolve(isolatedHomesRoot()!);
-  const rel = path.relative(homes, path.resolve(target));
-  const parts = rel.split(path.sep);
-  if (parts.length < (kind === 'file' ? 2 : 1) || parts.some((part) => !part || part === '.' || part === '..')) {
+  const homesRoot = isolatedHomesRoot();
+  const homes = homesRoot ? path.resolve(homesRoot) : '';
+  const underHomes = homes ? path.relative(homes, path.resolve(target)) : '';
+  // Without the homes env (or outside it) the isolated tree the path lies in is the root to walk from.
+  const area = homes && underHomes && !underHomes.startsWith('..') && !path.isAbsolute(underHomes)
+    ? { root: homes, rel: underHomes, minParts: kind === 'file' ? 2 : 1 }
+    : (() => {
+      const found = isolatedAreaOf(target);
+      return found ? { ...found, minParts: kind === 'file' ? 1 : 0 } : null;
+    })();
+  const parts = area?.rel ? area.rel.split(path.sep) : [];
+  if (!area || parts.length < area.minParts || parts.some((part) => !part || part === '.' || part === '..')) {
     throw new TranscriptRefusedError(`Not inside an isolated home: ${target}`);
   }
   try {
-    return openIsolatedPath(homes, rel, kind === 'file' ? 'read' : 'dir');
+    return openIsolatedPath(area.root, area.rel, kind === 'file' ? 'read' : 'dir');
   } catch (error) {
     throw new TranscriptRefusedError(`${target}: ${(error as Error).message}`);
   }

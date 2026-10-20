@@ -10,6 +10,9 @@ import {
   IsolatedPathRefusedError,
   openIsolatedPath,
 } from '@/modules/isolation/isolated-fs.js';
+import { projectsDb, sessionsDb } from '@/modules/database/index.js';
+import { isolationDb } from '@/modules/isolation/isolation.db.js';
+import { readTranscriptText } from '@/modules/isolation/isolation-transcripts.js';
 import { isolationEnvFor, withIsolatedDatabase, withIsolationEnv } from '@/modules/isolation/tests/helpers.js';
 
 async function withRoot(run: (ctx: { dir: string; root: string; project: string; secret: string }) => Promise<void>) {
@@ -125,5 +128,33 @@ test('isolatedFs: lstat never follows, rename/unlink/removeTree act on the link 
     await assert.rejects(async () => {
       for await (const entry of isolatedFs.listDirectory(path.join(project, 'listme'))) names.push(entry.name);
     }, IsolatedPathRefusedError);
+  });
+});
+
+test('without the isolation env: the isolated project and its home stay isolated, a sibling project does not', async () => {
+  await withIsolatedDatabase(async (dir) => {
+    const env = isolationEnvFor(dir);
+    const isolated = path.join(env.CLOUDCLI_ISOLATED_ROOT, 'a');
+    const sibling = path.join(env.CLOUDCLI_ISOLATED_ROOT, 'b');
+    fs.mkdirSync(isolated, { recursive: true });
+    fs.mkdirSync(sibling, { recursive: true });
+    const projectId = projectsDb.createProjectPath(isolated, 'a').project!.project_id;
+    projectsDb.createProjectPath(sibling, 'b');
+    const transcripts = path.join(env.CLOUDCLI_ISOLATED_HOMES, projectId, '.claude', 'projects', 'enc');
+    fs.mkdirSync(transcripts, { recursive: true });
+    const fifo = path.join(transcripts, 's.jsonl');
+    execFileSync('mkfifo', [fifo]);
+    await withIsolationEnv(env, () => {
+      isolationDb.markIsolated(projectId, 20001);
+      sessionsDb.createSession('s1', 'claude', isolated, 'chat', undefined, undefined, fifo);
+    });
+    await withIsolationEnv(null, async () => {
+      await new Promise((resolve) => setTimeout(resolve, 2100)); // past the roots cache of earlier tests
+      assert.deepEqual(isolatedAreaOf(path.join(isolated, 'x')), { root: isolated, rel: 'x' });
+      assert.equal(isolatedAreaOf(path.join(sibling, 'x')), null);
+      assert.equal(isolatedAreaOf(fifo)?.root, path.join(env.CLOUDCLI_ISOLATED_HOMES, projectId));
+      await within(assert.rejects(readTranscriptText(fifo)));
+      await within(assert.rejects(isolatedFs.readText(fifo, 1024), IsolatedPathRefusedError));
+    });
   });
 });

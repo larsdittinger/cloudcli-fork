@@ -12,6 +12,7 @@ import { pipeline } from 'node:stream/promises';
 
 import type { FileTreeFileSystem } from '@/shared/types.js';
 import { AppError } from '@/shared/utils.js';
+import { sessionsDb } from '@/modules/database/index.js';
 import { daemonClient } from '@/modules/isolation/daemon-client.js';
 import { isolationConfig } from '@/modules/isolation/isolation.config.js';
 import { isIsolatedPath, isolationDb, type IsolatedProject } from '@/modules/isolation/isolation.db.js';
@@ -149,17 +150,38 @@ function rootForms(root: string): string[] {
 }
 
 let dbRootsCache: { at: number; roots: string[] } | null = null;
-/** Without the env (isolation switched off) the parents of the projects the DB still calls isolated (fail closed). */
+
+/** A project's home from the transcripts indexed for it (<homes>/<projectId>/.claude/projects/…). */
+function homesFromSessions(project: IsolatedProject): string[] {
+  const homes = new Set<string>();
+  const marker = `${path.sep}${project.projectId}${path.sep}.claude${path.sep}projects${path.sep}`;
+  for (const session of sessionsDb.getSessionsByProjectPathIncludingArchived(project.projectPath)) {
+    const jsonlPath = typeof session.jsonl_path === 'string' ? path.resolve(session.jsonl_path) : '';
+    const index = jsonlPath.indexOf(marker);
+    if (index > 0) homes.add(jsonlPath.slice(0, index + project.projectId.length + 1));
+  }
+  return [...homes];
+}
+
+/**
+ * Without the env (isolation switched off) the trees the DB still calls isolated (fail closed): each isolated
+ * project's own directory and its home — from the homes env, or else from where its transcripts were indexed.
+ * Never a parent directory, so sibling projects are not swept in.
+ */
 function dbRoots(): string[] {
   const now = Date.now();
   if (!dbRootsCache || now - dbRootsCache.at > 2000) {
-    let roots: string[] = [];
+    const roots = new Set<string>();
     try {
-      roots = [...new Set(isolationDb.listIsolated().map((project) => path.dirname(path.resolve(project.projectPath))))];
+      for (const project of isolationDb.listIsolated()) {
+        roots.add(path.resolve(project.projectPath));
+        if (project.homeDir) roots.add(path.resolve(project.homeDir));
+        else for (const home of homesFromSessions(project)) roots.add(home);
+      }
     } catch {
-      roots = [];
+      // No database (yet): nothing is known to be isolated.
     }
-    dbRootsCache = { at: now, roots };
+    dbRootsCache = { at: now, roots: [...roots] };
   }
   return dbRootsCache.roots;
 }
@@ -167,7 +189,7 @@ function dbRoots(): string[] {
 function areaRoots(): string[] {
   const config = isolationConfig();
   const roots = [config.isolatedRoot, config.isolatedHomes].filter(Boolean);
-  return config.isolatedRoot ? roots : [...roots, ...dbRoots()];
+  return config.isolatedRoot && config.isolatedHomes ? roots : [...roots, ...dbRoots()];
 }
 
 /**
@@ -488,12 +510,18 @@ export function refuseSpawnInIsolatedArea<T extends SpawnLike>(spawn: T, feature
         stdout: new PassThrough(),
         stderr: new PassThrough(),
         stdin: new PassThrough(),
+        exitCode: null as number | null,
         kill: () => true,
       });
-      process.nextTick(() => {
+      const error = isolatedFeatureRefused(feature);
+      setImmediate(() => {
+        child.stderr.end(`${error.message}\n`);
         child.stdout.end();
-        child.stderr.end();
-        child.emit('error', isolatedFeatureRefused(feature));
+        // Like a failed child process; 'error' only when someone listens (an unheard 'error' would crash the app).
+        if (child.listenerCount('error') > 0) child.emit('error', error);
+        child.exitCode = 1;
+        child.emit('exit', 1, null);
+        setImmediate(() => child.emit('close', 1, null));
       });
       return child;
     }

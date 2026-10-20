@@ -162,3 +162,35 @@ test('git of a project that is not isolated still runs locally', async () => {
     assert.equal(requests.length, 0);
   });
 });
+
+test('git of an isolated project: a different project in the query does not route a body-addressed request locally', async () => {
+  await withGit(async ({ base, isolatedId, plainId, marker }) => {
+    for (const query of ['bogus', plainId]) {
+      const response = await fetch(`${base}/commit?project=${query}`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ project: isolatedId, message: 'x', files: ['new.txt'] }),
+      });
+      assert.equal(response.status, 400, query);
+    }
+    const twice = await fetch(`${base}/status?project=${isolatedId}&project=${isolatedId}`);
+    assert.equal(twice.status, 400);
+    const nonString = await fetch(`${base}/commit`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ project: [isolatedId], message: 'x', files: ['new.txt'] }),
+    });
+    assert.equal(nonString.status, 400);
+    assert.equal(fs.existsSync(marker), false, 'git ran in the main process');
+  });
+});
+
+test('git of an isolated project: refused routes match regardless of case and trailing slashes', async () => {
+  await withGit(async ({ base, isolatedId, requests }) => {
+    for (const route of ['PUSH', 'push/', 'Pull//', 'FETCH']) {
+      const response = await fetch(`${base}/${route}`, {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ project: isolatedId, branch: 'main' }),
+      });
+      assert.equal(response.status, 409, route);
+    }
+    assert.equal(requests.length, 0);
+  });
+});

@@ -73,3 +73,17 @@ test('the agent API cannot run git in an isolated project', async () => {
     assert.deepEqual(spawn('git', ['log'], { cwd: path.join(dir, 'workspace', 'plain') }), { ok: true });
   });
 });
+
+test('a refused spawn without an error listener does not crash and still closes with a failure code', async () => {
+  await withProjects(async ({ isolatedRoot }) => {
+    const spawn = refuseSpawnInIsolatedArea((() => assert.fail('must not spawn')) as (command: string, args?: readonly string[], options?: { cwd?: string | URL }) => unknown, 'Git in the agent API');
+    const child = spawn('git', ['push'], { cwd: isolatedRoot }) as NodeJS.EventEmitter & { stderr: NodeJS.ReadableStream };
+    let stderr = '';
+    child.stderr.on('data', (chunk) => { stderr += String(chunk); });
+    // No 'error' listener at all (events.once would add one).
+    const code = await new Promise((resolve) => child.on('close', resolve));
+    assert.equal(child.listenerCount('error'), 0);
+    assert.notEqual(code, 0);
+    assert.match(stderr, /not available for isolated projects/);
+  });
+});
