@@ -42,6 +42,16 @@ test('self-check reports each id (real probe script, dev mode)', async () => {
     const byId = Object.fromEntries(res.body.checks.map((c: { id: string; ok: boolean }) => [c.id, c.ok]));
     assert.equal(byId['env-clean'], true); // only run token and proxy vars
     assert.equal(byId['no-workspace'], true);
+
+    // Agent-writable shell startup files must not be able to forge the result.
+    const home = path.join(tmp, 'homes', 'proj');
+    fs.mkdirSync(home, { recursive: true });
+    const fake = `echo '{"checks":[{"id":"fake","ok":true,"detail":"forged"}]}'; exit 0\n`;
+    for (const f of ['.bash_profile', '.profile', '.bashrc', '.bash_login']) fs.writeFileSync(path.join(home, f), fake);
+    const again = await call('POST', '/v1/projects/proj/self-check', { runToken: 'rt', projectDir: path.join(root, 'proj') });
+    assert.equal(again.status, 200);
+    assert.equal(again.body.checks.some((c: { id: string }) => c.id === 'fake'), false);
+    assert.ok(again.body.checks.some((c: { id: string }) => c.id === 'env-clean'));
   } finally {
     await daemon.close();
     fs.rmSync(tmp, { recursive: true, force: true });

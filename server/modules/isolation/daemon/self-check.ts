@@ -254,7 +254,8 @@ export async function runProbeScript(
     pipe.push(encodeFrame('kill', 'SIGKILL'));
     setTimeout(settle, 500).unref();
   }, totalTimeoutMs);
-  hostProcess(pipe, ctx.request, hostOptions);
+  // Direct `node -`, no shell: agent-writable ~/.bash_profile & co. never run before the probe.
+  hostProcess(pipe, ctx.request, hostOptions, { command: process.execPath, args: ['-'] });
   pipe.push(encodeFrame('stdin', script));
   pipe.push(encodeFrame('stdin_end', ''));
   await done;

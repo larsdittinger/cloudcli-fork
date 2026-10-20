@@ -240,10 +240,9 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
               return json(400, { error: 'uid, projectDir and homeDir are required' });
             }
             if (!Number.isInteger(uid) || uid < MIN_ISOLATED_UID) return json(400, { error: `uid must be an integer >= ${MIN_ISOLATED_UID}` });
-            const clash = store.uidOwner(uid, projectId);
-            if (clash) return json(409, { error: `uid ${uid} is already used by project ${clash}` });
             const known = store.get(projectId);
-            if (known && known.uid !== uid) return json(409, { error: 'uid does not match the project' });
+            if (!known) return json(409, { error: 'Unknown project: push its config (PUT) first' });
+            if (known.uid !== uid) return json(409, { error: 'uid does not match the project' });
             const { warnings } = prepareProject({ projectId, uid, projectDir: body.projectDir, homeDir: body.homeDir }, { ...pathConfig, dev, mainGid: options.mainGid });
             return json(200, { ok: true, warnings });
           }
@@ -259,7 +258,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
             projectDir: body.projectDir,
             homeDir: expectedHome(projectId, pathConfig),
             cwd: body.projectDir,
-            args: [`exec '${process.execPath.replace(/'/g, "'\\''")}' -`],
+            args: [],
             env: {
               HTTPS_PROXY: `http://${projectId}:${project.proxySecret}@127.0.0.1:${boundProxyPort}`,
               HTTP_PROXY: `http://${projectId}:${project.proxySecret}@127.0.0.1:${boundProxyPort}`,
@@ -267,7 +266,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
               CLOUDCLI_RUN_TOKEN: body.runToken,
             },
           };
-          validateSpawn(request, store, pathConfig); // same checks as any spawn
+          request.projectDir = request.cwd = validateSpawn(request, store, pathConfig); // same checks as any spawn
           const mainHome = options.mainHome ?? process.env.CLOUDCLI_MAIN_HOME;
           const mainHomePaths = ['/home/cloudcli/.cloudcli/auth.db', ...(mainHome ? [mainHome] : [])];
           const ctx: SelfCheckContext = {
@@ -335,7 +334,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     sockets.add(socket);
     socket.on('close', () => sockets.delete(socket));
     try {
-      validateSpawn(spawnRequest, store, pathConfig); // synchronous: no client frame can slip past before the host attaches
+      spawnRequest = { ...spawnRequest, projectDir: validateSpawn(spawnRequest, store, pathConfig) }; // synchronous: no client frame can slip past before the host attaches
     } catch (error) {
       socket.write(encodeFrame('error', `Rejected: ${(error as Error).message}`));
       socket.end();

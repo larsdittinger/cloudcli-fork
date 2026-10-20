@@ -1,15 +1,17 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import test, { after, before } from 'node:test';
-import type { Duplex } from 'node:stream';
+import { PassThrough, type Duplex } from 'node:stream';
 
 import { connectSpawn } from '../daemon/client.js';
 import { startDaemon, type RunningDaemon } from '../daemon/daemon.js';
 import { FrameDecoder, type Frame } from '../daemon/frames.js';
-import type { SpawnRequest } from '../daemon/process-host.js';
+import { hostProcess, type SpawnRequest } from '../daemon/process-host.js';
+import { prepareProject } from '../daemon/projects.js';
 
 const TOKEN = 'test-token';
 const UID = 20001;
@@ -189,4 +191,53 @@ test('status reports version, claude version and project count', async () => {
   assert.equal(typeof res.body.version, 'string');
   assert.equal(typeof res.body.claudeVersion, 'string');
   assert.ok(res.body.projects >= 1);
+});
+
+test('spawns in the validated projectDir and enters the subdir only after the drop', async () => {
+  const sub = path.join(root, 'proj', 'sub');
+  fs.mkdirSync(sub, { recursive: true });
+  const frames = await collect(await connectSpawn(daemon.socketPath, TOKEN, request({ cwd: sub, args: ['pwd -P'] })));
+  assert.equal(text(frames, 'stdout').trim(), fs.realpathSync(sub));
+  const bad = await collect(await connectSpawn(daemon.socketPath, TOKEN, request({ cwd: sub, args: ['exit 0'] })));
+  assert.equal(JSON.parse(bad.find((f) => f.type === 'exit')!.payload.toString()).code, 0);
+
+  // The process is created with the (root-owned parent) projectDir as cwd, never with the swappable subdir.
+  let seen: { cwd?: unknown; command?: string; args?: string[] } = {};
+  const fakeChild = Object.assign(new PassThrough(), { stdout: new PassThrough(), stderr: new PassThrough(), stdin: new PassThrough(), pid: 0, kill: () => true });
+  const sock = new PassThrough();
+  hostProcess(sock, request({ cwd: sub }), {
+    dev: true, claudeBin: 'claude',
+    spawnImpl: ((command: string, args: string[], o: { cwd?: unknown }) => { seen = { cwd: o.cwd, command, args }; return fakeChild; }) as never,
+  });
+  assert.equal(seen.cwd, path.join(root, 'proj'));
+  assert.ok(seen.args!.includes(sub));
+  sock.destroy();
+});
+
+test('prepare tolerates a FIFO as .claude.json', async () => {
+  const projectDir = path.join(root, 'proj');
+  const homeDir = path.join(homes, 'proj');
+  fs.rmSync(path.join(homeDir, '.claude.json'), { force: true });
+  execFileSync('mkfifo', [path.join(homeDir, '.claude.json')]);
+  const res = await call('POST', '/v1/projects/proj/prepare', { uid: UID, projectDir, homeDir });
+  assert.equal(res.status, 200);
+  assert.ok(res.body.warnings.some((w: string) => /claude\.json/.test(w)));
+  assert.equal(fs.statSync(path.join(homeDir, '.claude.json')).isFile(), true);
+});
+
+test('prepare fails closed in production without /proc/self/fd', () => {
+  const marker = path.join(root, 'proj', 'untouched');
+  fs.writeFileSync(marker, 'x');
+  fs.chmodSync(marker, 0o600);
+  assert.throws(
+    () => prepareProject({ projectId: 'proj', uid: UID, projectDir: path.join(root, 'proj'), homeDir: path.join(homes, 'proj') },
+      { isolatedRoot: root, isolatedHomes: homes, statOwner: () => UID, dev: false, mainGid: 1, procFd: false }),
+    /proc/,
+  );
+  assert.equal(fs.statSync(marker).mode & 0o7777, 0o600);
+});
+
+test('prepare requires a project that was pushed', async () => {
+  const body = { uid: 20077, projectDir: path.join(root, 'proj'), homeDir: path.join(homes, 'ghost') };
+  assert.equal((await call('POST', '/v1/projects/ghost/prepare', body)).status, 409);
 });

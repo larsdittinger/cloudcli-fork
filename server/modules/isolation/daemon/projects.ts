@@ -45,7 +45,8 @@ export function expectedHome(projectId: string, config: PathConfig): string {
 }
 
 /** Checked for every spawn kind before anything runs. Throws RejectedError. */
-export function validateSpawn(req: SpawnRequest, store: ProjectStore, config: PathConfig): void {
+/** Returns the real projectDir the process must be created in. */
+export function validateSpawn(req: SpawnRequest, store: ProjectStore, config: PathConfig): string {
   const project = store.get(req.projectId);
   if (!project) throw new RejectedError(`unknown project ${req.projectId}`);
   if (!Number.isInteger(req.uid) || req.uid < MIN_ISOLATED_UID) throw new RejectedError(`uid below ${MIN_ISOLATED_UID}`);
@@ -66,9 +67,12 @@ export function validateSpawn(req: SpawnRequest, store: ProjectStore, config: Pa
     throw new RejectedError('cwd does not exist');
   }
   if (!isInside(cwdReal, real)) throw new RejectedError('cwd is outside the project');
+  return real;
 }
 
-type TreeOptions = { uid: number; gid: number; chown: boolean; warnings: string[] };
+type TreeOptions = { uid: number; gid: number; chown: boolean; warnings: string[]; procFd: boolean };
+
+const MAX_CLAUDE_JSON_BYTES = 16 * 1024 * 1024;
 
 const NOFOLLOW = fs.constants.O_NOFOLLOW;
 const hasProcFd = fs.existsSync('/proc/self/fd');
@@ -83,7 +87,7 @@ function applyTree(dirPath: string, opts: TreeOptions): void {
   try {
     if (opts.chown) fs.fchownSync(dirFd, opts.uid, opts.gid);
     fs.fchmodSync(dirFd, 0o2770);
-    const base = hasProcFd ? `/proc/self/fd/${dirFd}` : dirPath;
+    const base = opts.procFd ? `/proc/self/fd/${dirFd}` : dirPath;
     for (const name of fs.readdirSync(base)) {
       const child = `${base}/${name}`;
       const display = path.join(dirPath, name);
@@ -92,7 +96,7 @@ function applyTree(dirPath: string, opts: TreeOptions): void {
         if (st.isSymbolicLink()) {
           if (opts.chown) fs.lchownSync(child, opts.uid, opts.gid);
         } else if (st.isDirectory()) {
-          applyTree(hasProcFd ? child : display, opts);
+          applyTree(opts.procFd ? child : display, opts);
         } else if (st.isFile()) {
           const fd = fs.openSync(child, fs.constants.O_RDONLY | fs.constants.O_NONBLOCK | NOFOLLOW);
           try {
@@ -127,14 +131,17 @@ export type PrepareInput = { projectId: string; uid: number; projectDir: string;
 
 export function prepareProject(
   input: PrepareInput,
-  config: PathConfig & { dev: boolean; mainGid?: number },
+  config: PathConfig & { dev: boolean; mainGid?: number; /** Tests: pretend /proc/self/fd is (not) there. */ procFd?: boolean },
 ): { warnings: string[] } {
   if (!Number.isInteger(input.uid) || input.uid < MIN_ISOLATED_UID) throw new RejectedError(`uid below ${MIN_ISOLATED_UID}`);
   const real = resolveProjectDir(input.projectDir, config);
   const home = expectedHome(input.projectId, config);
   if (path.resolve(input.homeDir) !== home) throw new RejectedError('homeDir is not the project home');
   const chown = !config.dev;
-  const opts: TreeOptions = { uid: input.uid, gid: config.mainGid ?? 0, chown, warnings: [] };
+  const procFd = config.procFd ?? hasProcFd;
+  // Without /proc/self/fd the walk would be path based, i.e. open to symlink swaps by the agent while we run as root.
+  if (chown && !procFd) throw new RejectedError('/proc/self/fd is unavailable: refusing to chown an agent-writable tree');
+  const opts: TreeOptions = { uid: input.uid, gid: config.mainGid ?? 0, chown, warnings: [], procFd };
 
   fs.mkdirSync(home, { recursive: true });
   if (!fs.lstatSync(home).isDirectory()) throw new RejectedError('homeDir is not a directory');
@@ -143,10 +150,16 @@ export function prepareProject(
   const file = path.join(home, '.claude.json');
   let current: Record<string, unknown> = {};
   try {
-    const fd = fs.openSync(file, fs.constants.O_RDONLY | NOFOLLOW);
+    // O_NONBLOCK: a FIFO planted by the agent must not hang the daemon on open/read.
+    const fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NONBLOCK | NOFOLLOW);
     try {
-      const parsed = JSON.parse(fs.readFileSync(fd, 'utf8'));
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) current = parsed;
+      const st = fs.fstatSync(fd);
+      if (!st.isFile() || st.size > MAX_CLAUDE_JSON_BYTES) {
+        opts.warnings.push(`${file}: not a regular file or larger than 16 MB, replaced`);
+      } else {
+        const parsed = JSON.parse(fs.readFileSync(fd, 'utf8'));
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) current = parsed;
+      }
     } finally {
       fs.closeSync(fd);
     }

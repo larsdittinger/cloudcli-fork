@@ -1,6 +1,7 @@
 // Spawns one process for a client connection and bridges it to frames.
 // Node builtins only (runs standalone in the sandbox image).
 import { spawn, type ChildProcess } from 'node:child_process';
+import path from 'node:path';
 import type { Duplex } from 'node:stream';
 
 import { FrameDecoder, encodeFrame } from './frames.js';
@@ -28,7 +29,12 @@ export type ProcessHostOptions = {
   killGraceMs?: number;
   /** Live children of this daemon, so shutdown can kill every group. */
   live?: Set<ChildProcess>;
+  /** Tests only: replaces child_process.spawn. */
+  spawnImpl?: typeof spawn;
 };
+
+/** Internal override (never reachable from a client request): run this exact command instead of claude/bash. */
+export type CommandOverride = { command: string; args: string[] };
 
 const DEFAULT_PATH = '/usr/local/bin:/usr/bin:/bin';
 const MIN_ISOLATED_UID = 20000;
@@ -73,7 +79,7 @@ export function killGroup(child: ChildProcess, signal: NodeJS.Signals): void {
 }
 
 /** Bridges `socket` (already upgraded) to a freshly spawned process. */
-export function hostProcess(socket: Duplex, req: SpawnRequest, options: ProcessHostOptions): void {
+export function hostProcess(socket: Duplex, req: SpawnRequest, options: ProcessHostOptions, override?: CommandOverride): void {
   const fail = (message: string) => {
     socket.write(encodeFrame('error', message));
     socket.end();
@@ -88,8 +94,15 @@ export function hostProcess(socket: Duplex, req: SpawnRequest, options: ProcessH
     return;
   }
 
-  const command = req.kind === 'claude' ? options.claudeBin : 'bash';
-  const args = req.kind === 'claude' ? req.args : ['-lc', req.args[0] ?? ''];
+  let command = override?.command ?? (req.kind === 'claude' ? options.claudeBin : 'bash');
+  let args = override?.args ?? (req.kind === 'claude' ? req.args : ['-lc', req.args[0] ?? '']);
+  // The process is created in projectDir (its parent is root-owned, so it cannot be swapped). The requested
+  // subdirectory is entered only after the uid drop, so the kernel checks the project's own permissions
+  // and a symlink planted in the project cannot redirect a root chdir().
+  if (path.resolve(req.cwd) !== path.resolve(req.projectDir)) {
+    args = ['-c', 'cd -P -- "$1" || exit 126; shift; exec "$@"', 'sh', req.cwd, command, ...args];
+    command = '/bin/sh';
+  }
   // Exactly what the client sent, plus PATH and HOME. Never the daemon's own env.
   const env: Record<string, string> = {
     PATH: DEFAULT_PATH,
@@ -99,8 +112,8 @@ export function hostProcess(socket: Duplex, req: SpawnRequest, options: ProcessH
 
   let child: ChildProcess;
   try {
-    child = spawn(command, args, {
-      cwd: req.cwd,
+    child = (options.spawnImpl ?? spawn)(command, args, {
+      cwd: req.projectDir,
       env,
       detached: true,
       stdio: ['pipe', 'pipe', 'pipe'],
