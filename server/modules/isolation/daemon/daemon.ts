@@ -21,6 +21,7 @@ import {
 } from './firewall.js';
 import { createMainForward } from './main-forward.js';
 import {
+  adoptPaths,
   defaultStatOwner,
   expectedHome,
   prepareProject,
@@ -79,6 +80,9 @@ export type RunningDaemon = {
 
 const DEFAULT_FORWARD_PORT = 7701;
 const DEFAULT_PROXY_PORT = 7702;
+// The whole spawn request travels base64 in the X-Spawn header; real Claude args (MCP config JSON, system
+// prompt flags) are far beyond Node's 16 KiB default.
+const MAX_HEADER_BYTES = 1 << 20;
 
 async function applyRealNetwork(state: NetworkState): Promise<void> {
   await applyFirewallRules(state.rules4, state.rules6);
@@ -208,7 +212,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
   let boundForwardPort = 0;
   let boundProxyPort = 0;
   const sockets = new Set<import('node:net').Socket>();
-  const server = http.createServer((req, res) => {
+  const server = http.createServer({ maxHeaderSize: MAX_HEADER_BYTES }, (req, res) => {
     const json = (status: number, body: unknown) => {
       const text = JSON.stringify(body);
       res.writeHead(status, { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(text) }).end(text);
@@ -227,13 +231,25 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       );
       return;
     }
-    const actionMatch = /^\/v1\/projects\/([^/]+)\/(prepare|self-check)$/.exec(url.pathname);
+    const actionMatch = /^\/v1\/projects\/([^/]+)\/(prepare|self-check|adopt)$/.exec(url.pathname);
     if (req.method === 'POST' && actionMatch) {
       const projectId = decodeURIComponent(actionMatch[1]);
       if (!PROJECT_ID.test(projectId)) return json(400, { error: 'Invalid projectId' });
       void (async () => {
         try {
           const body = JSON.parse((await readBody(req)) || '{}') as Record<string, unknown>;
+          if (actionMatch[2] === 'adopt') {
+            const uid = body.uid;
+            if (typeof uid !== 'number' || typeof body.projectDir !== 'string' || !Array.isArray(body.paths)) {
+              return json(400, { error: 'uid, projectDir and paths are required' });
+            }
+            if (!Number.isInteger(uid) || uid < MIN_ISOLATED_UID) return json(400, { error: `uid must be an integer >= ${MIN_ISOLATED_UID}` });
+            const known = store.get(projectId);
+            if (!known) return json(409, { error: 'Unknown project: push its config (PUT) first' });
+            if (known.uid !== uid) return json(409, { error: 'uid does not match the project' });
+            const { warnings } = adoptPaths({ projectId, uid, projectDir: body.projectDir, paths: body.paths as string[] }, { ...pathConfig, dev, mainGid: options.mainGid });
+            return json(200, { ok: true, warnings });
+          }
           if (actionMatch[2] === 'prepare') {
             const uid = body.uid;
             if (typeof uid !== 'number' || typeof body.projectDir !== 'string' || typeof body.homeDir !== 'string') {

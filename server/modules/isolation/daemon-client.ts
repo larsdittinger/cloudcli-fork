@@ -310,6 +310,16 @@ export function createDaemonClient(resolveEndpoint: () => DaemonEndpoint) {
       return { ok: Boolean(body?.ok), warnings: body?.warnings ?? [] };
     },
 
+    /** Gives files the app wrote into the project (paths relative to it) to the project uid; never follows symlinks. */
+    async adopt(project: IsolatedProject, paths: string[]): Promise<{ ok: boolean; warnings: string[] }> {
+      const body = expectOk(await callJson<{ ok: boolean; warnings?: string[] }>(resolveEndpoint(), 'POST', projectPath(project.projectId, 'adopt'), {
+        uid: project.uid,
+        projectDir: project.projectPath,
+        paths,
+      }));
+      return { ok: Boolean(body?.ok), warnings: body?.warnings ?? [] };
+    },
+
     async selfCheck(projectId: string, runToken: string, projectDir: string): Promise<SelfCheckResult> {
       const body = expectOk(await callJson<SelfCheckResult>(resolveEndpoint(), 'POST', projectPath(projectId, 'self-check'), { runToken, projectDir }, SELF_CHECK_TIMEOUT_MS));
       return { checks: Array.isArray(body?.checks) ? body.checks : [] };

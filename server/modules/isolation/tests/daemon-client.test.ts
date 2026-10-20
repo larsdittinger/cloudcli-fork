@@ -199,3 +199,20 @@ test('status, prepare, self-check and blocked', async () => {
 
   assert.deepEqual(await c.blocked('p1'), []);
 });
+
+test('adopt hands app-written paths to the project; a 64 KiB+ spawn goes through', async () => {
+  const c = client();
+  await c.putProject(project());
+  const dir = path.join(tmp, 'isolated', 'p1', '.cloudcli-attachments', 'uploads');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'f.txt'), 'x');
+  fs.chmodSync(path.join(dir, 'f.txt'), 0o600);
+  assert.equal((await c.adopt(project(), ['.cloudcli-attachments/uploads'])).ok, true);
+  assert.equal(fs.statSync(path.join(dir, 'f.txt')).mode & 0o060, 0o060);
+  await assert.rejects(c.adopt(project(), ['../x']), (error: unknown) => error instanceof DaemonCallError && error.status === 400);
+
+  const big = 'y'.repeat(80 * 1024);
+  const outcome = await run(c.spawn(request({ args: [`echo ${big.length}`, big] })));
+  assert.deepEqual(outcome.errors, []);
+  assert.equal(outcome.stdout.trim(), String(big.length));
+});
