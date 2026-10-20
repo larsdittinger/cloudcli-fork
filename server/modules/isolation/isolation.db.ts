@@ -101,6 +101,16 @@ function isolatedRows(): IsolationRow[] {
   }
 }
 
+const NEXT_UID_KEY = 'isolation_next_uid';
+
+/** Counter value, but never below an uid already in use (databases from before the counter). */
+function peekNextUid(db: ReturnType<typeof getConnection>): number {
+  const stored = db.prepare('SELECT value FROM app_config WHERE key = ?').get(NEXT_UID_KEY) as { value: string } | undefined;
+  const counter = Number.parseInt(stored?.value ?? '', 10);
+  const row = db.prepare('SELECT MAX(isolation_uid) AS max FROM projects').get() as { max: number | null };
+  return Math.max(MIN_ISOLATED_UID, Number.isInteger(counter) ? counter : 0, row.max === null ? 0 : row.max + 1);
+}
+
 export const isolationDb = {
   getById(projectId: string): IsolatedProject | null {
     const row = getConnection().prepare(`SELECT ${COLUMNS} FROM projects WHERE project_id = ?`).get(projectId) as IsolationRow | undefined;
@@ -123,10 +133,23 @@ export const isolationDb = {
     return isolatedRows().map(toProject).filter((project): project is IsolatedProject => project !== null);
   },
 
-  /** Next free uid: max(isolation_uid) + 1, starting at 20000. */
+  /** The uid the next allocation would hand out (no side effect). */
   nextUid(): number {
-    const row = getConnection().prepare('SELECT MAX(isolation_uid) AS max FROM projects').get() as { max: number | null };
-    return row.max === null ? MIN_ISOLATED_UID : Math.max(MIN_ISOLATED_UID, row.max + 1);
+    return peekNextUid(getConnection());
+  },
+
+  /**
+   * Hands out a uid from the monotonic counter `app_config.isolation_next_uid` (read + increment in one
+   * transaction). A uid is never reused, even after its project was deleted: files owned by it may linger.
+   */
+  allocateUid(): number {
+    const db = getConnection();
+    return db.transaction(() => {
+      const uid = peekNextUid(db);
+      db.prepare('INSERT INTO app_config (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
+        .run(NEXT_UID_KEY, String(uid + 1));
+      return uid;
+    })();
   },
 
   /**

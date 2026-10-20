@@ -3,6 +3,7 @@ import express from 'express';
 import { createProject, updateProjectDisplayName } from '@/modules/projects/services/project-management.service.js';
 import { createProjectCloneRouter } from '@/modules/projects/project-clone.routes.js';
 import { createPendingCloneRequests } from '@/modules/projects/services/project-clone-request.service.js';
+import { cancelCopyJob, getCopyJob, previewCopy, startCopy } from '@/modules/projects/services/project-copy.service.js';
 import { startCloneProject } from '@/modules/projects/services/project-clone.service.js';
 import { getProjectTaskMaster } from '@/modules/projects/services/projects-has-taskmaster.service.js';
 import { AppError, asyncHandler, createApiSuccessResponse } from '@/shared/utils.js';
@@ -225,6 +226,49 @@ router.post(
           ? 'Archived project path reused successfully'
           : 'Project created successfully',
     });
+  }),
+);
+
+// Copy of an agent (project directory), optionally as an isolated project. Admin-only like create-project.
+router.get(
+  '/copy-progress/:jobId',
+  asyncHandler(async (req, res) => {
+    requireAdminUser(req);
+    const job = getCopyJob(String(req.params.jobId));
+    if (!job) throw new AppError('Copy job not found or expired', { code: 'COPY_JOB_NOT_FOUND', statusCode: 404 });
+    const { jobId: _jobId, ...progress } = job;
+    res.json({ ...progress, totalBytes: progress.totalBytes ?? 0 });
+  }),
+);
+
+router.post(
+  '/copy-progress/:jobId/cancel',
+  asyncHandler(async (req, res) => {
+    requireAdminUser(req);
+    res.json({ success: true, cancelled: cancelCopyJob(String(req.params.jobId)) });
+  }),
+);
+
+router.post(
+  '/:projectId/copy/preview',
+  asyncHandler(async (req, res) => {
+    requireAdminUser(req);
+    res.json(await previewCopy(String(req.params.projectId)));
+  }),
+);
+
+router.post(
+  '/:projectId/copy',
+  asyncHandler(async (req, res) => {
+    requireAdminUser(req);
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const { jobId } = await startCopy(String(req.params.projectId), {
+      name: typeof body.name === 'string' ? body.name : '',
+      isolated: body.isolated === true,
+      excludeSecretFiles: body.excludeSecretFiles as string[],
+      carryMcp: body.carryMcp as string[],
+    });
+    res.json({ jobId });
   }),
 );
 

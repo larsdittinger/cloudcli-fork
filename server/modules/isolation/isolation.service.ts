@@ -137,7 +137,7 @@ export const isolationService = {
    */
   async provision(projectId: string): Promise<{ project: IsolatedProject; warnings: string[] }> {
     requireAvailable();
-    const project = isolationDb.markIsolated(projectId, isolationDb.nextUid());
+    const project = isolationDb.markIsolated(projectId, isolationDb.allocateUid());
     await daemonClient.putProject(project);
     const { warnings } = await daemonClient.prepare(project);
     return { project, warnings };
