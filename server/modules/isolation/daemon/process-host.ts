@@ -1,10 +1,11 @@
 // Spawns one process for a client connection and bridges it to frames.
 // Node builtins only (runs standalone in the sandbox image).
 import { spawn, type ChildProcess } from 'node:child_process';
+import os from 'node:os';
 import path from 'node:path';
 import type { Duplex } from 'node:stream';
 
-import { FrameDecoder, encodeFrame } from './frames.js';
+import { FrameDecoder, encodeFrame, type Frame } from './frames.js';
 import { PROJECT_ID } from './project-store.js';
 
 export type SpawnKind = 'claude' | 'exec' | 'pty';
@@ -31,7 +32,35 @@ export type ProcessHostOptions = {
   live?: Set<ChildProcess>;
   /** Tests only: replaces child_process.spawn. */
   spawnImpl?: typeof spawn;
+  /** Loads node-pty for kind 'pty' (only then; the daemon imports nothing but builtins otherwise). Tests replace it. */
+  loadPty?: () => Promise<PtyModule>;
 };
+
+/** The part of node-pty the daemon uses. */
+export type PtyModule = {
+  spawn(file: string, args: string[], options: Record<string, unknown>): PtyProcess;
+};
+export type PtyProcess = {
+  pid: number;
+  write(data: string | Buffer): void;
+  resize(cols: number, rows: number): void;
+  kill(signal?: string): void;
+  onData(listener: (data: string) => void): unknown;
+  onExit(listener: (event: { exitCode: number; signal?: number }) => void): unknown;
+};
+
+async function defaultLoadPty(): Promise<PtyModule> {
+  // A variable specifier keeps the import dynamic and optional: an image without node-pty only loses terminals.
+  const name = 'node-pty';
+  const mod = (await import(name)) as { default?: PtyModule } & Partial<PtyModule>;
+  const resolved = typeof mod.spawn === 'function' ? (mod as PtyModule) : mod.default;
+  if (!resolved || typeof resolved.spawn !== 'function') throw new Error('node-pty has no spawn');
+  return resolved;
+}
+
+const SIGNAL_NAMES = new Map<number, NodeJS.Signals>(
+  (Object.entries(os.constants.signals) as [NodeJS.Signals, number][]).map(([name, number]) => [number, name]),
+);
 
 /** Internal override (never reachable from a client request): run this exact command instead of claude/bash. */
 export type CommandOverride = { command: string; args: string[] };
@@ -85,17 +114,15 @@ export function hostProcess(socket: Duplex, req: SpawnRequest, options: ProcessH
     socket.end();
   };
 
-  if (req.kind === 'pty') {
-    fail('pty not supported yet');
-    return;
-  }
   if (!options.dev && req.uid < MIN_ISOLATED_UID) {
     fail('uid below isolated range');
     return;
   }
 
+  // pty: args[0] is the command line ("-c" like the local terminal); empty = an interactive login shell.
+  const ptyArgs = (req.args[0] ?? '') === '' ? ['-l'] : ['-c', req.args[0]];
   let command = override?.command ?? (req.kind === 'claude' ? options.claudeBin : 'bash');
-  let args = override?.args ?? (req.kind === 'claude' ? req.args : ['-lc', req.args[0] ?? '']);
+  let args = override?.args ?? (req.kind === 'claude' ? req.args : req.kind === 'pty' ? ptyArgs : ['-lc', req.args[0] ?? '']);
   // The process is created in projectDir (its parent is root-owned, so it cannot be swapped). The requested
   // subdirectory is entered only after the uid drop, so the kernel checks the project's own permissions
   // and a symlink planted in the project cannot redirect a root chdir().
@@ -110,6 +137,12 @@ export function hostProcess(socket: Duplex, req: SpawnRequest, options: ProcessH
     HOME: req.homeDir,
   };
 
+  const drop = options.dev ? {} : { uid: req.uid, gid: options.gidFor ? options.gidFor(req.uid) : req.uid };
+  if (req.kind === 'pty') {
+    hostPty(socket, req, command, args, env, drop, options, fail);
+    return;
+  }
+
   let child: ChildProcess;
   try {
     child = (options.spawnImpl ?? spawn)(command, args, {
@@ -117,7 +150,7 @@ export function hostProcess(socket: Duplex, req: SpawnRequest, options: ProcessH
       env,
       detached: true,
       stdio: ['pipe', 'pipe', 'pipe'],
-      ...(options.dev ? {} : { uid: req.uid, gid: options.gidFor ? options.gidFor(req.uid) : req.uid }),
+      ...drop,
     });
   } catch (error) {
     fail(error instanceof Error ? error.message : String(error));
@@ -187,7 +220,7 @@ export function hostProcess(socket: Duplex, req: SpawnRequest, options: ProcessH
       else if (frame.type === 'kill') {
         killGroup(child, (frame.payload.toString('utf8') || 'SIGTERM') as NodeJS.Signals);
       }
-      // 'resize' only matters for pty (Task 8).
+      // 'resize' only matters for kind 'pty'.
     }
   });
   socket.on('error', () => {});
@@ -197,4 +230,114 @@ export function hostProcess(socket: Duplex, req: SpawnRequest, options: ProcessH
     socket.destroy();
   });
   socket.on('close', terminate);
+}
+
+/**
+ * kind 'pty': the process runs on a pseudo terminal (node-pty), as the project's uid like every other kind. The
+ * terminal merges stdout and stderr, so output is 'stdout' frames; 'resize' carries {cols, rows}. Frames that
+ * arrive while node-pty is still loading are queued.
+ */
+function hostPty(
+  socket: Duplex,
+  req: SpawnRequest,
+  command: string,
+  args: string[],
+  env: Record<string, string>,
+  drop: { uid?: number; gid?: number },
+  options: ProcessHostOptions,
+  fail: (message: string) => void,
+): void {
+  let term: PtyProcess | null = null;
+  let finished = false;
+  let closed = false;
+  let killTimer: NodeJS.Timeout | undefined;
+  const queue: Frame[] = [];
+  const grace = options.killGraceMs ?? 3000;
+  // Lets the daemon's shutdown sweep treat the terminal like any child (killGroup needs only pid and kill).
+  const handle = { get pid() { return term?.pid; }, kill: (signal?: NodeJS.Signals) => term?.kill(signal) } as unknown as ChildProcess;
+  const groupKill = (signal: NodeJS.Signals) => {
+    if (term) killGroup(handle, signal);
+  };
+  const terminate = () => {
+    closed = true;
+    if (!term || finished) return;
+    groupKill('SIGTERM');
+    killTimer = setTimeout(() => groupKill('SIGKILL'), grace);
+    killTimer.unref();
+  };
+
+  const apply = (frame: Frame) => {
+    if (!term) return;
+    if (frame.type === 'stdin') term.write(frame.payload);
+    else if (frame.type === 'kill') groupKill((frame.payload.toString('utf8') || 'SIGTERM') as NodeJS.Signals);
+    else if (frame.type === 'resize') {
+      try {
+        const size = JSON.parse(frame.payload.toString('utf8')) as { cols?: unknown; rows?: unknown };
+        const { cols, rows } = size;
+        if (Number.isInteger(cols) && Number.isInteger(rows) && (cols as number) > 0 && (rows as number) > 0 && (cols as number) < 1000 && (rows as number) < 1000) {
+          term.resize(cols as number, rows as number);
+        }
+      } catch {
+        // A malformed size is ignored.
+      }
+    }
+    // 'stdin_end' has no meaning for a terminal.
+  };
+
+  const decoder = new FrameDecoder();
+  socket.on('data', (chunk: Buffer) => {
+    let frames;
+    try {
+      frames = decoder.push(chunk);
+    } catch {
+      terminate();
+      socket.destroy();
+      return;
+    }
+    for (const frame of frames) {
+      if (term) apply(frame);
+      else queue.push(frame);
+    }
+  });
+  socket.on('error', () => {});
+  socket.on('end', () => {
+    terminate();
+    socket.destroy();
+  });
+  socket.on('close', terminate);
+
+  (options.loadPty ?? defaultLoadPty)().then(
+    (ptyModule) => {
+      if (closed) return;
+      try {
+        term = ptyModule.spawn(command, args, {
+          name: env.TERM || 'xterm-256color',
+          cols: 80,
+          rows: 24,
+          cwd: req.projectDir,
+          env,
+          ...drop,
+        });
+      } catch (error) {
+        fail(error instanceof Error ? error.message : String(error));
+        return;
+      }
+      options.live?.add(handle);
+      term.onData((data) => {
+        socket.write(encodeFrame('stdout', Buffer.from(data, 'utf8')));
+      });
+      term.onExit(({ exitCode, signal }) => {
+        if (finished) return;
+        finished = true;
+        clearTimeout(killTimer);
+        options.live?.delete(handle);
+        groupKill('SIGKILL'); // leftovers of the terminal's session
+        const name = signal ? (SIGNAL_NAMES.get(signal) ?? null) : null;
+        socket.write(encodeFrame('exit', JSON.stringify({ code: name ? null : exitCode, signal: name })));
+        socket.end();
+      });
+      for (const frame of queue.splice(0)) apply(frame);
+    },
+    () => fail('pty not supported: node-pty is not available in the sandbox'),
+  );
 }

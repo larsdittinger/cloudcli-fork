@@ -216,3 +216,14 @@ test('adopt hands app-written paths to the project; a 64 KiB+ spawn goes through
   assert.deepEqual(outcome.errors, []);
   assert.equal(outcome.stdout.trim(), String(big.length));
 });
+
+test('pty through the client: resize reaches the terminal, output and exit come back', async () => {
+  const proc = client().spawn(request({ kind: 'pty', args: ['read x; stty size; exit 5'] }));
+  proc.resize(44, 132);
+  let out = '';
+  proc.stdout.on('data', (chunk: Buffer) => { out += chunk.toString(); });
+  const exit = new Promise<number | null>((resolve) => proc.once('exit', (code) => resolve(code)));
+  setTimeout(() => proc.stdin.write('\n'), 300);
+  assert.equal(await exit, 5);
+  assert.match(out, /132 44/); // stty size: rows cols
+});

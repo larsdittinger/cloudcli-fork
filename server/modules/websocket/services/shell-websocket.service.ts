@@ -2,9 +2,15 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import pty, { type IPty } from 'node-pty';
+import pty from 'node-pty';
 import { WebSocket, type RawData } from 'ws';
 
+import {
+  isIsolatedPath,
+  ISOLATED_CLAUDE_ONLY_TEXT,
+  startSandboxTerminal,
+  type ShellPty,
+} from '@/modules/isolation/index.js';
 import { parseIncomingJsonObject, stripAnsiSequences } from '@/shared/utils.js';
 
 type ShellIncomingMessage = {
@@ -26,7 +32,7 @@ type ShellIncomingMessage = {
 type ShellColorScheme = 'light' | 'dark';
 
 type PtySessionEntry = {
-  pty: IPty;
+  pty: ShellPty;
   ws: WebSocket | null;
   buffer: string[];
   timeoutId: NodeJS.Timeout | null;
@@ -533,7 +539,7 @@ export function handleShellConnection(
 ): void {
   console.log('[INFO] Shell websocket connected');
 
-  let shellProcess: IPty | null = null;
+  let shellProcess: ShellPty | null = null;
   let ptySessionKey: string | null = null;
   let urlDetectionBuffer = '';
   const announcedAuthUrls = new Set<string>();
@@ -633,8 +639,11 @@ export function handleShellConnection(
           return;
         }
 
+        const isolated = isIsolatedPath(resolvedProjectPath);
+        // The light-theme launch flag points at a settings file in the app's data folder, which the sandbox
+        // cannot read, so an isolated project's Claude CLI keeps its own theme.
         const { command: shellCommand, claudeFollowsAppTheme } = buildShellCommand(
-          data,
+          isolated ? { ...data, colorScheme: undefined } : data,
           dependencies,
           resolvedProjectPath,
         );
@@ -647,23 +656,48 @@ export function handleShellConnection(
         const termRows = readNumber(data.rows, 24);
         const prioritizedPath = prioritizeUserNpmGlobalBin(process.env);
 
-        shellProcess = (dependencies.spawnPty ?? pty.spawn)(shell, shellArgs, {
-          name: 'xterm-256color',
-          cols: termCols,
-          rows: termRows,
-          cwd: resolvedProjectPath,
-          env: {
-            ...process.env,
-            [prioritizedPath.key]: prioritizedPath.value,
-            TERM: 'xterm-256color',
-            COLORTERM: 'truecolor',
-            FORCE_COLOR: '3',
-            // rxvt's "foreground;background" palette indices (15 = white, 0 = black).
-            // Programs that cannot query the terminal (vim, Claude Code's "auto"
-            // theme before its OSC 11 reply arrives) read it to pick light or dark.
-            ...(colorScheme ? { COLORFGBG: colorScheme === 'light' ? '0;15' : '15;0' } : {}),
-          },
-        });
+        if (isolated) {
+          // An isolated project's terminal lives in the sandbox (as the project's uid, allowlisted env); a
+          // Claude CLI there gets the Claude login through the run-token proxy. Never a local pty.
+          const notice = (text: string) =>
+            ws.send(JSON.stringify({ type: 'output', data: `\r\n\x1b[31m${text}\x1b[0m\r\n` }));
+          if (!isPlainShell && provider !== 'claude') {
+            notice(ISOLATED_CLAUDE_ONLY_TEXT);
+            return;
+          }
+          try {
+            shellProcess = startSandboxTerminal({
+              projectPath: resolvedProjectPath,
+              command: shellCommand,
+              cols: termCols,
+              rows: termRows,
+              claude: !isPlainShell,
+              sessionId: sessionId ?? undefined,
+              env: colorScheme ? { COLORFGBG: colorScheme === 'light' ? '0;15' : '15;0' } : {},
+            });
+          } catch (error) {
+            notice(error instanceof Error ? error.message : String(error));
+            return;
+          }
+        } else {
+          shellProcess = (dependencies.spawnPty ?? pty.spawn)(shell, shellArgs, {
+            name: 'xterm-256color',
+            cols: termCols,
+            rows: termRows,
+            cwd: resolvedProjectPath,
+            env: {
+              ...process.env,
+              [prioritizedPath.key]: prioritizedPath.value,
+              TERM: 'xterm-256color',
+              COLORTERM: 'truecolor',
+              FORCE_COLOR: '3',
+              // rxvt's "foreground;background" palette indices (15 = white, 0 = black).
+              // Programs that cannot query the terminal (vim, Claude Code's "auto"
+              // theme before its OSC 11 reply arrives) read it to pick light or dark.
+              ...(colorScheme ? { COLORFGBG: colorScheme === 'light' ? '0;15' : '15;0' } : {}),
+            },
+          });
+        }
 
         ptySessionsMap.set(ptySessionKey, {
           pty: shellProcess,

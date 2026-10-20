@@ -32,6 +32,8 @@ export {
   sandboxMcpDir,
 } from './claude-sandbox-options.js';
 export type { SandboxEnvOptions, SandboxRun, SandboxRunContext } from './claude-sandbox-options.js';
+export { runInSandbox, startSandboxTerminal } from './sandbox-exec.js';
+export type { SandboxExecResult, SandboxTerminal, ShellPty } from './sandbox-exec.js';
 export { ATTACHMENTS_DIR, stageForSandbox } from './sandbox-attachments.js';
 export {
   acceptTranscript,

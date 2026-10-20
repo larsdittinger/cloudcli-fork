@@ -5,6 +5,7 @@ import path from 'node:path';
 
 import { channelsService } from '@/modules/channels/index.js';
 import type { ScheduleRow } from '@/modules/database/index.js';
+import { isIsolatedPath, runInSandbox } from '@/modules/isolation/index.js';
 
 /** Full output of every script run, one file per run; pruned together with the runs. */
 export const SCHEDULE_LOGS_DIR = path.join(os.homedir(), '.cloudcli', 'schedules', 'logs');
@@ -95,21 +96,6 @@ export async function runScript(input: {
     return { status: 'failed', exitCode: null, stdout: '', output: message, logPath };
   }
 
-  const publicUrl = channelsService.getPublicUrl();
-  const child = spawn('bash', ['-lc', schedule.command], {
-    cwd: schedule.project_path,
-    detached: true,
-    stdio: ['ignore', 'pipe', 'pipe'],
-    env: {
-      ...process.env,
-      CLOUDCLI_SCHEDULE_ID: schedule.id,
-      CLOUDCLI_SCHEDULE_NAME: schedule.name,
-      CLOUDCLI_RUN_ID: input.runId,
-      CLOUDCLI_SCHEDULED_FOR: input.scheduledFor ?? '',
-      ...(publicUrl ? { CLOUDCLI_PUBLIC_URL: publicUrl } : {}),
-    },
-  });
-
   let output = '';
   let stdout = '';
   let loggedBytes = 0;
@@ -125,6 +111,53 @@ export async function runScript(input: {
       writeLog('\n[log truncated at 1 MiB — the run keeps the last 64 KiB]\n');
     }
   };
+  const scheduleEnv = {
+    CLOUDCLI_SCHEDULE_ID: schedule.id,
+    CLOUDCLI_SCHEDULE_NAME: schedule.name,
+    CLOUDCLI_RUN_ID: input.runId,
+    CLOUDCLI_SCHEDULED_FOR: input.scheduledFor ?? '',
+  };
+
+  // Scripts of an isolated project run in the sandbox as the project's uid; a failure there is a failed run,
+  // never a local fallback.
+  if (isIsolatedPath(schedule.project_path)) {
+    const stopController = new AbortController();
+    runningScripts.set(input.runId, { logPath, stop: () => stopController.abort() });
+    let result: Awaited<ReturnType<typeof runInSandbox>> | null = null;
+    try {
+      result = await runInSandbox({
+        projectPath: schedule.project_path,
+        command: schedule.command,
+        env: scheduleEnv,
+        timeoutMs: Math.max(1, input.timeoutSec ?? schedule.timeout_sec) * 1000,
+        killGraceMs: input.killGraceMs,
+        signal: stopController.signal,
+        onStdout: (text) => record(text, true),
+        onStderr: (text) => record(text, false),
+      });
+    } catch (error) {
+      record(`${error instanceof Error ? error.message : String(error)}\n`, false);
+    }
+    runningScripts.delete(input.runId);
+    const exitCode = result?.exitCode ?? null;
+    const status: ScriptResult['status'] = result?.timedOut ? 'timeout' : exitCode === 0 ? 'succeeded' : 'failed';
+    writeLog(`\n# finished: ${new Date().toISOString()} · ${status}${exitCode === null ? '' : ` · exit ${exitCode}`}\n`);
+    await closeLog();
+    return { status, exitCode, stdout, output, logPath };
+  }
+
+  const publicUrl = channelsService.getPublicUrl();
+  const child = spawn('bash', ['-lc', schedule.command], {
+    cwd: schedule.project_path,
+    detached: true,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    env: {
+      ...process.env,
+      ...scheduleEnv,
+      ...(publicUrl ? { CLOUDCLI_PUBLIC_URL: publicUrl } : {}),
+    },
+  });
+
   // Decode as UTF-8 streams so a character split between two chunks stays whole.
   child.stdout?.setEncoding('utf8');
   child.stderr?.setEncoding('utf8');

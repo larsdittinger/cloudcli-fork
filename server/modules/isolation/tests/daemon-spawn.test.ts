@@ -141,10 +141,52 @@ test('exit on daemon disconnect', async () => {
   assert.equal(alive, false);
 });
 
-test('pty is reported as not supported yet', async () => {
-  const socket = await connectSpawn(daemon.socketPath, TOKEN, request({ kind: 'pty' }));
+test('pty runs a command with a terminal and propagates the exit code', async () => {
+  const socket = await connectSpawn(daemon.socketPath, TOKEN, request({ kind: 'pty', args: ['test -t 0 && echo tty-yes; exit 4'] }));
   const frames = await collect(socket);
-  assert.match(text(frames, 'error'), /pty not supported yet/);
+  assert.match(text(frames, 'stdout'), /tty-yes/);
+  assert.equal(exitOf(frames).code, 4);
+});
+
+test('pty: stdin reaches the terminal, resize changes its size, env is the request env', async () => {
+  const socket = await connectSpawn(
+    daemon.socketPath, TOKEN,
+    request({ kind: 'pty', args: ['read line; echo "got:$line:$FOO"; sleep 0.5; stty size; exit 0'], env: { FOO: 'bar', PATH: '/usr/bin:/bin' } }),
+  );
+  const done = collect(socket);
+  socket.write(encodeFrame('resize', JSON.stringify({ cols: 101, rows: 33 })));
+  setTimeout(() => socket.write(encodeFrame('stdin', 'hello\n')), 200);
+  const frames = await done;
+  assert.match(text(frames, 'stdout'), /got:hello:bar/);
+  assert.match(text(frames, 'stdout'), /33 101/);
+});
+
+test('pty: cwd below the project is entered after the drop and kill ends it', async () => {
+  fs.mkdirSync(path.join(tmp, 'isolated', 'p1', 'sub'), { recursive: true });
+  const socket = await connectSpawn(
+    daemon.socketPath, TOKEN,
+    request({ kind: 'pty', args: ['pwd; sleep 60'], cwd: path.join(tmp, 'isolated', 'p1', 'sub') }),
+  );
+  const done = collect(socket);
+  setTimeout(() => socket.write(encodeFrame('kill', 'SIGTERM')), 500);
+  const frames = await done;
+  assert.match(text(frames, 'stdout'), /isolated\/p1\/sub/);
+  assert.equal(exitOf(frames).signal, 'SIGTERM');
+});
+
+test('pty without node-pty is reported as an error frame', async () => {
+  const frames: Frame[] = [];
+  const decoder = new FrameDecoder();
+  const socket = Object.assign(new PassThrough(), {
+    write: (chunk: Buffer) => {
+      frames.push(...decoder.push(chunk));
+      return true;
+    },
+    end: () => undefined,
+  }) as unknown as Duplex;
+  hostProcess(socket, request({ kind: 'pty' }), { dev: true, claudeBin: 'claude', loadPty: async () => { throw new Error('missing'); } });
+  await new Promise((r) => setTimeout(r, 100));
+  assert.match(text(frames, 'error'), /pty not supported/);
 });
 
 test('close() kills every live process group, grandchildren included', async () => {

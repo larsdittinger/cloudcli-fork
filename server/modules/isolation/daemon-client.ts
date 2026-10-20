@@ -96,6 +96,11 @@ export class SandboxProcess extends EventEmitter {
     return true;
   }
 
+  /** Terminal size (kind 'pty' only; the daemon ignores it for other kinds). */
+  resize(cols: number, rows: number): void {
+    this.send(encodeFrame('resize', JSON.stringify({ cols, rows })), () => {});
+  }
+
   override on(event: 'exit', listener: ExitListener): this;
   override on(event: 'error', listener: (error: Error) => void): this;
   override on(event: string | symbol, listener: (...args: any[]) => void): this;
