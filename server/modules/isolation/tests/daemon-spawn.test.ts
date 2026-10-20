@@ -3,12 +3,12 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test, { after, before } from 'node:test';
-import type { Duplex } from 'node:stream';
+import { PassThrough, type Duplex } from 'node:stream';
 
 import { connectSpawn, DaemonRejectedError } from '../daemon/client.js';
 import { startDaemon, type RunningDaemon } from '../daemon/daemon.js';
 import { FrameDecoder, encodeFrame, type Frame } from '../daemon/frames.js';
-import type { SpawnRequest } from '../daemon/process-host.js';
+import { hostProcess, type SpawnRequest } from '../daemon/process-host.js';
 
 const TOKEN = 'test-token';
 let tmp: string;
@@ -127,4 +127,51 @@ test('pty is reported as not supported yet', async () => {
   const socket = await connectSpawn(daemon.socketPath, TOKEN, request({ kind: 'pty' }));
   const frames = await collect(socket);
   assert.match(text(frames, 'error'), /pty not supported yet/);
+});
+
+test('close() kills every live process group, grandchildren included', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sbx-close-'));
+  const local = await startDaemon({ token: TOKEN, isolationDir: dir, dev: true });
+  const pidFile = path.join(dir, 'pids');
+  await connectSpawn(
+    local.socketPath,
+    TOKEN,
+    request({ args: [`sleep 60 & echo $! > ${pidFile}; exec sleep 60`] }),
+  );
+  for (let i = 0; i < 50 && !fs.existsSync(pidFile); i += 1) await new Promise((r) => setTimeout(r, 50));
+  await new Promise((r) => setTimeout(r, 100));
+  const grandchild = Number(fs.readFileSync(pidFile, 'utf8'));
+  assert.ok(grandchild > 0);
+  await local.close();
+  const isAlive = (pid: number) => {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  for (let i = 0; i < 20 && isAlive(grandchild); i += 1) await new Promise((r) => setTimeout(r, 50));
+  assert.equal(isAlive(grandchild), false);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('refuses to start outside dev mode without CLOUDCLI_MAIN_GID', async () => {
+  await assert.rejects(
+    startDaemon({ token: TOKEN, isolationDir: tmp, socketPath: path.join(tmp, 'nogid.sock') }),
+    /CLOUDCLI_MAIN_GID/,
+  );
+});
+
+test('production mode rejects uid below 20000 before spawning', async () => {
+  const sent: Buffer[] = [];
+  const fake = new PassThrough();
+  fake.on('data', (c: Buffer) => sent.push(c));
+  const marker = path.join(tmp, 'low-uid-ran');
+  hostProcess(fake, request({ uid: 100, args: [`touch ${marker}`] }), { dev: false, claudeBin: 'claude' });
+  await new Promise((r) => setTimeout(r, 100));
+  const frames = new FrameDecoder().push(Buffer.concat(sent));
+  assert.equal(frames[0].type, 'error');
+  assert.match(frames[0].payload.toString(), /uid below isolated range/);
+  assert.equal(fs.existsSync(marker), false);
 });

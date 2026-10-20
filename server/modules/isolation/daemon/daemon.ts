@@ -1,12 +1,13 @@
 // Sandbox daemon: HTTP on a unix socket, upgraded to a framed duplex stream per process.
 // Node builtins only: runs standalone in the sandbox image.
+import { type ChildProcess } from 'node:child_process';
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 
-import { hostProcess, parseSpawnRequest, type ProcessHostOptions } from './process-host.js';
+import { hostProcess, killGroup, parseSpawnRequest, type ProcessHostOptions } from './process-host.js';
 
 export type DaemonOptions = {
   token: string;
@@ -31,9 +32,14 @@ function tokenMatches(header: string | undefined, token: string): boolean {
 export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon> {
   if (!options.token) throw new Error('SANDBOX_DAEMON_TOKEN is required');
   const dev = Boolean(options.dev);
+  if (!dev && (options.mainGid === undefined || !Number.isInteger(options.mainGid))) {
+    throw new Error('CLOUDCLI_MAIN_GID is required outside SANDBOX_DEV (socket group would be root)');
+  }
   const socketPath = options.socketPath ?? path.join(options.isolationDir, 'daemon.sock');
+  const live = new Set<ChildProcess>();
   const hostOptions: ProcessHostOptions = {
     dev,
+    live,
     claudeBin: options.claudeBin ?? process.env.CLAUDE_BIN ?? 'claude',
     gidFor: (uid) => uid,
   };
@@ -82,6 +88,8 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     socketPath,
     close: () =>
       new Promise<void>((resolve) => {
+        // Synchronous SIGKILL of every live group: must happen even if the process exits right after.
+        for (const child of live) killGroup(child, 'SIGKILL');
         for (const socket of sockets) socket.destroy();
         server.close(() => resolve());
         server.closeAllConnections();
@@ -95,12 +103,19 @@ if (isMain) {
   startDaemon({
     token: process.env.SANDBOX_DAEMON_TOKEN ?? '',
     isolationDir: process.env.ISOLATION_DIR ?? '/cloudcli-isolation',
-    mainGid: gid ? Number(gid) : undefined,
+    mainGid: gid ? Number(gid) : undefined, // validated in startDaemon
     isolatedRoot: process.env.ISOLATED_ROOT,
     isolatedHomes: process.env.ISOLATED_HOMES,
     dev: process.env.SANDBOX_DEV === '1',
   }).then(
-    (daemon) => console.log(`sandbox daemon listening on ${daemon.socketPath}`),
+    (daemon) => {
+      console.log(`sandbox daemon listening on ${daemon.socketPath}`);
+      for (const signal of ['SIGTERM', 'SIGINT'] as const) {
+        process.once(signal, () => {
+          void daemon.close().finally(() => process.exit(0));
+        });
+      }
+    },
     (error) => {
       console.error(error);
       process.exit(1);

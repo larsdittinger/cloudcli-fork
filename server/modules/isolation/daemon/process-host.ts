@@ -24,6 +24,8 @@ export type ProcessHostOptions = {
   /** Group the process runs as in production. Defaults to uid. */
   gidFor?: (uid: number) => number;
   killGraceMs?: number;
+  /** Live children of this daemon, so shutdown can kill every group. */
+  live?: Set<ChildProcess>;
 };
 
 const DEFAULT_PATH = '/usr/local/bin:/usr/bin:/bin';
@@ -54,7 +56,7 @@ export function parseSpawnRequest(raw: unknown): SpawnRequest {
   return req as SpawnRequest;
 }
 
-function killGroup(child: ChildProcess, signal: NodeJS.Signals): void {
+export function killGroup(child: ChildProcess, signal: NodeJS.Signals): void {
   if (!child.pid) return;
   try {
     process.kill(-child.pid, signal);
@@ -105,6 +107,10 @@ export function hostProcess(socket: Duplex, req: SpawnRequest, options: ProcessH
     fail(error instanceof Error ? error.message : String(error));
     return;
   }
+
+  options.live?.add(child);
+  child.once('close', () => options.live?.delete(child));
+  child.once('error', () => options.live?.delete(child));
 
   let finished = false;
   let killTimer: NodeJS.Timeout | undefined;
