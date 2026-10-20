@@ -36,7 +36,7 @@ function daemonRequest(method: string, pathname: string, body?: unknown): Promis
 
 before(async () => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'sbxp-'));
-  target = http.createServer((req, res) => res.writeHead(200, { 'x-target': 'yes' }).end(`hello ${req.url}`));
+  target = http.createServer((req, res) => res.writeHead(200, { 'x-target': 'yes', 'x-host': String(req.headers.host) }).end(`hello ${req.url}`));
   await new Promise<void>((r) => target.listen(0, '127.0.0.1', r));
   targetPort = (target.address() as net.AddressInfo).port;
 
@@ -110,10 +110,12 @@ test('wrong or missing proxy credentials are 407', async () => {
   }
 });
 
-test('absolute-form HTTP GET passes, forbidden host is 403', async () => {
+test('absolute-form HTTP GET passes (Host rewritten to the URL), forbidden host is 403', async () => {
+  let hostSeen = '';
   const ok = await new Promise<{ status: number; body: string; header: string }>((resolve, reject) => {
     http
-      .get({ host: '127.0.0.1', port: daemon.proxyPort, path: `http://localhost:${targetPort}/abs?x=1`, headers: { 'Proxy-Authorization': auth('p1', SECRET), Host: `localhost:${targetPort}` } }, (res) => {
+      .get({ host: '127.0.0.1', port: daemon.proxyPort, path: `http://localhost:${targetPort}/abs?x=1`, headers: { 'Proxy-Authorization': auth('p1', SECRET), Host: 'spoofed.example' } }, (res) => {
+        hostSeen = String(res.headers['x-host']);
         let body = '';
         res.on('data', (c) => (body += c));
         res.on('end', () => resolve({ status: res.statusCode ?? 0, body, header: String(res.headers['x-target']) }));
@@ -121,6 +123,7 @@ test('absolute-form HTTP GET passes, forbidden host is 403', async () => {
       .on('error', reject);
   });
   assert.deepEqual(ok, { status: 200, body: 'hello /abs?x=1', header: 'yes' });
+  assert.equal(hostSeen, `localhost:${targetPort}`);
 
   const denied = await new Promise<{ status: number; body: string }>((resolve, reject) => {
     http
@@ -205,6 +208,66 @@ test('fails closed: firewall failure refuses spawn and status reports it', async
     connectSpawn(d.socketPath, TOKEN, { kind: 'exec', uid: 20001, projectDir: dir, homeDir: dir, args: ['true'], env: {}, cwd: dir }),
     DaemonRejectedError,
   );
+  await d.close();
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('uid already used by another project is 409', async () => {
+  const clash = await daemonRequest('PUT', '/v1/projects/other', { uid: 20001, name: 'X', allowlist: [], proxySecret: 'z' });
+  assert.equal(clash.status, 409);
+  const same = await daemonRequest('PUT', '/v1/projects/p1', { uid: 20001, name: 'Mail', allowlist: ['localhost'], proxySecret: SECRET });
+  assert.equal(same.status, 200);
+});
+
+test('spawn is refused (503) while the firewall is initializing, then allowed', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sbxi-'));
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  const socketPath = path.join(dir, 'daemon.sock');
+  const starting = startDaemon({
+    token: TOKEN, isolationDir: dir, socketPath, mainGid: process.getgid?.() ?? 0, proxyPort: 0, forwardPort: 0,
+    applyNetwork: () => gate,
+  });
+  const spawnReq = { kind: 'exec' as const, uid: 20001, projectDir: dir, homeDir: dir, args: ['true'], env: {}, cwd: dir };
+  let refused: unknown;
+  for (let i = 0; i < 100 && !refused; i += 1) {
+    await new Promise((r) => setTimeout(r, 20));
+    if (!fs.existsSync(socketPath)) continue;
+    refused = await connectSpawn(socketPath, TOKEN, spawnReq).then(() => null, (e) => e);
+  }
+  assert.ok(refused instanceof DaemonRejectedError, 'spawn rejected while initializing');
+  assert.match(String((refused as Error).message), /503/);
+  release();
+  const d = await starting;
+  const status = await new Promise<number>((resolve, reject) =>
+    http.get({ socketPath: d.socketPath, path: '/v1/status', headers: { Authorization: `Bearer ${TOKEN}` } }, (res) => { res.resume(); resolve(res.statusCode ?? 0); }).on('error', reject),
+  );
+  assert.equal(status, 200);
+  await d.close();
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('TCP names are re-resolved on every refresh', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sbxr-'));
+  const states: Array<{ rules4: string[]; hosts: Array<{ ip: string; host: string }> }> = [];
+  let ip = '203.0.113.7';
+  const d = await startDaemon({
+    token: TOKEN, isolationDir: dir, dev: true, proxyPort: 0, forwardPort: 0,
+    resolver: async () => [ip],
+    applyNetwork: async (s) => { states.push(s); },
+  });
+  const put = () => new Promise<void>((resolve, reject) => {
+    const req = http.request({ socketPath: d.socketPath, method: 'PUT', path: '/v1/projects/m', headers: { Authorization: `Bearer ${TOKEN}` } }, (res) => { res.resume(); res.on('end', resolve); });
+    req.on('error', reject);
+    req.end(JSON.stringify({ uid: 20005, name: 'M', allowlist: ['imap.example:993'], proxySecret: 'q' }));
+  });
+  await put();
+  assert.ok(states.at(-1)!.hosts.some((h) => h.ip === '203.0.113.7'));
+  ip = '203.0.113.9';
+  await put();
+  const last = states.at(-1)!;
+  assert.deepEqual(last.hosts, [{ ip: '203.0.113.9', host: 'imap.example' }]);
+  assert.ok(last.rules4.some((r) => r.includes('-d 203.0.113.9 ')) && !last.rules4.some((r) => r.includes('203.0.113.7')));
   await d.close();
   fs.rmSync(dir, { recursive: true, force: true });
 });

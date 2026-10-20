@@ -41,6 +41,8 @@ export type DaemonOptions = {
   applyNetwork?: (net: NetworkState) => Promise<void>;
   /** Re-resolve interval for TCP allowlist names (production). */
   resolveIntervalMs?: number;
+  /** Resolves a TCP allowlist name to IPs; defaults to direct DNS (not /etc/hosts). */
+  resolver?: (host: string) => Promise<string[]>;
 };
 
 export type NetworkState = {
@@ -110,7 +112,9 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
   const store = new ProjectStore(options.isolationDir);
   const blocked = new BlockedLog(200);
   const applyNetwork = options.applyNetwork ?? (dev ? async () => undefined : applyRealNetwork);
-  let netState: { ok: boolean; reason?: string } = { ok: true };
+  // Fail closed until the first successful apply: no spawn before the firewall exists.
+  let netState: { ok: boolean; reason?: string } = { ok: false, reason: 'initializing' };
+  const resolveName = options.resolver ?? resolveHost;
   let resolved = new Map<string, string[]>();
   let refreshChain: Promise<void> = Promise.resolve();
 
@@ -128,7 +132,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
             let ips = next.get(entry.host);
             if (!ips) {
               try {
-                ips = await resolveHost(entry.host);
+                ips = await resolveName(entry.host);
               } catch {
                 ips = resolved.get(entry.host) ?? []; // keep the last known addresses on a DNS blip
               }
@@ -179,6 +183,8 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         try {
           const { config, error } = validateProjectConfig(JSON.parse(await readBody(req)));
           if (!config) return json(400, { error });
+          const clash = store.uidOwner(config.uid, projectId);
+          if (clash) return json(409, { error: `uid ${config.uid} is already used by project ${clash}` });
           store.set(projectId, config);
           await refreshNetwork();
           json(netState.ok ? 200 : 503, netState);

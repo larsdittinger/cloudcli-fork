@@ -34,6 +34,8 @@ export function buildFirewallRules(projects: FirewallProject[], opts: FirewallOp
     }
     lines.push(`-A ${FIREWALL_CHAIN} ${owner} -j DROP`);
   }
+  // Any isolated uid without a pushed config (or a stale one) gets no network at all.
+  lines.push(`-A ${FIREWALL_CHAIN} -m owner --uid-owner ${MIN_ISOLATED_UID}-4294967294 -j DROP`);
   lines.push('COMMIT');
   return lines;
 }
@@ -52,8 +54,11 @@ export function renderHostsFile(existing: string, entries: Array<{ ip: string; h
 
 export async function resolveHost(host: string): Promise<string[]> {
   if (net.isIP(host)) return [host];
-  const results = await dns.lookup(host, { all: true });
-  return results.map((r) => r.address);
+  // resolve4/6 query DNS directly: dns.lookup would read back our own /etc/hosts block and never refresh.
+  const [v4, v6] = await Promise.allSettled([dns.resolve4(host), dns.resolve6(host)]);
+  const addresses = [...(v4.status === 'fulfilled' ? v4.value : []), ...(v6.status === 'fulfilled' ? v6.value : [])];
+  if (addresses.length === 0) throw new Error(`Cannot resolve ${host}`);
+  return addresses;
 }
 
 function run(cmd: string, args: string[], input?: string): Promise<string> {
@@ -69,10 +74,11 @@ function run(cmd: string, args: string[], input?: string): Promise<string> {
 /** Production applier: ensures chain + OUTPUT jump (idempotent), then refills the chain atomically. */
 export async function applyFirewallRules(rules4: string[], rules6: string[]): Promise<void> {
   for (const [bin, rules] of [['iptables', rules4], ['ip6tables', rules6]] as const) {
-    await run(bin, ['-N', FIREWALL_CHAIN]).catch(() => undefined); // exists already
-    await run(bin, ['-C', 'OUTPUT', '-j', FIREWALL_CHAIN]).catch(() => run(bin, ['-I', 'OUTPUT', '1', '-j', FIREWALL_CHAIN]));
-    await run(`${bin}-restore`, ['--noflush'], `${rules.join('\n')}\n`);
-    await run(bin, ['-S', FIREWALL_CHAIN]);
+    // -w: wait for the xtables lock instead of failing when another tool holds it.
+    await run(bin, ['-w', '-N', FIREWALL_CHAIN]).catch(() => undefined); // exists already
+    await run(bin, ['-w', '-C', 'OUTPUT', '-j', FIREWALL_CHAIN]).catch(() => run(bin, ['-w', '-I', 'OUTPUT', '1', '-j', FIREWALL_CHAIN]));
+    await run(`${bin}-restore`, ['-w', '--noflush'], `${rules.join('\n')}\n`);
+    await run(bin, ['-w', '-S', FIREWALL_CHAIN]);
   }
 }
 

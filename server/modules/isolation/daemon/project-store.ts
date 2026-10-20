@@ -43,6 +43,12 @@ export class ProjectStore {
     return this.projects.get(id);
   }
 
+  /** Id of a project other than `exceptId` that already uses this uid. */
+  uidOwner(uid: number, exceptId: string): string | undefined {
+    for (const [id, project] of this.projects) if (id !== exceptId && project.uid === uid) return id;
+    return undefined;
+  }
+
   all(): StoredProject[] {
     return [...this.projects.values()];
   }

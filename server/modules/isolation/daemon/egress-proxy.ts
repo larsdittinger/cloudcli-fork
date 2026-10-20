@@ -127,6 +127,7 @@ export function createEgressProxy(options: EgressProxyOptions): http.Server {
     }
     const headers = { ...req.headers };
     for (const name of HOP_BY_HOP) delete headers[name];
+    headers.host = url.host; // the client's Host is untrusted; the request goes where the URL says
     const upstream = http.request({ host, port, method: req.method, path: `${url.pathname}${url.search}`, headers }, (upstreamRes) => {
       const responseHeaders = { ...upstreamRes.headers };
       for (const name of HOP_BY_HOP) delete responseHeaders[name];

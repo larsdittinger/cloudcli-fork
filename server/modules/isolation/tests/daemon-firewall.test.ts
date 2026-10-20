@@ -21,6 +21,7 @@ test('firewall rules snapshot (ipv4)', () => {
     '-A CLOUDCLI_SANDBOX -m owner --uid-owner 20002 -o lo -p tcp --dport 7701 -j ACCEPT',
     '-A CLOUDCLI_SANDBOX -m owner --uid-owner 20002 -o lo -p tcp --dport 7702 -j ACCEPT',
     '-A CLOUDCLI_SANDBOX -m owner --uid-owner 20002 -j DROP',
+    '-A CLOUDCLI_SANDBOX -m owner --uid-owner 20000-4294967294 -j DROP',
     'COMMIT',
   ]);
 });
@@ -29,7 +30,7 @@ test('uid isolation: no cross-project accepts, DNS dropped, root untouched', () 
   const rules = buildFirewallRules(projects, opts);
   assert.ok(!rules.some((r) => r.includes('uid-owner 20002') && r.includes('203.0.113.7')));
   assert.ok(!rules.some((r) => /dport 53/.test(r) && r.includes('ACCEPT')));
-  assert.ok(rules.every((r) => !r.startsWith('-A') || /--uid-owner 2000[12]/.test(r)));
+  assert.ok(rules.every((r) => !r.startsWith('-A') || /--uid-owner (2000[12]|20000-4294967294)/.test(r)));
   assert.ok(!rules.some((r) => /uid-owner 0\b/.test(r)));
   // ipv6 variant only carries ipv6 targets
   const v6 = buildFirewallRules(projects, { ...opts, family: 6 });
@@ -50,4 +51,19 @@ test('hosts block is replaced, not duplicated', () => {
   assert.equal(twice.match(/BEGIN cloudcli-sandbox/g)?.length, 1);
   assert.ok(twice.includes('203.0.113.8 imap.example') && !twice.includes('203.0.113.7'));
   assert.equal(renderHostsFile(twice, []), base);
+});
+
+test('uid without a pushed config only gets the catch-all DROP (both families)', () => {
+  for (const family of [4, 6] as const) {
+    const rules = buildFirewallRules([], { ...opts, family });
+    assert.deepEqual(rules, [
+      '*filter',
+      ':CLOUDCLI_SANDBOX - [0:0]',
+      '-F CLOUDCLI_SANDBOX',
+      '-A CLOUDCLI_SANDBOX -m owner --uid-owner 20000-4294967294 -j DROP',
+      'COMMIT',
+    ]);
+  }
+  const rules = buildFirewallRules(projects, opts);
+  assert.equal(rules.at(-2), '-A CLOUDCLI_SANDBOX -m owner --uid-owner 20000-4294967294 -j DROP');
 });
