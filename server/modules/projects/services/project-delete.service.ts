@@ -2,6 +2,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
 import { projectsDb, sessionsDb } from '@/modules/database/index.js';
+import { isolationDb, isolationService } from '@/modules/isolation/index.js';
 import { AppError } from '@/shared/utils.js';
 
 function uniqueJsonlPathsFromSessions(
@@ -83,7 +84,10 @@ export async function deleteOrArchiveProject(projectId: string, force: boolean):
 
   await deleteSessionJsonlFilesForProjectPath(row.project_path);
   sessionsDb.deleteSessionsByProjectPath(row.project_path);
+  // An isolated project's uid rules and proxy secret leave the sandbox daemon too.
+  const isolated = isolationDb.getById(projectId) !== null;
   projectsDb.deleteProjectById(projectId);
+  if (isolated) await isolationService.forget(projectId);
 }
 
 /**

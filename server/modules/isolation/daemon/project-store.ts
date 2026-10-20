@@ -53,6 +53,17 @@ export class ProjectStore {
     return [...this.projects.values()];
   }
 
+  ids(): string[] {
+    return [...this.projects.keys()];
+  }
+
+  /** Forgets a project (deleted in the app). True when it was known. */
+  delete(id: string): boolean {
+    const known = this.projects.delete(id);
+    if (known) this.persist();
+    return known;
+  }
+
   set(id: string, config: ProjectConfig): void {
     this.projects.set(id, { ...config, entries: parseAllowlist(config.allowlist).entries });
     this.persist();

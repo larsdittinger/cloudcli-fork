@@ -331,6 +331,18 @@ export function createDaemonClient(resolveEndpoint: () => DaemonEndpoint) {
       return { checks: Array.isArray(body?.checks) ? body.checks : [] };
     },
 
+    /** Ids of every project the daemon has a config for. */
+    async listProjects(): Promise<string[]> {
+      const body = expectOk(await callJson<{ projects?: unknown }>(resolveEndpoint(), 'GET', '/v1/projects'));
+      return Array.isArray(body?.projects) ? body.projects.filter((id): id is string => typeof id === 'string') : [];
+    },
+
+    /** Removes a deleted project's config (uid rules, proxy secret) from the daemon. */
+    async deleteProject(projectId: string): Promise<{ removed: boolean }> {
+      const body = expectOk(await callJson<{ removed?: boolean }>(resolveEndpoint(), 'DELETE', projectPath(projectId)));
+      return { removed: Boolean(body?.removed) };
+    },
+
     async blocked(projectId: string): Promise<BlockedEntry[]> {
       const body = expectOk(await callJson<BlockedEntry[]>(resolveEndpoint(), 'GET', `/v1/blocked?projectId=${encodeURIComponent(projectId)}`));
       return Array.isArray(body) ? body : [];

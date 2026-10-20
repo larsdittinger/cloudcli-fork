@@ -548,11 +548,13 @@ async function runCopy(job: Job, context: RunContext): Promise<void> {
     job.view.project = undefined;
     if (projectId) {
       try {
-        if (isolationDb.getById(projectId)) {
+        const wasIsolated = isolationDb.getById(projectId) !== null;
+        if (wasIsolated) {
           const home = isolationDb.getById(projectId)!.homeDir;
           if (home && isolatedAreaOf(home)) await isolatedFs.removeTree(home).catch(() => undefined);
         }
         projectsDb.deleteProjectById(projectId);
+        if (wasIsolated) await isolationService.forget(projectId);
       } catch (cleanupError) {
         console.warn(`[Projects] could not drop the registration of the failed copy: ${(cleanupError as Error).message}`);
       }

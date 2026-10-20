@@ -10,6 +10,7 @@ import { projectsDb } from '@/modules/database/index.js';
 import { daemonClient } from '@/modules/isolation/daemon-client.js';
 import { isIsolatedPath, isolationDb } from '@/modules/isolation/isolation.db.js';
 import isolationRoutes from '@/modules/isolation/isolation.routes.js';
+import { isolationService } from '@/modules/isolation/isolation.service.js';
 import { runTokens } from '@/modules/isolation/run-tokens.js';
 import { isolationEnvFor, withIsolatedDatabase, withIsolationEnv } from '@/modules/isolation/tests/helpers.js';
 import { AppError } from '@/shared/utils.js';
@@ -277,6 +278,29 @@ test('isIsolatedPath still true for an isolated project when isolation env is go
     });
     await withIsolationEnv(null, async () => {
       assert.equal(isIsolatedPath(projectPath), true);
+    });
+  });
+});
+
+test('resync prunes projects the daemon knows but the app no longer has', async () => {
+  await withIsolatedDatabase(async (dir) => {
+    await withIsolationEnv(isolationEnvFor(dir), async () => {
+      const { projectId } = makeIsolatedProject(dir, 'podpora');
+      isolationDb.markIsolated(projectId, isolationDb.nextUid());
+      const put = mock.method(daemonClient, 'putProject', async () => ({ ok: true }));
+      const list = mock.method(daemonClient, 'listProjects', async () => [projectId, 'deleted-long-ago']);
+      const removed: string[] = [];
+      const del = mock.method(daemonClient, 'deleteProject', async (id: string) => { removed.push(id); return { removed: true }; });
+      try {
+        const result = await isolationService.syncAll();
+        assert.equal(result.ok, 1);
+        assert.deepEqual(result.failed, []);
+        assert.deepEqual(removed, ['deleted-long-ago']);
+      } finally {
+        put.mock.restore();
+        list.mock.restore();
+        del.mock.restore();
+      }
     });
   });
 });

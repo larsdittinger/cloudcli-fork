@@ -145,16 +145,42 @@ export const isolationService = {
     return { project, warnings };
   },
 
-  /** Pushes every isolated project to the daemon (it may have lost its state). */
+  /**
+   * Pushes every isolated project to the daemon (it may have lost its state) and removes the ones the app no longer
+   * has (deleted while the daemon was unreachable).
+   */
   async syncAll(): Promise<{ ok: number; failed: Array<{ projectId: string; error: string }> }> {
     const failed: Array<{ projectId: string; error: string }> = [];
     let ok = 0;
-    for (const project of isolationDb.listIsolated()) {
+    const isolated = isolationDb.listIsolated();
+    for (const project of isolated) {
       const result = await syncProject(project);
       if (result.ok) ok += 1;
       else failed.push({ projectId: project.projectId, error: result.error });
     }
+    if (isolationConfig().available) {
+      const known = new Set(isolated.map((project) => project.projectId));
+      try {
+        for (const projectId of await daemonClient.listProjects()) {
+          if (!known.has(projectId)) await daemonClient.deleteProject(projectId);
+        }
+      } catch (error) {
+        failed.push({ projectId: '*', error: `pruning deleted projects: ${(error as Error).message}` });
+      }
+    }
     return { ok, failed };
+  },
+
+  /** A deleted isolated project leaves the daemon. Never throws: an unreachable daemon is pruned on the next resync. */
+  async forget(projectId: string): Promise<DaemonSync> {
+    if (!isolationConfig().available) return { ok: false, error: isolationConfig().reason ?? 'Isolation is not set up.' };
+    try {
+      await daemonClient.deleteProject(projectId);
+      return { ok: true };
+    } catch (error) {
+      console.warn(`[Isolation] could not remove project ${projectId} from the sandbox: ${(error as Error).message}`);
+      return { ok: false, error: (error as Error).message };
+    }
   },
 };
 
@@ -183,7 +209,8 @@ export async function initializeIsolation(): Promise<void> {
       return;
     }
     const expected = isolationDb.listIsolated().length;
-    if (synced && (status.projects ?? 0) >= expected) return;
+    // Fewer: the daemon lost state; more: a project was deleted while it was unreachable (syncAll prunes it).
+    if (synced && (status.projects ?? 0) === expected) return;
     const result = await isolationService.syncAll();
     synced = result.failed.length === 0;
     for (const failure of result.failed) console.warn(`[Isolation] could not push project ${failure.projectId}: ${failure.error}`);

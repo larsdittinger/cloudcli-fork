@@ -336,6 +336,17 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       })();
       return;
     }
+    if (req.method === 'GET' && url.pathname === '/v1/projects') {
+      return json(200, { projects: store.ids() });
+    }
+    if (req.method === 'DELETE' && projectMatch) {
+      const projectId = decodeURIComponent(projectMatch[1]);
+      if (!PROJECT_ID.test(projectId)) return json(400, { error: 'Invalid projectId' });
+      // The project was deleted in the app: its config and proxy secret go, its uid falls to the catch-all reject.
+      const removed = store.delete(projectId);
+      void refreshNetwork().then(() => json(netState.ok ? 200 : 503, { ...netState, removed }));
+      return;
+    }
     if (req.method === 'GET' && url.pathname === '/v1/blocked') {
       return json(200, blocked.list(url.searchParams.get('projectId') ?? ''));
     }
