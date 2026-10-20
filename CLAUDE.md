@@ -246,6 +246,79 @@ cd .. && ./cloudcli ethia update       # a další dotčené instance
 Buildy na serverech si berou **aktuální commit `main` z GitHubu** — lokální změny se
 do nasazení dostanou až po `git push origin main`.
 
+## Izolovaní agenti (od 2026-10-20)
+
+Projekt může být **izolovaný**: každý běh Claude v něm (chat, Channels, Schedules, Agent tasks) jede
+v sesterském kontejneru `cloudcli-<x>-sandbox`, ne v hlavním. Spec/plán v hubu:
+`docs/superpowers/specs|plans/2026-10-20-izolovani-agenti*.md`. Kód: `server/modules/isolation/**`
+(`daemon/**` = běží v sandboxu, jen Node builtins, server z něj smí importovat jen `allowlist.ts`),
+`src/modules/isolation/**` (zámek, štítek, dialogy Kopírovat agenta / Izolace…).
+
+**Architektura**
+- Sandbox = stejný image, entrypoint = **daemon** (root, minimum capabilities vč. `FSETID`, jinak by kernel
+  smazal setgid bit a app by neviděla soubory agenta). Hlavní app mluví s daemonem přes `daemon.sock`
+  (sdílený token z deploye), sandbox zpět do appky jen přes `main.sock` (loopback forward `127.0.0.1:7701`).
+  Oba sockety jsou v `isolation/` (0770).
+- Claude runtime u izolovaného projektu nastaví SDK `spawnClaudeCodeProcess` → daemon spustí `claude` pod uid
+  projektu; stdin/stdout/exit/kill se přeposílají. Rozhodnutí „je izolovaný“ je centrálně v runtime
+  (`isIsolatedPath` — i podadresáře a cokoli pod `ISOLATED_ROOT`), ne u volajících.
+- **Run tokeny** (`run-tokens.ts`): jeden na proces, jen v paměti, účel `claude|exec|pty|self-check`, nese
+  projekt, sezení, případně `channel` (zpráva/vlákno/odesílatel) nebo `taskId`. Jediný credential agenta vůči appce.
+  Do MCP (`cloudcli-channels`, `cloudcli-tasks`) smí jen `claude`; projekt i sezení se berou z tokenu, ne z `cwd`.
+- **Claude proxy** (`/anthropic/*` na main.sock) pouští jen `^/v1/messages(/count_tokens)?$`, `^/v1/models(/id)?$`,
+  `/api/hello`; ostatní 403 (logováno 1× na cestu). Token upstreamu = `app_config.isolation_claude_token`
+  (`claude setup-token`), jinak access token appky (vyprší). Agent dostane jen run token jako
+  `CLAUDE_CODE_OAUTH_TOKEN` a `ANTHROPIC_BASE_URL`.
+- **Síť**: iptables/ip6tables `--uid-owner` — uid projektu smí jen na loopback 7701/7702 a `host:port` z allowlistu;
+  zbytek **REJECT** (tcp-reset / icmp-admin-prohibited, ne DROP). **Egress proxy 7702** (CONNECT + HTTP) s
+  per-projektovým přihlášením povolí jen domény allowlistu, zamítnutí loguje (to vidí UI v „zablokované požadavky“).
+  Žádné DNS ven, žádný loopback pro vlastní dev servery.
+- **uid**: od 20000 z monotónního čítače `app_config.isolation_next_uid` (uid se nikdy nepoužije znovu),
+  gid procesu = uid. Projekt a home: vlastník uid, skupina = gid appky, mód `2770`, umask `007`; rodiče
+  `isolated`/`isolated-homes` jsou `0771` (agent projde ke svému, nevypíše sousedy).
+- **Přepisy**: CLI píše transcripty 0600/0700 → daemon `POST /v1/projects/:id/share-transcripts` (g+r, setgid dirs,
+  jen `<home>/.claude/projects`, fd-walk s `O_NOFOLLOW`) volá poller (6 s) a `exit` každého procesu.
+  Synchronizér bere jen přepisy s cwd daného projektu a nepoužitým session id (anti-hijack).
+- **TMPDIR** i `CLAUDE_CODE_TMPDIR` = `<home>/.tmp` (0700) per projekt, sdílené `/tmp` se nepoužívá.
+- Kopírování agenta (`projects/…copy`) čte zdroj no-follow helpery; ne-izolovaná kopie izolovaného zdroje jde do
+  `WORKSPACES_ROOT/<slug>`.
+
+**Invarianty (nikdy neporušit)**
+1. **Fail closed**: sandbox neběží / daemon odmítne / chybí env → běh skončí chybou, nikdy lokální spuštění.
+2. Do sandboxu jen **allowlist env** (`buildSandboxEnv`, vč. malých `http_proxy`/`no_proxy`); nikdy `{...process.env}`,
+   žádné tokeny z `~/.claude.json`.
+3. Hlavní app **nikdy nespouští ani nesleduje soubory izolovaného projektu** (agent může podstrčit symlink, FIFO,
+   `.git/hooks`, obří soubor): čtení/zápis jen přes `isolated-fs.ts` (no-follow fd, limity), git přes daemon
+   (`isolated-git.ts`; push/pull/fetch/publish jsou 409). Nový main-side kód nad cestou v izolaci = projít tímto.
+4. MCP scope **vždy z run tokenu**; `cwd`/`project_path` z těla agenta se ignoruje. Dispatcher Channels navazuje vlákno jen
+   v sezení se stejným `project_path` jako pravidlo.
+5. Bypass bez filtru odesílatelů smí jen izolovaný projekt (server i `ruleValidation.ts`); mandát úkolu od izolovaného
+   agenta potvrzuje vždy Lars; `tasks_send_message` jen přes účty vlastního projektu.
+6. Claude proxy: žádné další cesty; „Povolit“ nikdy pro `anthropic.com`/`claude.ai`/`claude.com` (`isClaudeServiceHost`).
+
+**Testy**
+- macOS (dev mode, daemon bez root a bez iptables, injektovaný `statOwner`): `TSX_TSCONFIG_PATH=server/tsconfig.json npm test`,
+  `NODE_OPTIONS=--no-experimental-webstorage npm run test:client`, `npm run typecheck`. Node 26 občas shodí
+  `agent.routes.test` ('Unable to deserialize cloned data') — běží samostatně.
+- Linux root (kernelové věci: `/proc/self/fd`, setuid/setgid, `iptables-restore --test`, share-transcripts) v Dockeru:
+  `git archive HEAD | docker run -i --init --cap-add NET_ADMIN -e TMPDIR=/var/tmp node:22-bookworm bash -c 'mkdir /src && tar -x -C /src && cd /src && apt-get update -qq && apt-get install -y -qq iptables >/dev/null && npm ci && TSX_TSCONFIG_PATH=server/tsconfig.json node --import tsx --test server/modules/isolation/tests/*.test.ts server/modules/projects/tests/isolated-workspace-path.test.ts'`
+  (poslední stav 166/166). `--init` je nutné (zombie po killu), `TMPDIR` mimo `/tmp` (to je v izolaci zakázané).
+  Testy Dockeru nesmí zapisovat do `/tmp` — workspace test staví strom v `.test-tmp/`.
+
+**Omezení v1** (zdokumentované, vědomé)
+- Přímá spojení mimo proxy (IMAP/SMTP mimo allowlist, nástroj ignorující proxy, DNS) jsou rejectnutá, ale **v UI se
+  nezobrazí** (žádný NFLOG reader); v seznamu jsou jen zamítnutí egress proxy.
+- Izolované projekty vidí v `ps` navzájem své procesy (bez `hidepid`); sdílí pidy, paměť (1,5 GB / 512 pidů kontejneru)
+  i disk — **žádné kvóty na projekt**.
+- Terminál `claude` v izolovaném projektu jede bez MCP (bez channels/tasks). Isolated Agent-task běh nečte
+  přes `channels_get_message` zprávy-odpovědi úkolu (jen zkrácený text).
+- Jen Claude; Codex/Cursor/OpenCode/Gemini server pro izolovaný projekt odmítne. Browser MCP tam není.
+- Proxy nefiltruje privátní IP pro povolená jména (povolené jméno mířící do privátní sítě projde).
+- Odložené drobnosti: `/v1/models/%2F` (proxy nedekóduje, upstream pravděpodobně taky ne); synchronní walk share-transcripts
+  každých 6 s na home (latence při mnoha projektech); prune v `syncAll` může vzácně srazit souběžné kopírování (retry);
+  force-delete izolovaného projektu smaže jsonl podle cesty v home zapisovatelném agentem; thread-memory porovnává cestu
+  textově (symlinkované cesty pravidel = nové vlákno); `ps`/`.tmp` se zakládá jen při provisioningu.
+
 ## Historie pojmenování
 
 Do 2026-08-27 se repo jmenoval `larsdittinger/cloudcli-ethia` a pracovní větev `ethia`.
