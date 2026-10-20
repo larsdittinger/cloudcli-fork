@@ -46,10 +46,21 @@ export function formatBytes(bytes: number): string {
   return `${unit === 0 ? value : value.toFixed(value < 10 ? 1 : 0)} ${units[unit]}`;
 }
 
-/** The allowlist line that lets a blocked request through: a bare host for HTTP(S), host:port for anything else. */
-export function allowlistLineFor(entry: Pick<BlockedEntry, 'host' | 'port' | 'kind'>): string {
-  const isIp = /^[\d.]+$/.test(entry.host) || entry.host.includes(':');
-  const web = entry.port === 80 || entry.port === 443;
-  if (web && !isIp) return entry.host;
-  return `${entry.host.includes(':') ? `[${entry.host}]` : entry.host}:${entry.port}`;
+const HOSTNAME = /^[a-z0-9_]([a-z0-9_.-]*[a-z0-9_])?$/i;
+const IPV4 = /^\d{1,3}(\.\d{1,3}){3}$/;
+const IPV6 = /^[0-9a-f:]+$/i;
+
+/**
+ * The allowlist line that lets a blocked request through, or null when none is safe to offer. The host comes
+ * from the agent, so only a plain hostname (with a dot, no wildcard) or an IP with a non-web port qualifies:
+ * a bare host for HTTP(S) ports, host:port otherwise.
+ */
+export function allowlistLineFor(entry: Pick<BlockedEntry, 'host' | 'port' | 'kind'>): string | null {
+  const { host, port } = entry;
+  if (!Number.isInteger(port) || port < 1 || port > 65535) return null;
+  const web = port === 80 || port === 443;
+  if (IPV4.test(host)) return web ? null : `${host}:${port}`;
+  if (host.includes(':')) return IPV6.test(host) && !web ? `[${host}]:${port}` : null;
+  if (!host.includes('.') || host.includes('*') || !HOSTNAME.test(host)) return null;
+  return web ? host : `${host}:${port}`;
 }

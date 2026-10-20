@@ -102,6 +102,15 @@ test('forbidden CONNECT is 403 with text and shows in blocked log', async () => 
   assert.ok(blocked.json.at(-1).at);
 });
 
+test('a host that fails normalization is logged as (invalid), never raw', async () => {
+  const res = await connectVia('*.com', 443, auth('p1', SECRET));
+  assert.equal(res.status, 403);
+  res.socket.destroy();
+  const blocked = await daemonRequest('GET', '/v1/blocked?projectId=p1');
+  assert.equal(blocked.json.at(-1).host, '(invalid)');
+  assert.ok(!res.body.includes('*.com'));
+});
+
 test('wrong or missing proxy credentials are 407', async () => {
   for (const header of [auth('p1', 'nope'), auth('unknown', SECRET), undefined]) {
     const res = await connectVia('localhost', targetPort, header);

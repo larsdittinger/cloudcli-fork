@@ -128,3 +128,31 @@ test('settings dialog saves tools and runs the isolation check', async () => {
   fireEvent.click(screen.getByRole('button', { name: 'Check isolation' }));
   assert.ok(await screen.findByText('can read /etc'));
 });
+
+test('Povolit is offered only for a valid hostname or IP with a non-web port', async () => {
+  apiMock.isolation.blocked.mockResolvedValue(json({ success: true, data: [
+    { at: '2026-10-20T10:00:00.000Z', host: '*.com', port: 443, kind: 'connect' },
+    { at: '2026-10-20T10:00:01.000Z', host: '(invalid)', port: 443, kind: 'connect' },
+    { at: '2026-10-20T10:00:02.000Z', host: '10.0.0.5', port: 443, kind: 'connect' },
+    { at: '2026-10-20T10:00:03.000Z', host: 'localhost', port: 443, kind: 'connect' },
+    { at: '2026-10-20T10:00:04.000Z', host: '10.0.0.5', port: 993, kind: 'connect' },
+  ] }));
+  render(<IsolationSettingsDialog project={project(true)} open onOpenChange={() => {}} />);
+  const buttons = await screen.findAllByRole('button', { name: /^Allow/ });
+  const enabled = buttons.filter((button) => !(button as HTMLButtonElement).disabled);
+  assert.equal(buttons.length, 5);
+  assert.equal(enabled.length, 1, 'only the IP with port 993');
+  fireEvent.click(enabled[0]);
+  assert.equal((screen.getByLabelText('Allowed addresses') as HTMLTextAreaElement).value, 'ethia.cz\n10.0.0.5:993');
+});
+
+test('a failing cancel shows an error instead of an unhandled rejection', async () => {
+  apiMock.copyProject.preview.mockResolvedValue(json({ ...{ suggestedName: 'x', sizeBytes: 1, fileCount: 1, secretFiles: [], userScopeMcp: [], isolationAvailable: true } }));
+  apiMock.copyProject.start.mockResolvedValue(json({ jobId: 'j1' }));
+  apiMock.copyProject.progress.mockResolvedValue(json({ copiedBytes: 1, totalBytes: 10, done: false, warnings: [] }));
+  apiMock.copyProject.cancel.mockRejectedValue(new Error('offline'));
+  render(<CopyProjectDialog project={project(false)} open onOpenChange={() => {}} onCopied={() => {}} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Copy' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Stop copying' }));
+  assert.ok(await screen.findByText(/Copy failed: offline/));
+});

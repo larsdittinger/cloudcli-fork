@@ -61,6 +61,8 @@ function splitHostPort(target: string, defaultPort: number): { host: string; por
   return port >= 1 && port <= 65535 ? { host, port } : null;
 }
 
+const INVALID_HOST = '(invalid)';
+
 const denialText = (host: string, projectName: string) =>
   `CloudCLI sandbox: ${host} is not in the allowlist of isolated project ${projectName}. Add it in Isolation settings.`;
 
@@ -77,7 +79,8 @@ export function createEgressProxy(options: EgressProxyOptions): http.Server {
     }
     const target = splitHostPort(req.url ?? '', 443);
     if (!target) return void clientSocket.end('HTTP/1.1 400 Bad Request\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
-    const host = normalizeHost(target.host) || target.host;
+    // A raw host that failed normalization is agent-controlled text: never log or echo it.
+    const host = normalizeHost(target.host) || INVALID_HOST;
     if (!isHttpAllowed(auth.project.entries, target.host, target.port, httpPorts)) {
       options.blocked.add(auth.projectId, { at: new Date().toISOString(), host, port: target.port, kind: 'connect' });
       const body = denialText(host, auth.project.name);
@@ -118,7 +121,7 @@ export function createEgressProxy(options: EgressProxyOptions): http.Server {
       return;
     }
     const port = Number(url.port || 80);
-    const host = normalizeHost(url.hostname) || url.hostname;
+    const host = normalizeHost(url.hostname) || INVALID_HOST;
     if (!isHttpAllowed(auth.project.entries, url.hostname, port, httpPorts)) {
       options.blocked.add(auth.projectId, { at: new Date().toISOString(), host, port, kind: 'http' });
       const body = denialText(host, auth.project.name);

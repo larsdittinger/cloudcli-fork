@@ -152,6 +152,8 @@ export default function CopyProjectDialog({ project, open, onOpenChange, onCopie
     setCancelling(true);
     try {
       await api.copyProject.cancel(jobId);
+    } catch (cancelError) {
+      setError(t('copy.failed', { message: errorMessage(cancelError) }));
     } finally {
       setCancelling(false);
     }
@@ -252,7 +254,7 @@ export default function CopyProjectDialog({ project, open, onOpenChange, onCopie
                 {progress?.warnings?.length ? (
                   <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-xs text-amber-800 dark:text-amber-200">
                     <p className="font-medium">{t('copy.warnings')}</p>
-                    <ul className="list-disc pl-4">{progress.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>
+                    <ul className="list-disc pl-4">{progress.warnings.map((warning, index) => <li key={`${index}-${warning}`}>{warning}</li>)}</ul>
                   </div>
                 ) : null}
               </div>

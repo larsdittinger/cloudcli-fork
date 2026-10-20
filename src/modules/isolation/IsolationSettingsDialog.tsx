@@ -67,6 +67,7 @@ export default function IsolationSettingsDialog({ project, open, onOpenChange }:
 
   const allow = (entry: BlockedEntry) => {
     const line = allowlistLineFor(entry);
+    if (!line) return;
     setAllowlist((current) => {
       if (current.split(/\r?\n/).some((existing) => existing.trim() === line)) return current;
       return current.trim() ? `${current.replace(/\s+$/, '')}\n${line}` : line;
@@ -198,16 +199,16 @@ export default function IsolationSettingsDialog({ project, open, onOpenChange }:
             <p className="text-xs text-muted-foreground">{t('settings.blockedEmpty')}</p>
           ) : (
             <ul className="max-h-48 divide-y divide-border overflow-y-auto rounded-md border border-border text-sm">
-              {blocked.map((entry) => {
+              {blocked.map((entry, index) => {
                 const line = allowlistLineFor(entry);
-                const already = lines.includes(line);
+                const already = line !== null && lines.includes(line);
                 return (
-                  <li key={`${entry.at}-${entry.host}-${entry.port}`} className="flex items-center justify-between gap-2 px-2 py-1.5">
+                  <li key={`${index}-${entry.at}-${entry.host}-${entry.port}`} className="flex items-center justify-between gap-2 px-2 py-1.5">
                     <span className="min-w-0 truncate">
                       <time className="mr-2 text-xs tabular-nums text-muted-foreground" dateTime={entry.at}>{timeOf(entry.at)}</time>
                       <span className="font-mono text-xs">{entry.host}:{entry.port}</span>
                     </span>
-                    <Button variant="outline" size="sm" disabled={already} onClick={() => allow(entry)}>
+                    <Button variant="outline" size="sm" disabled={already || line === null} onClick={() => allow(entry)}>
                       {already ? t('settings.allowed') : t('settings.allow')}
                     </Button>
                   </li>
@@ -223,7 +224,7 @@ export default function IsolationSettingsDialog({ project, open, onOpenChange }:
           </Button>
           {checkError && <p role="alert" className="text-xs text-red-600 dark:text-red-400">{checkError}</p>}
           {checks && (
-            <table className="w-full text-left text-xs" aria-label={t('settings.checkTitle')}>
+            <table className="w-full table-fixed text-left text-xs" aria-label={t('settings.checkTitle')}>
               <tbody>
                 {checks.map((check) => (
                   <tr key={check.id} className="border-t border-border first:border-t-0 align-top">
@@ -232,8 +233,8 @@ export default function IsolationSettingsDialog({ project, open, onOpenChange }:
                         ? <Check className="h-4 w-4 text-green-600 dark:text-green-400" aria-label={t('settings.checkOk')} />
                         : <X className="h-4 w-4 text-red-600 dark:text-red-400" aria-label={t('settings.checkFail')} />}
                     </td>
-                    <td className="py-1 pr-2 font-mono">{check.id}</td>
-                    <td className="py-1 text-muted-foreground">{check.detail}</td>
+                    <td className="break-words py-1 pr-2 font-mono">{check.id}</td>
+                    <td className="break-all py-1 text-muted-foreground">{check.detail}</td>
                   </tr>
                 ))}
               </tbody>
