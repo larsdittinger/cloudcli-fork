@@ -14,11 +14,13 @@ import BrowserUseSettingsTab from '@/modules/settings/tabs/browser-use-settings/
 import ChannelsSettingsTab from '@/modules/settings/tabs/channels-settings/ChannelsSettingsTab';
 import NotificationsSettingsTab from '@/modules/settings/tabs/NotificationsSettingsTab';
 import TasksSettingsTab from '@/modules/settings/tabs/tasks-settings/TasksSettingsTab';
+import IsolationSettingsTab from '@/modules/settings/tabs/isolation-settings/IsolationSettingsTab';
 import { PluginSettingsTab } from '@/modules/plugins';
 import AboutTab from '@/modules/settings/tabs/AboutTab';
 import UsersSettingsTab from '@/modules/settings/tabs/UsersSettingsTab';
 import { useSettingsController } from '@/modules/settings/hooks/useSettingsController';
 import { useWebPush } from '@/modules/settings/hooks/useWebPush';
+import { useIsAdmin } from '@/shared/hooks/useIsAdmin';
 import type { AgentSettingsProject } from '@/shared/types';
 
 type SettingsProps = {
@@ -39,6 +41,7 @@ type DesktopNotificationsState = {
 /** Exported as the settings module's public entry point and rendered by the sidebar module as its settings dialog. */
 function Settings({ isOpen, onClose, projects = [], initialTab = 'agents' }: SettingsProps) {
   const { t } = useTranslation('settings');
+  const isAdmin = useIsAdmin();
   const desktopNotificationsBridge = useMemo(() => (
     typeof window === 'undefined'
       ? null
@@ -255,6 +258,8 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'agents' }: Set
               {activeTab === 'browser' && <BrowserUseSettingsTab />}
 
               {activeTab === 'channels' && <ChannelsSettingsTab />}
+
+              {activeTab === 'isolation' && isAdmin && <IsolationSettingsTab />}
 
               {activeTab === 'notifications' && (
                 <NotificationsSettingsTab

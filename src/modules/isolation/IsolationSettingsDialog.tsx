@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
-import { Check, Loader2, ShieldCheck, X } from 'lucide-react';
+import { AlertTriangle, Check, Loader2, ShieldCheck, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
+import { usePaletteOps } from '@/modules/command-palette';
 import { api, readApiJson } from '@/shared/api';
 import { Button, Dialog, DialogContent, DialogTitle, Switch } from '@/shared/ui';
 import { cn } from '@/shared/utils';
@@ -16,6 +17,7 @@ import {
   type LineError,
   type SelfCheck,
 } from '@/modules/isolation/hooks/useIsolation';
+import { needsClaudeLogin, useClaudeLogin } from '@/modules/isolation/hooks/useClaudeLogin';
 
 type IsolationSettingsDialogProps = {
   project: Project;
@@ -29,6 +31,8 @@ const FIELD = 'w-full rounded-md border border-border bg-background px-2 py-1.5 
 export default function IsolationSettingsDialog({ project, open, onOpenChange }: IsolationSettingsDialogProps) {
   const { t, i18n } = useTranslation('isolation');
   const status = useIsolationStatus(open);
+  const { state: claudeLogin } = useClaudeLogin(open);
+  const paletteOps = usePaletteOps();
   const [allowlist, setAllowlist] = useState('');
   const [tools, setTools] = useState<IsolationTools>({ channels: true, tasks: true });
   const [loaded, setLoaded] = useState(false);
@@ -137,6 +141,24 @@ export default function IsolationSettingsDialog({ project, open, onOpenChange }:
           <p className={cn('mt-2 text-xs', sandboxLine.ok ? 'text-green-700 dark:text-green-400' : 'text-amber-700 dark:text-amber-300')}>
             <span className="font-medium">{t('settings.sandbox')}: </span>{sandboxLine.text}
           </p>
+        )}
+
+        {claudeLogin && needsClaudeLogin(claudeLogin) && (
+          <div role="status" className="mt-3 flex flex-wrap items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-700/60 dark:bg-amber-950/40 dark:text-amber-100">
+            <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" aria-hidden />
+            <span className="min-w-0 flex-1">{t('settings.loginBanner')}</span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                // Settings is a layer below this dialog: close it first.
+                onOpenChange(false);
+                paletteOps.openSettings('isolation');
+              }}
+            >
+              {t('settings.loginBannerAction')}
+            </Button>
+          </div>
         )}
 
         {loadError ? (

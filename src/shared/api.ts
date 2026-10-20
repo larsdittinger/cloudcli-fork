@@ -726,6 +726,11 @@ export const api = {
       put(`/api/isolation/projects/${encodeURIComponent(projectId)}`, body),
     blocked: (projectId: string) => get(`/api/isolation/projects/${encodeURIComponent(projectId)}/blocked`),
     selfCheck: (projectId: string) => post(`/api/isolation/projects/${encodeURIComponent(projectId)}/self-check`),
+    // Claude login of isolated agents: the server answers with the token's last four characters only.
+    claudeLogin: () => get('/api/isolation/claude-login'),
+    saveClaudeLogin: (body: { text: string; force?: boolean }) => put('/api/isolation/claude-login', body),
+    checkClaudeLogin: () => post('/api/isolation/claude-login/check'),
+    removeClaudeLogin: () => del('/api/isolation/claude-login'),
   },
 
   copyProject: {

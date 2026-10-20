@@ -1,4 +1,4 @@
-import { Bell, Bot, GitBranch, Info, Key, ListChecks, Mic, MonitorPlay, Palette, Puzzle, Radio, Users } from 'lucide-react';
+import { Bell, Bot, GitBranch, Info, Key, ListChecks, Mic, MonitorPlay, Palette, Puzzle, Radio, ShieldCheck, Users } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import { cn } from '@/shared/utils';
@@ -26,17 +26,21 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'tasks', labelKey: 'mainTabs.tasks', icon: ListChecks },
   { id: 'browser', labelKey: 'mainTabs.browser', icon: MonitorPlay },
   { id: 'channels', labelKey: 'mainTabs.channels', icon: Radio },
+  { id: 'isolation', labelKey: 'mainTabs.isolation', icon: ShieldCheck },
   { id: 'plugins', labelKey: 'mainTabs.plugins', icon: Puzzle },
   { id: 'notifications', labelKey: 'mainTabs.notifications', icon: Bell },
   { id: 'users', labelKey: 'mainTabs.users', icon: Users },
   { id: 'about', labelKey: 'mainTabs.about', icon: Info },
 ];
 
+// Their APIs answer 403 to restricted users anyway.
+const ADMIN_ONLY_TABS = new Set<SettingsMainTab>(['users', 'channels', 'isolation']);
+
 /** Rendered by Settings to switch between the settings dialog's main sections. */
 export default function SettingsSidebar({ activeTab, onChange }: SettingsSidebarProps) {
   const { t } = useTranslation('settings');
   const isAdmin = useIsAdmin();
-  const navItems = isAdmin ? NAV_ITEMS : NAV_ITEMS.filter((item) => item.id !== 'users' && item.id !== 'channels');
+  const navItems = isAdmin ? NAV_ITEMS : NAV_ITEMS.filter((item) => !ADMIN_ONLY_TABS.has(item.id));
 
   return (
     <>

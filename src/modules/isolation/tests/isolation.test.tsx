@@ -15,6 +15,7 @@ const apiMock = vi.hoisted(() => ({
     saveProject: vi.fn(),
     blocked: vi.fn(),
     selfCheck: vi.fn(),
+    claudeLogin: vi.fn(),
   },
   copyProject: { preview: vi.fn(), start: vi.fn(), progress: vi.fn(), cancel: vi.fn() },
 }));
@@ -24,6 +25,8 @@ vi.mock('@/shared/api', async () => {
   return { ...actual, api: apiMock };
 });
 vi.mock('@/shared/hooks/useIsAdmin', () => ({ useIsAdmin: () => true }));
+const paletteOps = vi.hoisted(() => ({ openSettings: vi.fn() }));
+vi.mock('@/modules/command-palette', () => ({ usePaletteOps: () => paletteOps }));
 
 // The assertions read the English texts.
 await import('@/modules/i18n');
@@ -42,6 +45,11 @@ beforeEach(() => {
   apiMock.isolation.status.mockResolvedValue(json({ success: true, data: { available: true, daemon: { running: true, ok: true, projects: 2 }, claudeLogin: 'credentials', isolatedProjects: 2 } }));
   apiMock.isolation.project.mockResolvedValue(json({ success: true, data: { projectId: 'p-iso', allowlist: ['ethia.cz'], tools: { channels: true, tasks: false } } }));
   apiMock.isolation.blocked.mockResolvedValue(json({ success: true, data: [] }));
+  apiMock.isolation.claudeLogin.mockResolvedValue(json({ success: true, data: loginState() }));
+});
+
+const loginState = (overrides: Record<string, unknown> = {}) => ({
+  source: 'setup-token', tokenSetAt: null, tokenLast4: 'WXYZ', credentialsExpiresAt: null, lastCheck: null, lastUpstream: {}, ...overrides,
 });
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
@@ -172,4 +180,42 @@ test('a failing cancel shows an error instead of an unhandled rejection', async 
   fireEvent.click(await screen.findByRole('button', { name: 'Copy' }));
   fireEvent.click(await screen.findByRole('button', { name: 'Stop copying' }));
   assert.ok(await screen.findByText(/Copy failed: offline/));
+});
+
+const BANNER = /Isolated agents have no lasting Claude login/;
+
+test('settings dialog: no banner with a working long-lived token', async () => {
+  render(<IsolationSettingsDialog project={project(true)} open onOpenChange={() => {}} />);
+  await screen.findByLabelText('Allowed addresses');
+  await waitFor(() => assert.equal(apiMock.isolation.claudeLogin.mock.calls.length, 1));
+  assert.equal(screen.queryByText(BANNER), null);
+});
+
+test('settings dialog: banner without a long-lived token opens Settings on the Isolation tab', async () => {
+  apiMock.isolation.claudeLogin.mockResolvedValue(json({ success: true, data: loginState({ source: 'credentials', tokenLast4: null }) }));
+  const onOpenChange = vi.fn();
+  render(<IsolationSettingsDialog project={project(true)} open onOpenChange={onOpenChange} />);
+  assert.ok(await screen.findByText(BANNER));
+  fireEvent.click(screen.getByRole('button', { name: 'Open Settings → Isolation' }));
+  assert.deepEqual(paletteOps.openSettings.mock.calls[0], ['isolation']);
+  assert.deepEqual(onOpenChange.mock.calls[0], [false]);
+});
+
+test('settings dialog: banner when the proxy last got 401/403 with the token', async () => {
+  apiMock.isolation.claudeLogin.mockResolvedValue(json({ success: true, data: loginState({
+    lastUpstream: { okAt: '2026-10-20T10:00:00.000Z', error: { at: '2026-10-20T11:00:00.000Z', status: 403, message: 'forbidden' } },
+  }) }));
+  render(<IsolationSettingsDialog project={project(true)} open onOpenChange={() => {}} />);
+  assert.ok(await screen.findByText(BANNER));
+});
+
+test('settings dialog: an old 401 followed by a success is no reason for the banner', async () => {
+  apiMock.isolation.claudeLogin.mockResolvedValue(json({ success: true, data: loginState({
+    lastUpstream: { okAt: '2026-10-20T12:00:00.000Z', error: { at: '2026-10-20T11:00:00.000Z', status: 401, message: 'old' } },
+  }) }));
+  render(<IsolationSettingsDialog project={project(true)} open onOpenChange={() => {}} />);
+  await screen.findByLabelText('Allowed addresses');
+  await waitFor(() => assert.equal(apiMock.isolation.claudeLogin.mock.calls.length, 1));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(screen.queryByText(BANNER), null);
 });

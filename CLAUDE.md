@@ -269,6 +269,13 @@ v sesterském kontejneru `cloudcli-<x>-sandbox`, ne v hlavním. Spec/plán v hub
   `/api/hello`; ostatní 403 (logováno 1× na cestu). Token upstreamu = `app_config.isolation_claude_token`
   (`claude setup-token`), jinak access token appky (vyprší). Agent dostane jen run token jako
   `CLAUDE_CODE_OAUTH_TOKEN` a `ANTHROPIC_BASE_URL`.
+- **Přihlášení Claude v UI** (Settings → **Izolace**, jen admin; `claude-login.ts`, `/api/isolation/claude-login`):
+  stav sandboxu, zdroj přihlášení (✅ setup-token / ⚠️ credentials s expirací / ❌ nic), poslední ověření (v `app_config`,
+  platí jen pro token se stejným otiskem) a poslední výsledek proxy (jen v paměti, `claudeUpstreamHealth`). Uložení
+  vytáhne `sk-ant-oat01-…` z celého vloženého výstupu a ověří ho `POST /v1/messages/count_tokens` (zdarma); 401/403 se
+  neuloží nikdy, nedostupný Anthropic jen s `force`. API vrací z tokenu jen poslední 4 znaky. Token zapsaný hubem nemá
+  `isolation_claude_token_set_at` → „uložen z hubu“. Dialog Izolace… u projektu ukáže žlutý pruh, když chybí trvalé
+  přihlášení nebo proxy dostala 401/403.
 - **Síť**: iptables/ip6tables `--uid-owner` — uid projektu smí jen na loopback 7701/7702 a `host:port` z allowlistu;
   zbytek **REJECT** (tcp-reset / icmp-admin-prohibited, ne DROP). **Egress proxy 7702** (CONNECT + HTTP) s
   per-projektovým přihlášením povolí jen domény allowlistu, zamítnutí loguje (to vidí UI v „zablokované požadavky“).

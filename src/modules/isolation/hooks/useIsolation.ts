@@ -5,7 +5,7 @@ import { api, readApiJson } from '@/shared/api';
 export type IsolationStatus = {
   available: boolean;
   reason?: string;
-  daemon: { running: boolean; ok: boolean; reason?: string; projects?: number } | null;
+  daemon: { running: boolean; ok: boolean; reason?: string; version?: string; claudeVersion?: string; projects?: number } | null;
   claudeLogin?: string;
   isolatedProjects?: number;
 };

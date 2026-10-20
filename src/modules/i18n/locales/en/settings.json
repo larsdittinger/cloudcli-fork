@@ -136,7 +136,8 @@
     "plugins": "Plugins",
     "users": "Users",
     "about": "About",
-    "channels": "Channels"
+    "channels": "Channels",
+    "isolation": "Isolation"
   },
   "users": {
     "title": "Users",

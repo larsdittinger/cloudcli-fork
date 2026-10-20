@@ -136,7 +136,8 @@
     "plugins": "Pluginy",
     "users": "Uživatelé",
     "about": "O aplikaci",
-    "channels": "Kanály"
+    "channels": "Kanály",
+    "isolation": "Izolace"
   },
   "users": {
     "title": "Uživatelé",
