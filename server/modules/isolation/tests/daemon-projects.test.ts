@@ -182,6 +182,17 @@ test('self-check runs the runner as the project uid with the run token', async (
   const res = await call('POST', '/v1/projects/proj/self-check', { runToken: 'tok-1', projectDir: path.join(root, 'proj') });
   assert.equal(res.status, 200);
   assert.deepEqual(res.body, { checks: [{ id: 'no-workspace', ok: true, detail: `uid ${UID} token tok-1` }] });
+  // The env the app sends is the base; proxy, run token and temp dir are always the daemon's own.
+  const withEnv = await call('POST', '/v1/projects/proj/self-check', {
+    runToken: 'tok-2', projectDir: path.join(root, 'proj'),
+    env: { FROM_APP: '1', CLOUDCLI_RUN_TOKEN: 'other', TMPDIR: '/tmp', HTTPS_PROXY: 'http://evil:1' },
+  });
+  assert.equal(withEnv.status, 200);
+  const sent = selfCheckEnvs.at(-1)!;
+  assert.equal(sent.FROM_APP, '1');
+  assert.equal(sent.CLOUDCLI_RUN_TOKEN, 'tok-2');
+  assert.match(sent.HTTPS_PROXY, /^http:\/\/proj:s3@127\.0\.0\.1:\d+$/);
+  assert.equal(sent.https_proxy, sent.HTTPS_PROXY);
   // The probe runs with the project's own TMPDIR, like every other process of the project.
   assert.equal(selfCheckEnvs.at(-1)!.TMPDIR, path.join(homes, 'proj', '.tmp'));
   assert.equal(selfCheckEnvs.at(-1)!.CLAUDE_CODE_TMPDIR, path.join(homes, 'proj', '.tmp'));

@@ -198,9 +198,13 @@ async function main() {
       req.on('error', (e) => { add('claude-api', false, 'forward unreachable: ' + (e.code || e.message)); resolve(); });
     })),
     guard('env-clean', () => {
-      const allowed = new Set(['CLOUDCLI_RUN_TOKEN', 'HTTPS_PROXY']);
-      const bad = Object.keys(process.env).filter((k) => /TOKEN|SECRET|PASSWORD|KEY/i.test(k) && !allowed.has(k));
-      add('env-clean', bad.length === 0, bad.length ? 'unexpected: ' + bad.join(', ') : 'only the run token and proxy are set');
+      // The env is the one the app runs Claude with: the run token (also as the CLI's OAuth token) and the proxy.
+      const env = process.env;
+      const allowed = new Set(['CLOUDCLI_RUN_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN', 'HTTPS_PROXY', 'HTTP_PROXY', 'https_proxy', 'http_proxy']);
+      const bad = Object.keys(env).filter((k) => /TOKEN|SECRET|PASSWORD|KEY/i.test(k) && !allowed.has(k));
+      if (env.CLAUDE_CODE_OAUTH_TOKEN !== undefined && env.CLAUDE_CODE_OAUTH_TOKEN !== env.CLOUDCLI_RUN_TOKEN) bad.push('CLAUDE_CODE_OAUTH_TOKEN (not the run token)');
+      for (const k of Object.keys(env)) if (/sk-ant-/i.test(env[k] || '') && !bad.some((b) => b.startsWith(k))) bad.push(k + ' (a Claude credential)');
+      add('env-clean', bad.length === 0, bad.length ? 'unexpected: ' + bad.join(', ') : 'no credentials besides the run token and the proxy (' + Object.keys(env).length + ' variables)');
     }),
     guard('no-privileges', () => {
       const uid = Number(execFileSync('id', ['-u'], { encoding: 'utf8', timeout: T }).trim());

@@ -33,7 +33,7 @@ before(async () => {
   daemon = await startDaemon({
     token: TOKEN, isolationDir: tmp, dev: true,
     isolatedRoot: path.join(tmp, 'isolated'), isolatedHomes: path.join(tmp, 'homes'), statOwner: () => 20001,
-    selfCheckRunner: async (ctx) => ({ checks: [{ id: 'echo', ok: ctx.runToken === 'run-1', detail: ctx.request.projectDir }] }),
+    selfCheckRunner: async (ctx) => ({ checks: [{ id: 'echo', ok: ctx.runToken === 'run-1', detail: `${ctx.request.projectDir} ${ctx.request.env.FROM_APP ?? '-'}` }] }),
   });
 });
 
@@ -194,8 +194,8 @@ test('status, prepare, self-check and blocked', async () => {
   assert.equal(prepared.ok, true);
   await assert.rejects(c.prepare(project({ projectId: 'p9', uid: 20009 })), (error: unknown) => error instanceof DaemonCallError && error.status === 409);
 
-  const checked = await c.selfCheck('p1', 'run-1', path.join(tmp, 'isolated', 'p1'));
-  assert.deepEqual(checked.checks, [{ id: 'echo', ok: true, detail: path.join(tmp, 'isolated', 'p1') }]);
+  const checked = await c.selfCheck('p1', 'run-1', path.join(tmp, 'isolated', 'p1'), { FROM_APP: 'yes' });
+  assert.deepEqual(checked.checks, [{ id: 'echo', ok: true, detail: `${path.join(tmp, 'isolated', 'p1')} yes` }]);
 
   assert.deepEqual(await c.blocked('p1'), []);
 });

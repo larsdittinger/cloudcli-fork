@@ -43,6 +43,31 @@ test('self-check reports each id (real probe script, dev mode)', async () => {
     assert.equal(byId['env-clean'], true); // only run token and proxy vars
     assert.equal(byId['no-workspace'], true);
 
+    // The env the app really runs Claude with (buildSandboxEnv) is what the probe checks.
+    const appEnv = {
+      PATH: '/usr/local/bin:/usr/bin:/bin', LANG: 'C.UTF-8', HOME: '/ignored', ANTHROPIC_BASE_URL: 'http://127.0.0.1:7701/anthropic',
+      CLAUDE_CODE_OAUTH_TOKEN: 'rt', CLOUDCLI_RUN_TOKEN: 'rt', ENABLE_CLAUDEAI_MCP_SERVERS: 'false', NO_PROXY: '127.0.0.1,localhost',
+      https_proxy: 'http://proj:sec@127.0.0.1:7702', http_proxy: 'http://proj:sec@127.0.0.1:7702',
+    };
+    const envClean = async (env: Record<string, unknown>) => {
+      const r = await call('POST', '/v1/projects/proj/self-check', { runToken: 'rt', projectDir: path.join(root, 'proj'), env });
+      assert.equal(r.status, 200, JSON.stringify(r.body));
+      return r.body.checks.find((c: { id: string }) => c.id === 'env-clean') as { ok: boolean; detail: string };
+    };
+    assert.equal((await envClean(appEnv)).ok, true, 'the real Claude env passes');
+    const leaked = await envClean({ ...appEnv, ANTHROPIC_API_KEY: 'sk-ant-api03-leak' });
+    assert.equal(leaked.ok, false);
+    assert.match(leaked.detail, /ANTHROPIC_API_KEY/);
+    const realLogin = await envClean({ ...appEnv, CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat01-the-owners-login' });
+    assert.equal(realLogin.ok, false, 'the OAuth variable may only carry the run token');
+    assert.match(realLogin.detail, /CLAUDE_CODE_OAUTH_TOKEN/);
+    const hidden = await envClean({ ...appEnv, LANG_EXTRA: 'sk-ant-oat01-hidden' });
+    assert.equal(hidden.ok, false, 'a Claude token under any name');
+    for (const bad of [{ X: 1 }, ['A=B'], 'A=B']) {
+      const r = await call('POST', '/v1/projects/proj/self-check', { runToken: 'rt', projectDir: path.join(root, 'proj'), env: bad });
+      assert.equal(r.status, 400, JSON.stringify(bad));
+    }
+
     // Agent-writable shell startup files must not be able to forge the result.
     const home = path.join(tmp, 'homes', 'proj');
     fs.mkdirSync(home, { recursive: true });

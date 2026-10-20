@@ -325,8 +325,9 @@ export function createDaemonClient(resolveEndpoint: () => DaemonEndpoint) {
       return { ok: Boolean(body?.ok), warnings: body?.warnings ?? [] };
     },
 
-    async selfCheck(projectId: string, runToken: string, projectDir: string): Promise<SelfCheckResult> {
-      const body = expectOk(await callJson<SelfCheckResult>(resolveEndpoint(), 'POST', projectPath(projectId, 'self-check'), { runToken, projectDir }, SELF_CHECK_TIMEOUT_MS));
+    /** `env`: the env the app runs Claude with (buildSandboxEnv), which the probe checks for leaked credentials. */
+    async selfCheck(projectId: string, runToken: string, projectDir: string, env?: Record<string, string>): Promise<SelfCheckResult> {
+      const body = expectOk(await callJson<SelfCheckResult>(resolveEndpoint(), 'POST', projectPath(projectId, 'self-check'), { runToken, projectDir, ...(env ? { env } : {}) }, SELF_CHECK_TIMEOUT_MS));
       return { checks: Array.isArray(body?.checks) ? body.checks : [] };
     },
 

@@ -108,6 +108,19 @@ function readBody(req: http.IncomingMessage, limit = 1 << 20): Promise<string> {
   });
 }
 
+const MAX_PROBE_ENV_KEYS = 256;
+const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/** The env the app sends for the self-check: string values under plain names, or null when it is anything else. */
+function parseProbeEnv(raw: unknown): Record<string, string> | null {
+  if (raw === undefined) return {};
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const entries = Object.entries(raw as Record<string, unknown>);
+  if (entries.length > MAX_PROBE_ENV_KEYS) return null;
+  if (entries.some(([name, value]) => !ENV_NAME.test(name) || typeof value !== 'string' || value.includes('\0'))) return null;
+  return Object.fromEntries(entries) as Record<string, string>;
+}
+
 function tokenMatches(header: string | undefined, token: string): boolean {
   const expected = Buffer.from(`Bearer ${token}`);
   const given = Buffer.from(header ?? '');
@@ -279,8 +292,11 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           if (typeof body.runToken !== 'string' || !body.runToken) return json(400, { error: 'runToken is required' });
           if (!netState.ok) return json(503, { error: netState.reason ?? 'Network not ready' });
           if (typeof body.projectDir !== 'string') return json(400, { error: 'projectDir is required' });
+          const appEnv = parseProbeEnv(body.env);
+          if (!appEnv) return json(400, { error: 'env must be an object of string values' });
           const homeDir = expectedHome(projectId, pathConfig);
           const tmp = path.join(homeDir, HOME_TMP_DIR);
+          const proxyUrl = `http://${projectId}:${project.proxySecret}@127.0.0.1:${boundProxyPort}`;
           const request = {
             kind: 'exec' as const,
             projectId,
@@ -289,10 +305,16 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
             homeDir,
             cwd: body.projectDir,
             args: [],
+            // The env the app runs Claude with (so the probe checks the real thing); what the probe relies on
+            // — proxy, run token, temp dir — always the daemon's own.
             env: {
-              HTTPS_PROXY: `http://${projectId}:${project.proxySecret}@127.0.0.1:${boundProxyPort}`,
-              HTTP_PROXY: `http://${projectId}:${project.proxySecret}@127.0.0.1:${boundProxyPort}`,
+              ...appEnv,
+              HTTPS_PROXY: proxyUrl,
+              HTTP_PROXY: proxyUrl,
+              https_proxy: proxyUrl,
+              http_proxy: proxyUrl,
               NO_PROXY: '127.0.0.1,localhost',
+              no_proxy: '127.0.0.1,localhost',
               CLOUDCLI_RUN_TOKEN: body.runToken,
               TMPDIR: tmp,
               CLAUDE_CODE_TMPDIR: tmp,

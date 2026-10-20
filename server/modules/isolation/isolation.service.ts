@@ -1,6 +1,7 @@
 // Isolation settings, daemon sync and the self-check, used by the admin routes and at startup.
 import { parseAllowlist, type AllowlistError } from '@/modules/isolation/daemon/allowlist.js';
 import { resolveClaudeToken } from '@/modules/isolation/claude-proxy.js';
+import { buildSandboxEnv } from '@/modules/isolation/claude-sandbox-options.js';
 import { daemonClient, type BlockedEntry, type DaemonStatus, type SelfCheckResult } from '@/modules/isolation/daemon-client.js';
 import { isolationConfig, mainSocketPath } from '@/modules/isolation/isolation.config.js';
 import { isolationDb, type IsolatedProject, type IsolationTools } from '@/modules/isolation/isolation.db.js';
@@ -123,7 +124,8 @@ export const isolationService = {
     if (!sync.ok) throw new AppError(sync.error, { code: 'SANDBOX_UNAVAILABLE', statusCode: 502 });
     const token = runTokens.mint({ projectId, sessionId: '', purpose: 'self-check' });
     try {
-      return await daemonClient.selfCheck(projectId, token, project.projectPath);
+      // The env real Claude runs get: the probe's env-clean check then catches a credential slipping into it.
+      return await daemonClient.selfCheck(projectId, token, project.projectPath, buildSandboxEnv(project, token, {}, { claude: true }));
     } catch (error) {
       throw new AppError((error as Error).message, { code: 'SANDBOX_UNAVAILABLE', statusCode: 502 });
     } finally {

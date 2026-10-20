@@ -179,8 +179,13 @@ test('self-check mints a self-check run token, passes projectDir and revokes the
       const { projectId, projectPath } = makeIsolatedProject(dir, 'podpora');
       isolationDb.markIsolated(projectId, isolationDb.nextUid());
       let usedToken = '';
-      const check = mock.method(daemonClient, 'selfCheck', async (id: string, token: string, projectDir: string) => {
+      const check = mock.method(daemonClient, 'selfCheck', async (id: string, token: string, projectDir: string, env: Record<string, string>) => {
         usedToken = token;
+        // The probe checks the env real Claude runs get, not one of its own.
+        assert.equal(env.CLAUDE_CODE_OAUTH_TOKEN, token);
+        assert.equal(env.CLOUDCLI_RUN_TOKEN, token);
+        assert.equal(env.ENABLE_CLAUDEAI_MCP_SERVERS, 'false');
+        assert.ok(env.ANTHROPIC_BASE_URL);
         assert.equal(id, projectId);
         assert.equal(projectDir, projectPath);
         assert.equal(runTokens.resolve(token)?.purpose, 'self-check');
