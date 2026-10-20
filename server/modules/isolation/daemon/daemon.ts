@@ -5,8 +5,19 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import net from 'node:net';
 import { pathToFileURL } from 'node:url';
 
+import { createEgressProxy, BlockedLog } from './egress-proxy.js';
+import {
+  applyFirewallRules,
+  applyHostsFile,
+  buildFirewallRules,
+  resolveHost,
+  type FirewallProject,
+} from './firewall.js';
+import { createMainForward } from './main-forward.js';
+import { PROJECT_ID, ProjectStore, validateProjectConfig } from './project-store.js';
 import { hostProcess, killGroup, parseSpawnRequest, type ProcessHostOptions } from './process-host.js';
 
 export type DaemonOptions = {
@@ -19,9 +30,55 @@ export type DaemonOptions = {
   claudeBin?: string;
   /** Override socket path (tests); defaults to <isolationDir>/daemon.sock. */
   socketPath?: string;
+  /** Loopback ports; 0 picks an ephemeral port. Default: 7701 / 7702, or ephemeral in dev (tests). */
+  forwardPort?: number;
+  proxyPort?: number;
+  /** Unix socket of the main app the forward passes through to; defaults to <isolationDir>/main.sock. */
+  mainSocketPath?: string;
+  /** Ports a plain `domain` entry covers; tests widen this to reach a local target. */
+  proxyHttpPorts?: readonly number[];
+  /** Applies firewall rules + hosts entries. Defaults to the real iptables in production, a no-op in dev. */
+  applyNetwork?: (net: NetworkState) => Promise<void>;
+  /** Re-resolve interval for TCP allowlist names (production). */
+  resolveIntervalMs?: number;
 };
 
-export type RunningDaemon = { socketPath: string; close: () => Promise<void> };
+export type NetworkState = {
+  rules4: string[];
+  rules6: string[];
+  hosts: Array<{ ip: string; host: string }>;
+};
+
+export type RunningDaemon = {
+  socketPath: string;
+  forwardPort: number;
+  proxyPort: number;
+  close: () => Promise<void>;
+};
+
+const DEFAULT_FORWARD_PORT = 7701;
+const DEFAULT_PROXY_PORT = 7702;
+
+async function applyRealNetwork(state: NetworkState): Promise<void> {
+  await applyFirewallRules(state.rules4, state.rules6);
+  applyHostsFile(state.hosts);
+}
+
+function readBody(req: http.IncomingMessage, limit = 1 << 20): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let size = 0;
+    req.on('data', (chunk: Buffer) => {
+      size += chunk.length;
+      if (size > limit) {
+        reject(new Error('Body too large'));
+        req.destroy();
+      } else chunks.push(chunk);
+    });
+    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+    req.on('error', reject);
+  });
+}
 
 function tokenMatches(header: string | undefined, token: string): boolean {
   const expected = Buffer.from(`Bearer ${token}`);
@@ -48,11 +105,99 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
   fs.mkdirSync(path.dirname(socketPath), { recursive: true });
   fs.rmSync(socketPath, { force: true });
 
+  const forwardPort = options.forwardPort ?? (dev ? 0 : DEFAULT_FORWARD_PORT);
+  const proxyPort = options.proxyPort ?? (dev ? 0 : DEFAULT_PROXY_PORT);
+  const store = new ProjectStore(options.isolationDir);
+  const blocked = new BlockedLog(200);
+  const applyNetwork = options.applyNetwork ?? (dev ? async () => undefined : applyRealNetwork);
+  let netState: { ok: boolean; reason?: string } = { ok: true };
+  let resolved = new Map<string, string[]>();
+  let refreshChain: Promise<void> = Promise.resolve();
+
+  // Resolves TCP allowlist names, rebuilds rules and applies them. Serialized; any failure marks the daemon not ok (spawn refused).
+  const refreshNetwork = (): Promise<void> => {
+    refreshChain = refreshChain.then(async () => {
+      try {
+        const next = new Map<string, string[]>();
+        const projects: FirewallProject[] = [];
+        const hosts: Array<{ ip: string; host: string }> = [];
+        for (const project of store.all()) {
+          const tcp: FirewallProject['tcp'] = [];
+          for (const entry of project.entries) {
+            if (entry.kind !== 'tcp') continue;
+            let ips = next.get(entry.host);
+            if (!ips) {
+              try {
+                ips = await resolveHost(entry.host);
+              } catch {
+                ips = resolved.get(entry.host) ?? []; // keep the last known addresses on a DNS blip
+              }
+              next.set(entry.host, ips);
+            }
+            for (const ip of ips) tcp.push({ ip, port: entry.port });
+          }
+          projects.push({ uid: project.uid, tcp });
+        }
+        for (const [host, ips] of next) {
+          if (net.isIP(host)) continue;
+          for (const ip of ips) hosts.push({ ip, host });
+        }
+        resolved = next;
+        const common = { proxyPort, forwardPort };
+        await applyNetwork({
+          rules4: buildFirewallRules(projects, { ...common, family: 4 }),
+          rules6: buildFirewallRules(projects, { ...common, family: 6 }),
+          hosts,
+        });
+        netState = { ok: true };
+      } catch (error) {
+        netState = { ok: false, reason: `Firewall could not be applied: ${(error as Error).message}` };
+      }
+    });
+    return refreshChain;
+  };
+
   const sockets = new Set<import('node:net').Socket>();
   const server = http.createServer((req, res) => {
-    const status = tokenMatches(req.headers.authorization, options.token) ? 404 : 401;
-    res.writeHead(status).end();
+    const json = (status: number, body: unknown) => {
+      const text = JSON.stringify(body);
+      res.writeHead(status, { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(text) }).end(text);
+    };
+    if (!tokenMatches(req.headers.authorization, options.token)) return json(401, { error: 'Unauthorized' });
+    const url = new URL(req.url ?? '/', 'http://daemon');
+    const projectMatch = /^\/v1\/projects\/([^/]+)$/.exec(url.pathname);
+    if (req.method === 'GET' && url.pathname === '/v1/status') {
+      return json(netState.ok ? 200 : 503, netState);
+    }
+    if (req.method === 'GET' && url.pathname === '/v1/blocked') {
+      return json(200, blocked.list(url.searchParams.get('projectId') ?? ''));
+    }
+    if (req.method === 'PUT' && projectMatch) {
+      const projectId = decodeURIComponent(projectMatch[1]);
+      if (!PROJECT_ID.test(projectId)) return json(400, { error: 'Invalid projectId' });
+      void (async () => {
+        try {
+          const { config, error } = validateProjectConfig(JSON.parse(await readBody(req)));
+          if (!config) return json(400, { error });
+          store.set(projectId, config);
+          await refreshNetwork();
+          json(netState.ok ? 200 : 503, netState);
+        } catch (error) {
+          json(400, { error: (error as Error).message });
+        }
+      })();
+      return;
+    }
+    json(404, { error: 'Not Found' });
   });
+
+  const proxy = createEgressProxy({ getProject: (id) => store.get(id), blocked, httpPorts: options.proxyHttpPorts });
+  const forward = createMainForward(options.mainSocketPath ?? path.join(options.isolationDir, 'main.sock'));
+  const listenLoopback = (srv: http.Server, port: number) =>
+    new Promise<number>((resolve, reject) => {
+      srv.once('error', reject);
+      srv.listen(port, '127.0.0.1', () => resolve((srv.address() as net.AddressInfo).port));
+    });
 
   server.on('upgrade', (req, duplex) => {
     const socket = duplex as import('node:net').Socket;
@@ -61,6 +206,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     };
     if (!tokenMatches(req.headers.authorization, options.token)) return reject(401, 'Unauthorized');
     if (req.method !== 'POST' || req.url !== '/v1/spawn') return reject(404, 'Not Found');
+    if (!netState.ok) return reject(503, 'Service Unavailable'); // fail closed: no firewall, no sandbox
     let spawnRequest;
     try {
       const header = req.headers['x-spawn'];
@@ -79,6 +225,11 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     server.once('error', reject);
     server.listen(socketPath, () => resolve());
   });
+  const boundForward = await listenLoopback(forward, forwardPort);
+  const boundProxy = await listenLoopback(proxy, proxyPort);
+  await refreshNetwork();
+  const timer = setInterval(() => void refreshNetwork(), options.resolveIntervalMs ?? 5 * 60_000);
+  timer.unref();
   fs.chmodSync(socketPath, 0o660);
   if (!dev && options.mainGid !== undefined) {
     fs.chownSync(socketPath, process.getuid?.() ?? 0, options.mainGid);
@@ -86,11 +237,18 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
 
   return {
     socketPath,
+    forwardPort: boundForward,
+    proxyPort: boundProxy,
     close: () =>
       new Promise<void>((resolve) => {
         // Synchronous SIGKILL of every live group: must happen even if the process exits right after.
         for (const child of live) killGroup(child, 'SIGKILL');
+        clearInterval(timer);
         for (const socket of sockets) socket.destroy();
+        for (const srv of [forward, proxy]) {
+          srv.close();
+          srv.closeAllConnections();
+        }
         server.close(() => resolve());
         server.closeAllConnections();
       }),
@@ -107,6 +265,8 @@ if (isMain) {
     isolatedRoot: process.env.ISOLATED_ROOT,
     isolatedHomes: process.env.ISOLATED_HOMES,
     dev: process.env.SANDBOX_DEV === '1',
+    forwardPort: DEFAULT_FORWARD_PORT,
+    proxyPort: DEFAULT_PROXY_PORT,
   }).then(
     (daemon) => {
       console.log(`sandbox daemon listening on ${daemon.socketPath}`);
