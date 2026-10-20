@@ -129,6 +129,7 @@ test('a refused token shows the error and keeps the old state', async () => {
   assert.match(alert.textContent ?? '', /Anthropic refused the token \(HTTP 401\)/);
   assert.match(alert.textContent ?? '', /OAuth access token is invalid/);
   assert.equal(screen.queryByRole('button', { name: 'Save without verification' }), null, 'a refused token cannot be forced');
+  assert.equal((screen.getByLabelText(/Paste the output of/) as HTMLTextAreaElement).value, '', 'the refused token does not stay in the page');
 });
 
 test('Anthropic unreachable: save only after confirming to save unverified', async () => {
@@ -168,4 +169,34 @@ test('the guide tells to run claude setup-token and never paste the token into a
   await screen.findByText('Long-lived token');
   assert.ok(screen.getAllByText(/claude setup-token/).length >= 1);
   assert.ok(screen.getByText(/Do not paste the token into a chat/));
+});
+
+test('403 from Anthropic: the verification call was refused, not necessarily the token — save unverified is offered', async () => {
+  apiMock.isolation.saveClaudeLogin.mockResolvedValue(json({ success: false, error: { code: 'VERIFY_UNAVAILABLE', message: 'The token could not be verified: nope', details: { status: 403, message: 'OAuth token does not meet scope requirement' } } }, 502));
+  render(<IsolationSettingsTab />);
+  fireEvent.change(await screen.findByLabelText(/Paste the output of/), { target: { value: TOKEN } });
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  const alert = await screen.findByRole('alert');
+  assert.match(alert.textContent ?? '', /refused the verification call \(HTTP 403\)/);
+  assert.match(alert.textContent ?? '', /not necessarily the token/);
+  assert.ok(screen.getByRole('button', { name: 'Save without verification' }));
+  assert.equal((screen.getByLabelText(/Paste the output of/) as HTMLTextAreaElement).value, TOKEN, 'kept for the forced save');
+});
+
+test('sandbox status that cannot be loaded: an error instead of a spinner, no login form', async () => {
+  apiMock.isolation.status.mockResolvedValue(json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Internal server error' } }, 500));
+  render(<IsolationSettingsTab />);
+  assert.ok(await screen.findByText(/Could not load the sandbox status/));
+  assert.equal(screen.queryByLabelText(/Paste the output of/), null);
+});
+
+test('no login form while the sandbox status is still loading', async () => {
+  let answer: (response: Response) => void = () => {};
+  apiMock.isolation.status.mockReturnValue(new Promise<Response>((resolve) => { answer = resolve; }));
+  render(<IsolationSettingsTab />);
+  await waitFor(() => assert.equal(apiMock.isolation.claudeLogin.mock.calls.length, 1));
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(screen.queryByLabelText(/Paste the output of/), null);
+  answer(json({ success: true, data: running }));
+  assert.ok(await screen.findByLabelText(/Paste the output of/));
 });

@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 import { AlertTriangle, CheckCircle2, Loader2, XCircle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
-import { needsClaudeLogin, useClaudeLogin, useIsolationStatus } from '@/modules/isolation';
+import { needsClaudeLogin, useClaudeLogin, useIsolationStatusResult } from '@/modules/isolation';
 import type { ClaudeLoginState } from '@/modules/isolation';
 import SettingsCard from '@/modules/settings/SettingsCard';
 import SettingsSection from '@/modules/settings/SettingsSection';
@@ -35,7 +35,7 @@ function InfoRow({ label, children }: { label: string; children: ReactNode }) {
 /** Rendered by Settings for the "isolation" tab (admins): sandbox state and the Claude login of isolated agents. */
 export default function IsolationSettingsTab() {
   const { t, i18n } = useTranslation('isolation');
-  const status = useIsolationStatus(true);
+  const { status, error: statusError } = useIsolationStatusResult(true);
   const { state: login, setState: setLogin, loadError } = useClaudeLogin(true);
   // The pasted `claude setup-token` output; emptied once saved so the token does not stay in the page.
   const [pasted, setPasted] = useState('');
@@ -53,7 +53,9 @@ export default function IsolationSettingsTab() {
   const errorText = (error: unknown): string => {
     if (error instanceof ApiRequestError && error.code && LOCALIZED_ERRORS.has(error.code)) {
       const details = (error.details && typeof error.details === 'object' ? error.details : {}) as { status?: number | null; message?: string };
-      return t(`login.errors.${error.code}`, { status: details.status ?? '—', message: details.message ?? error.message });
+      // 403 on the verification call need not be the token (scope of count_tokens): its own warning.
+      const key = error.code === 'VERIFY_UNAVAILABLE' && details.status === 403 ? 'VERIFY_FORBIDDEN' : error.code;
+      return t(`login.errors.${key}`, { status: details.status ?? '—', message: details.message ?? error.message });
     }
     return error instanceof Error ? error.message : String(error);
   };
@@ -66,6 +68,8 @@ export default function IsolationSettingsTab() {
       setLogin(body.data);
       onDone?.(body.data);
     } catch (error) {
+      // A token Anthropic refused is of no further use: it does not stay in the page either.
+      if (error instanceof ApiRequestError && error.code === 'TOKEN_REJECTED') setPasted('');
       setMessage({ kind: 'error', text: errorText(error), canForce: error instanceof ApiRequestError && error.code === 'VERIFY_UNAVAILABLE' });
     } finally {
       setBusy(null);
@@ -92,7 +96,24 @@ export default function IsolationSettingsTab() {
     );
   }
 
-  const daemon = status?.daemon ?? null;
+  if (!status) {
+    // The login form waits for the status: on an instance without isolation it has nothing to configure.
+    return (
+      <div className="space-y-8">
+        <SettingsSection title={t('tab.sandboxTitle')}>
+          <SettingsCard className="p-4">
+            {statusError ? (
+              <p role="alert" className="text-sm text-red-600 dark:text-red-400">{t('tab.statusError', { message: statusError })}</p>
+            ) : (
+              <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> {t('settings.loading')}</p>
+            )}
+          </SettingsCard>
+        </SettingsSection>
+      </div>
+    );
+  }
+
+  const daemon = status.daemon;
   const daemonState = !daemon
     ? null
     : daemon.running && daemon.ok
@@ -103,30 +124,24 @@ export default function IsolationSettingsTab() {
     <div className="space-y-8">
       <SettingsSection title={t('tab.sandboxTitle')} description={t('tab.sandboxDescription')}>
         <SettingsCard divided>
-          {!status ? (
-            <p className="flex items-center gap-2 px-4 py-3 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> {t('settings.loading')}</p>
-          ) : (
-            <>
-              <InfoRow label={t('tab.state')}>
-                {daemonState && (
-                  <span className="inline-flex items-center gap-1.5">
-                    <span aria-hidden className={cn('h-2 w-2 rounded-full', daemonState.ok ? 'bg-green-500' : 'bg-red-500')} />
-                    <span className={cn('font-medium', daemonState.ok ? 'text-green-700 dark:text-green-400' : 'text-red-600 dark:text-red-400')}>{daemonState.text}</span>
-                  </span>
-                )}
-                {daemon?.reason && <span className="mt-0.5 block break-words text-xs text-muted-foreground">{daemon.reason}</span>}
-              </InfoRow>
-              <InfoRow label={t('tab.daemonVersion')}>
-                {daemon?.version ? <code className="font-mono text-xs" title={daemon.version}>{shortVersion(daemon.version)}</code> : <span className="text-muted-foreground">{t('tab.unknown')}</span>}
-              </InfoRow>
-              <InfoRow label={t('tab.claudeVersion')}>
-                {daemon?.claudeVersion ? <span>{daemon.claudeVersion}</span> : <span className="text-muted-foreground">{t('tab.unknown')}</span>}
-              </InfoRow>
-              <InfoRow label={t('tab.isolatedProjects')}>
-                <span className="tabular-nums">{status.isolatedProjects ?? 0}</span>
-              </InfoRow>
-            </>
-          )}
+          <InfoRow label={t('tab.state')}>
+            {daemonState && (
+              <span className="inline-flex items-center gap-1.5">
+                <span aria-hidden className={cn('h-2 w-2 rounded-full', daemonState.ok ? 'bg-green-500' : 'bg-red-500')} />
+                <span className={cn('font-medium', daemonState.ok ? 'text-green-700 dark:text-green-400' : 'text-red-600 dark:text-red-400')}>{daemonState.text}</span>
+              </span>
+            )}
+            {daemon?.reason && <span className="mt-0.5 block break-words text-xs text-muted-foreground">{daemon.reason}</span>}
+          </InfoRow>
+          <InfoRow label={t('tab.daemonVersion')}>
+            {daemon?.version ? <code className="font-mono text-xs" title={daemon.version}>{shortVersion(daemon.version)}</code> : <span className="text-muted-foreground">{t('tab.unknown')}</span>}
+          </InfoRow>
+          <InfoRow label={t('tab.claudeVersion')}>
+            {daemon?.claudeVersion ? <span>{daemon.claudeVersion}</span> : <span className="text-muted-foreground">{t('tab.unknown')}</span>}
+          </InfoRow>
+          <InfoRow label={t('tab.isolatedProjects')}>
+            <span className="tabular-nums">{status.isolatedProjects ?? 0}</span>
+          </InfoRow>
         </SettingsCard>
       </SettingsSection>
 

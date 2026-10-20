@@ -81,8 +81,9 @@ test('verifyClaudeToken counts tokens with the OAuth headers and classifies the 
   assert.match(no.message ?? '', /OAuth access token is invalid/);
   assert.ok(!JSON.stringify(no).includes(TOKEN), 'a token echoed by the upstream is redacted');
 
+  // 403 may be the verification call's scope, not the token: a valid setup-token is never refused for it.
   const forbidden = fakeFetch(() => anthropicJson(403, { type: 'error', error: { type: 'permission_error', message: 'nope' } }));
-  assert.equal((await verifyClaudeToken(TOKEN, { fetchImpl: forbidden.impl })).result, 'rejected');
+  assert.deepEqual(await verifyClaudeToken(TOKEN, { fetchImpl: forbidden.impl }), { result: 'unverified', status: 403, message: 'nope' });
 
   const down = fakeFetch(() => { throw new TypeError('fetch failed'); });
   const unreachable = await verifyClaudeToken(TOKEN, { fetchImpl: down.impl });
@@ -324,5 +325,21 @@ test('GET reports what the proxy last saw with the current token', async () => {
     // Saving another token starts from a clean record.
     const saved = await call('PUT', '/api/isolation/claude-login', { text: OTHER });
     assert.deepEqual(saved.json.data.lastUpstream, {});
+  });
+});
+
+test('PUT answered 403 by Anthropic: not refused, saved only when forced (unverified)', async () => {
+  const forbid = () => anthropicJson(403, { type: 'error', error: { type: 'permission_error', message: 'OAuth token does not meet scope requirement' } });
+  await withLoginEnv(forbid, async ({ call }) => {
+    const res = await call('PUT', '/api/isolation/claude-login', { text: SETUP_OUTPUT });
+    assert.equal(res.status, 502);
+    assert.equal(res.json.error.code, 'VERIFY_UNAVAILABLE');
+    assert.equal(res.json.error.details.status, 403);
+    assert.equal(appConfigDb.get(ISOLATION_CLAUDE_TOKEN_KEY), null);
+    const forced = await call('PUT', '/api/isolation/claude-login', { text: SETUP_OUTPUT, force: true });
+    assert.equal(forced.status, 200, forced.text);
+    assert.equal(forced.json.data.lastCheck.unverified, true);
+    assert.equal(forced.json.data.lastCheck.status, 403);
+    assert.equal(appConfigDb.get(ISOLATION_CLAUDE_TOKEN_KEY), TOKEN);
   });
 });

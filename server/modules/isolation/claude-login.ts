@@ -49,8 +49,8 @@ const shorten = (text: string) => redactClaudeTokens(text).replace(/\s+/g, ' ').
 
 /**
  * Asks Anthropic whether `token` works: counting tokens of a one-word message is free and runs on the same
- * Messages API (and OAuth scope) the agents use. 2xx = ok, 401/403 = rejected; anything else (network,
- * overload, rate limit) says nothing about the token = unverified.
+ * Messages API the agents use. 2xx = ok, 401 = rejected; anything else (403, network, overload, rate limit)
+ * says nothing certain about the token = unverified.
  */
 export async function verifyClaudeToken(token: string, options: { fetchImpl?: typeof fetch } = {}): Promise<VerifyResult> {
   const fetchImpl = options.fetchImpl ?? fetch;
@@ -80,7 +80,9 @@ export async function verifyClaudeToken(token: string, options: { fetchImpl?: ty
     // Not JSON: keep the start of the body.
   }
   return {
-    result: response.status === 401 || response.status === 403 ? 'rejected' : 'unverified',
+    // Only 401 says the token is bad. A 403 may be about this call (the token's scope on count_tokens), not the
+    // token — the owner may then save it unverified.
+    result: response.status === 401 ? 'rejected' : 'unverified',
     status: response.status,
     message: shorten(message) || `HTTP ${response.status}`,
   };
@@ -142,8 +144,8 @@ export const claudeLoginService = {
   },
 
   /**
-   * Verifies the token in `text` and saves it. Refused by Anthropic (401/403) = never saved; Anthropic not
-   * answering = saved only with `force` (the owner confirmed saving it unverified).
+   * Verifies the token in `text` and saves it. Refused by Anthropic (401) = never saved; not verifiable (403,
+   * network, 5xx…) = saved only with `force` (the owner confirmed saving it unverified).
    */
   async save(text: string, force: boolean): Promise<ClaudeLoginState> {
     const token = extractSetupToken(text);

@@ -96,7 +96,8 @@
     "daemonVersion": "Verze daemonu",
     "claudeVersion": "Claude v sandboxu",
     "isolatedProjects": "Izolované projekty",
-    "unknown": "neznámá"
+    "unknown": "neznámá",
+    "statusError": "Stav sandboxu se nepodařilo načíst: {{message}}"
   },
   "login": {
     "title": "Přihlášení Claude pro izolované agenty",
@@ -139,7 +140,8 @@
       "MULTIPLE_TOKENS": "V textu je víc různých tokenů. Vložte jen jeden.",
       "TOKEN_TOO_SHORT": "Token je podezřele krátký — nejspíš se při kopírování usekl nebo zalomil.",
       "TOKEN_REJECTED": "Anthropic token odmítl (HTTP {{status}}), neuložil se: {{message}}",
-      "VERIFY_UNAVAILABLE": "Token se u Anthropicu nepodařilo ověřit ({{message}}). Můžete ho uložit i bez ověření."
+      "VERIFY_UNAVAILABLE": "Token se u Anthropicu nepodařilo ověřit ({{message}}). Můžete ho uložit i bez ověření.",
+      "VERIFY_FORBIDDEN": "Anthropic odmítl ověřovací volání (HTTP 403): {{message}}. Nemusí to být tokenem — ověření může chtít oprávnění, které agenti nepotřebují. Můžete ho uložit i bez ověření."
     }
   },
   "guide": {

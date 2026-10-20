@@ -32,6 +32,7 @@ vi.mock('@/modules/command-palette', () => ({ usePaletteOps: () => paletteOps })
 await import('@/modules/i18n');
 const { IsolationBadge, IsolationSettingsDialog, CopyProjectDialog, ProjectOptionsMenu } = await import('@/modules/isolation');
 const { allowlistLineFor } = await import('@/modules/isolation/hooks/useIsolation');
+const { needsClaudeLogin } = await import('@/modules/isolation');
 
 const project = (isolated: boolean): Project => ({
   projectId: isolated ? 'p-iso' : 'p-plain',
@@ -218,4 +219,18 @@ test('settings dialog: an old 401 followed by a success is no reason for the ban
   await waitFor(() => assert.equal(apiMock.isolation.claudeLogin.mock.calls.length, 1));
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.equal(screen.queryByText(BANNER), null);
+});
+
+test('needsClaudeLogin follows the newest signal of the check and the proxy', () => {
+  const at = (hour: number) => `2026-10-20T${String(hour).padStart(2, '0')}:00:00.000Z`;
+  const rejected = { ok: false, at: at(10), status: 401, error: 'invalid' };
+  assert.equal(needsClaudeLogin(loginState({ source: 'credentials' }) as never), true, 'no long-lived token');
+  assert.equal(needsClaudeLogin(loginState({ source: 'missing' }) as never), true);
+  assert.equal(needsClaudeLogin(loginState() as never), false, 'no signal yet');
+  assert.equal(needsClaudeLogin(loginState({ lastCheck: rejected }) as never), true, 'check refused');
+  assert.equal(needsClaudeLogin(loginState({ lastCheck: rejected, lastUpstream: { okAt: at(11) } }) as never), false, 'a later agent request worked');
+  assert.equal(needsClaudeLogin(loginState({ lastCheck: { ok: true, at: at(12) }, lastUpstream: { error: { at: at(11), status: 401, message: 'x' } } }) as never), false, 'a later check worked');
+  assert.equal(needsClaudeLogin(loginState({ lastCheck: { ok: true, at: at(10) }, lastUpstream: { okAt: at(9), error: { at: at(11), status: 403, message: 'x' } } }) as never), true, 'the proxy failed after the check');
+  assert.equal(needsClaudeLogin(loginState({ lastCheck: rejected, lastUpstream: { okAt: at(9), error: { at: at(11), status: 529, message: 'overloaded' } } }) as never), true, 'overload says nothing: the 401 stays the newest');
+  assert.equal(needsClaudeLogin(loginState({ lastCheck: { ok: false, unverified: true, at: at(12), status: 403, error: 'scope' }, lastUpstream: { okAt: at(11) } }) as never), false, 'an unverifiable check says nothing');
 });

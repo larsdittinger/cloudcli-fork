@@ -96,7 +96,8 @@
     "daemonVersion": "Daemon version",
     "claudeVersion": "Claude in the sandbox",
     "isolatedProjects": "Isolated projects",
-    "unknown": "unknown"
+    "unknown": "unknown",
+    "statusError": "Could not load the sandbox status: {{message}}"
   },
   "login": {
     "title": "Claude login for isolated agents",
@@ -139,7 +140,8 @@
       "MULTIPLE_TOKENS": "The text contains more than one different token. Paste just one.",
       "TOKEN_TOO_SHORT": "The token is too short — it was probably cut or wrapped when copying.",
       "TOKEN_REJECTED": "Anthropic refused the token (HTTP {{status}}), it was not saved: {{message}}",
-      "VERIFY_UNAVAILABLE": "The token could not be verified with Anthropic ({{message}}). You can save it without verification."
+      "VERIFY_UNAVAILABLE": "The token could not be verified with Anthropic ({{message}}). You can save it without verification.",
+      "VERIFY_FORBIDDEN": "Anthropic refused the verification call (HTTP 403): {{message}}. That is not necessarily the token — the check may lack a permission the agents do not need. You can save it without verification."
     }
   },
   "guide": {

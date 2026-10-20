@@ -15,21 +15,30 @@ export type BlockedEntry = { at: string; host: string; port: number; kind: 'conn
 export type SelfCheck = { id: string; ok: boolean; detail: string };
 export type LineError = { line: number; message: string };
 
-/** `/api/isolation/status` while `enabled`; null until it answers or when it cannot (not an admin, offline). */
-export function useIsolationStatus(enabled: boolean): IsolationStatus | null {
+/** `/api/isolation/status` while `enabled`: the status once it answers, or why it could not be loaded. */
+export function useIsolationStatusResult(enabled: boolean): { status: IsolationStatus | null; error: string | null } {
+  // The last answer; null until the first one arrives or when the request failed.
   const [status, setStatus] = useState<IsolationStatus | null>(null);
+  // Why the status could not be loaded (not an admin, offline, server error); null while loading or loaded.
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!enabled) return undefined;
     let cancelled = false;
-    void api.isolation.status()
+    void Promise.resolve()
+      .then(() => api.isolation.status())
       .then((response) => readApiJson<{ data: IsolationStatus }>(response))
-      .then((body) => { if (!cancelled) setStatus(body.data); })
-      .catch(() => { if (!cancelled) setStatus(null); });
+      .then((body) => { if (!cancelled) { setStatus(body.data); setError(null); } })
+      .catch((reason: unknown) => { if (!cancelled) { setStatus(null); setError(errorMessage(reason)); } });
     return () => { cancelled = true; };
   }, [enabled]);
 
-  return status;
+  return { status, error };
+}
+
+/** `/api/isolation/status` while `enabled`; null until it answers or when it cannot (not an admin, offline). */
+export function useIsolationStatus(enabled: boolean): IsolationStatus | null {
+  return useIsolationStatusResult(enabled).status;
 }
 
 export const errorMessage = (error: unknown): string => (error instanceof Error ? error.message : String(error));

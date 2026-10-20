@@ -15,17 +15,23 @@ export type ClaudeLoginState = {
 
 const isAuthStatus = (status: number | null | undefined) => status === 401 || status === 403;
 
-/** The proxy's last answer from Anthropic was a 401/403 (and nothing has worked since). */
-function upstreamAuthFailed(state: ClaudeLoginState): boolean {
-  const { okAt, error } = state.lastUpstream;
-  return Boolean(error && isAuthStatus(error.status) && (!okAt || Date.parse(error.at) >= Date.parse(okAt)));
-}
-
-/** Isolated agents lack a lasting Claude login: no setup-token, or Anthropic refuses the one they have. */
+/**
+ * Isolated agents lack a lasting Claude login: no setup-token, or the newest telling signal about the token is a
+ * refusal. Signals are the last check (refused with 401/403 = bad, ok = good; an unverifiable check says nothing)
+ * and the proxy's last success / last 401-403 error (other errors — overload, rate limit — say nothing). A later
+ * success clears an older failure and vice versa.
+ */
 export function needsClaudeLogin(state: ClaudeLoginState): boolean {
   if (state.source !== 'setup-token') return true;
-  if (state.lastCheck && !state.lastCheck.ok && isAuthStatus(state.lastCheck.status)) return true;
-  return upstreamAuthFailed(state);
+  const signals: Array<{ at: number; good: boolean }> = [];
+  const { lastCheck, lastUpstream } = state;
+  if (lastCheck && !lastCheck.unverified && (lastCheck.ok || isAuthStatus(lastCheck.status))) {
+    signals.push({ at: Date.parse(lastCheck.at), good: lastCheck.ok });
+  }
+  if (lastUpstream.okAt) signals.push({ at: Date.parse(lastUpstream.okAt), good: true });
+  if (lastUpstream.error && isAuthStatus(lastUpstream.error.status)) signals.push({ at: Date.parse(lastUpstream.error.at), good: false });
+  const newest = signals.filter((signal) => Number.isFinite(signal.at)).sort((a, b) => b.at - a.at)[0];
+  return newest ? !newest.good : false;
 }
 
 /** The Claude login of isolated agents while `enabled`; `setState` takes the state a save/check/remove answered with. */

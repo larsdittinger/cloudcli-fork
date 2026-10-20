@@ -4,6 +4,6 @@ export { default as IsolationSettingsDialog } from '@/modules/isolation/Isolatio
 export { default as CopyProjectDialog } from '@/modules/isolation/CopyProjectDialog';
 export { default as ProjectOptionsMenu } from '@/modules/isolation/ProjectOptionsMenu';
 // Used by the settings module's Isolation tab: sandbox state and the Claude login of isolated agents.
-export { useIsolationStatus } from '@/modules/isolation/hooks/useIsolation';
+export { useIsolationStatusResult } from '@/modules/isolation/hooks/useIsolation';
 export { needsClaudeLogin, useClaudeLogin } from '@/modules/isolation/hooks/useClaudeLogin';
 export type { ClaudeLoginState } from '@/modules/isolation/hooks/useClaudeLogin';
