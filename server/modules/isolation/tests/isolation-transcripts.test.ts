@@ -9,9 +9,11 @@ import '@/modules/isolation/index.js'; // registers the isolated homes as read-o
 import {
   claudeTranscriptRoots,
   findIsolatedTranscripts,
-  isIsolatedHomeWatchPath,
+  ISOLATED_TRANSCRIPT_LIMITS,
   openTranscriptStream,
+  readTranscriptTail,
   readTranscriptText,
+  startIsolatedTranscriptPoller,
 } from '@/modules/isolation/isolation-transcripts.js';
 import { isolationEnvFor, withIsolatedDatabase, withIsolationEnv } from '@/modules/isolation/tests/helpers.js';
 import { resolveReadOnlyRootPath } from '@/shared/utils.js';
@@ -52,19 +54,85 @@ test('claudeTranscriptRoots: the main root plus every real isolated home', async
   });
 });
 
-test('the homes watcher only descends into .claude/projects', async () => {
-  await withHomes(async ({ env }) => {
-    const homes = env.CLOUDCLI_ISOLATED_HOMES;
-    const watch = (rel: string) => isIsolatedHomeWatchPath(path.join(homes, rel));
-    assert.equal(watch(''), true);
-    assert.equal(watch('p1'), true);
-    assert.equal(watch('p1/.claude'), true);
-    assert.equal(watch('p1/.claude/projects'), true);
-    assert.equal(watch('p1/.claude/projects/-isolated-x/s.jsonl'), true);
-    assert.equal(watch('p1/node_modules'), false);
-    assert.equal(watch('p1/.claude/settings.json'), false);
-    assert.equal(watch('p1/.claude/projects/-isolated-x/s/subagents/agent-1.jsonl'), false);
-    assert.equal(watch('../elsewhere'), false);
+test('the homes poller reports new and changed transcripts, never follows links, and stays in the walk budget', async () => {
+  await withHomes(async ({ dir, homeOf }) => {
+    const projects = path.join(homeOf('p1'), '.claude', 'projects', 'enc');
+    fs.mkdirSync(projects, { recursive: true });
+    fs.writeFileSync(path.join(projects, 'old.jsonl'), '{}\n');
+    const events: Array<[string, string]> = [];
+    const poller = startIsolatedTranscriptPoller((event, file) => events.push([event, file]), { intervalMs: 60_000 });
+    try {
+      await poller.tick(); // the first walk only learns what is there (like ignoreInitial)
+      assert.deepEqual(events, []);
+
+      fs.writeFileSync(path.join(projects, 'new.jsonl'), '{}\n');
+      fs.appendFileSync(path.join(projects, 'old.jsonl'), '{"more":1}\n');
+      fs.writeFileSync(path.join(dir, 'outside.jsonl'), '{}\n');
+      fs.symlinkSync(path.join(dir, 'outside.jsonl'), path.join(projects, 'link.jsonl'));
+      // A home created after the start is picked up too.
+      fs.mkdirSync(path.join(homeOf('p2'), '.claude', 'projects', 'enc'), { recursive: true });
+      fs.writeFileSync(path.join(homeOf('p2'), '.claude', 'projects', 'enc', 'a.jsonl'), '{}\n');
+      await poller.tick();
+      assert.deepEqual(events.sort(), [
+        ['add', path.join(homeOf('p2'), '.claude', 'projects', 'enc', 'a.jsonl')],
+        ['add', path.join(projects, 'new.jsonl')],
+        ['change', path.join(projects, 'old.jsonl')],
+      ].sort());
+
+      events.length = 0;
+      await poller.tick();
+      assert.deepEqual(events, []);
+    } finally {
+      await poller.stop();
+    }
+
+    // Each home's walk is bounded by the transcript walk budget, however many files the agent creates.
+    for (let index = 0; index < 30; index += 1) fs.writeFileSync(path.join(projects, `bulk${index}.jsonl`), '{}\n');
+    const bounded: string[] = [];
+    const small = startIsolatedTranscriptPoller((_event, file) => bounded.push(file), { intervalMs: 60_000, limits: { maxEntries: 5 } });
+    try {
+      await small.tick();
+      for (let index = 0; index < 30; index += 1) fs.appendFileSync(path.join(projects, `bulk${index}.jsonl`), 'x');
+      await small.tick();
+      assert.ok(bounded.length <= 4, `reported ${bounded.length} files with a budget of 5 entries`);
+    } finally {
+      await small.stop();
+    }
+  });
+});
+
+test('whole-transcript reads in an isolated home are capped, tails stay safe, the main home is unchanged', async () => {
+  await withHomes(async ({ dir, homeOf }) => {
+    const file = path.join(homeOf('p1'), '.claude', 'projects', 'enc', 'big.jsonl');
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, '');
+    fs.truncateSync(file, ISOLATED_TRANSCRIPT_LIMITS.maxTextBytes + 1);
+    const warn = mock.method(console, 'warn', () => undefined);
+    try {
+      await assert.rejects(readTranscriptText(file), /larger than/);
+      await assert.rejects(readTranscriptText(file), /larger than/);
+      assert.equal(warn.mock.callCount(), 1);
+    } finally {
+      warn.mock.restore();
+    }
+    fs.truncateSync(file, ISOLATED_TRANSCRIPT_LIMITS.maxTextBytes);
+    assert.equal((await readTranscriptText(file)).length, ISOLATED_TRANSCRIPT_LIMITS.maxTextBytes);
+
+    const main = path.join(dir, 'main-home', '.claude', 'projects', 'big.jsonl');
+    fs.writeFileSync(main, '');
+    fs.truncateSync(main, ISOLATED_TRANSCRIPT_LIMITS.maxTextBytes + 1);
+    assert.equal((await readTranscriptText(main)).length, ISOLATED_TRANSCRIPT_LIMITS.maxTextBytes + 1);
+
+    const small = path.join(path.dirname(file), 'small.jsonl');
+    fs.writeFileSync(small, 'one\ntwo\nthree\n');
+    assert.deepEqual(await readTranscriptTail(small, 1024), { content: 'one\ntwo\nthree\n', isComplete: true });
+    assert.deepEqual(await readTranscriptTail(small, 8), { content: 'three\n', isComplete: false });
+    fs.writeFileSync(path.join(dir, 'secret.jsonl'), 'SECRET\n');
+    fs.symlinkSync(path.join(dir, 'secret.jsonl'), path.join(path.dirname(file), 'link.jsonl'));
+    await assert.rejects(readTranscriptTail(path.join(path.dirname(file), 'link.jsonl'), 1024));
+    const fifo = path.join(path.dirname(file), 'f.jsonl');
+    execFileSync('mkfifo', [fifo]);
+    await within(assert.rejects(readTranscriptTail(fifo, 1024)));
   });
 });
 

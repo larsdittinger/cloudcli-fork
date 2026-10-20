@@ -2,6 +2,8 @@ import { promises as fs, realpathSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+import { readProjectFile } from '@/shared/utils.js';
+
 /**
  * Shared chat-attachment plumbing for every provider runtime.
  *
@@ -389,7 +391,8 @@ export async function buildClaudeUserContent(
         continue;
       }
 
-      const bytes = await fs.readFile(canonicalPath);
+      // In an isolated project the file is the agent's: no symlink followed, no FIFO, at most 32 MB.
+      const bytes = await readProjectFile(canonicalPath, 32 * 1024 * 1024);
       blocks.push({
         type: 'image',
         source: {

@@ -6,6 +6,7 @@ import { Octokit } from '@octokit/rest';
 import spawn from 'cross-spawn';
 
 import { canAccessSession } from '@/modules/auth/index.js';
+import { refuseSpawnInIsolatedArea } from '@/modules/isolation/index.js';
 import {
   apiKeysDb,
   githubTokensDb,
@@ -34,7 +35,9 @@ export function createAgentModule(externalDependencies: AgentExternalDependencie
     fileSystem: fs,
     crypto,
     homeDirectory: os.homedir,
-    spawnProcess: spawn,
+    // git (remote lookup, branch, push, clone) never runs in an isolated project: its .git is the agent's. The
+    // agent run itself goes through the provider runtime, which sends isolated projects to the sandbox.
+    spawnProcess: refuseSpawnInIsolatedArea(spawn, 'Git in the agent API'),
     platformMode: IS_PLATFORM,
     users: {
       getFirstUser: () => userDb.getFirstUser(),

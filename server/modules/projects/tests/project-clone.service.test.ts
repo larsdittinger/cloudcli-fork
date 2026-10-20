@@ -557,3 +557,24 @@ test('startCloneProject offers the GitHub token to no host but github.com', asyn
   }
 });
 
+
+test('startCloneProject refuses a workspace path in an isolated tree before creating or cloning anything', async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'clone-iso-'));
+  const previous = process.env.CLOUDCLI_ISOLATED_ROOT;
+  process.env.CLOUDCLI_ISOLATED_ROOT = path.join(dir, 'isolated');
+  try {
+    const target = path.join(dir, 'isolated', 'agent');
+    await assert.rejects(startCloneProject(
+      { workspacePath: target, githubUrl: 'https://github.com/example/repo', userId: 1 },
+      { onProgress: () => undefined } as never,
+      buildDependencies({
+        validatePath: async () => ({ valid: true, resolvedPath: target }),
+        ensureDirectory: async () => assert.fail('must not create anything'),
+      }),
+    ), /not available for isolated projects/);
+  } finally {
+    if (previous === undefined) delete process.env.CLOUDCLI_ISOLATED_ROOT;
+    else process.env.CLOUDCLI_ISOLATED_ROOT = previous;
+    await rm(dir, { recursive: true, force: true });
+  }
+});

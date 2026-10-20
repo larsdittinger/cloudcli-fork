@@ -1,11 +1,10 @@
-import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { projectsDb, sessionSharesDb, sessionsDb } from '@/modules/database/index.js';
 import { sessionSynchronizerService } from '@/modules/providers/index.js';
 import { WS_OPEN_STATE, connectedClients } from '@/modules/websocket/index.js';
 import type { RealtimeClientConnection } from '@/shared/types.js';
-import { AppError } from '@/shared/utils.js';
+import { AppError, readProjectTextFile } from '@/shared/utils.js';
 
 type SessionSummary = {
   id: string;
@@ -93,7 +92,8 @@ export async function generateDisplayName(projectName: string, actualProjectDir:
   // Try to read package.json from the project path.
   try {
     const packageJsonPath = path.join(projectPath, 'package.json');
-    const packageData = await fs.readFile(packageJsonPath, 'utf8');
+    // Guarded in isolated projects: no symlink followed, no FIFO, at most 1 MB.
+    const packageData = await readProjectTextFile(packageJsonPath, 1024 * 1024);
     const packageJson = JSON.parse(packageData) as { name?: string };
 
     // Return the name from package.json if it exists.

@@ -7,6 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { sessionsDb } from '@/modules/database/index.js';
+import { openIsolatedPath } from '@/modules/isolation/isolated-fs.js';
 import { isolationConfig } from '@/modules/isolation/isolation.config.js';
 import { isolationDb } from '@/modules/isolation/isolation.db.js';
 
@@ -44,22 +45,6 @@ export function claudeTranscriptRoots(): string[] {
 /** The parent of all isolated homes, watched as one more transcript root (new homes appear at runtime). */
 export function isolatedHomesRoot(): string | null {
   return isolationConfig().isolatedHomes || null;
-}
-
-/**
- * chokidar filter for the homes root: descend only along <home>/.claude/projects, never into subagent
- * transcripts or tool results (like the main watcher), never anywhere else in a home (caches, node_modules).
- */
-export function isIsolatedHomeWatchPath(filePath: string): boolean {
-  const homes = isolatedHomesRoot();
-  if (!homes) return false;
-  const relative = path.relative(homes, filePath);
-  if (relative === '') return true;
-  if (relative.startsWith('..') || path.isAbsolute(relative)) return false;
-  const parts = relative.split(path.sep);
-  if (parts.length >= 2 && parts[1] !== '.claude') return false;
-  if (parts.length >= 3 && parts[2] !== 'projects') return false;
-  return !parts.includes('subagents') && !parts.includes('tool-results');
 }
 
 /** The isolated project whose home holds `filePath`, by location; null when the file is not in an isolated home. */
@@ -113,8 +98,6 @@ export class TranscriptRefusedError extends Error {}
 
 const hasProcFd = fs.existsSync('/proc/self/fd');
 const DIR_FLAGS = fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | fs.constants.O_NOFOLLOW;
-// O_NONBLOCK: opening a FIFO for reading would otherwise wait for a writer (and pin a threadpool worker).
-const FILE_FLAGS = fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK;
 
 /** Whether `filePath` lies in an isolated home, i.e. in a tree the agent writes. */
 export function isIsolatedTranscriptPath(filePath: string): boolean {
@@ -122,51 +105,20 @@ export function isIsolatedTranscriptPath(filePath: string): boolean {
 }
 
 /**
- * Opens a file or directory in an isolated home without following a symlink anywhere below the homes root: every
- * directory is opened with O_NOFOLLOW relative to the previous one (through /proc/self/fd where it exists, i.e.
- * Linux), and a file must be a regular file. Returns the fd; throws TranscriptRefusedError otherwise.
+ * Opens a file or directory in an isolated home without following a symlink anywhere below the homes root (see
+ * openIsolatedPath); a file must be a regular file. Returns the fd; throws TranscriptRefusedError otherwise.
  */
 function openUnderHomes(target: string, kind: 'file' | 'dir'): number {
   const homes = path.resolve(isolatedHomesRoot()!);
-  const parts = path.relative(homes, path.resolve(target)).split(path.sep);
+  const rel = path.relative(homes, path.resolve(target));
+  const parts = rel.split(path.sep);
   if (parts.length < (kind === 'file' ? 2 : 1) || parts.some((part) => !part || part === '.' || part === '..')) {
     throw new TranscriptRefusedError(`Not inside an isolated home: ${target}`);
   }
-  // The homes root itself belongs to the deployment, not to an agent.
-  let dirFd = fs.openSync(homes, fs.constants.O_RDONLY | fs.constants.O_DIRECTORY);
-  let dirPath = homes;
-  const at = (name: string) => (hasProcFd ? `/proc/self/fd/${dirFd}/${name}` : path.join(dirPath, name));
-  const dirs = kind === 'dir' ? parts : parts.slice(0, -1);
   try {
-    for (const part of dirs) {
-      let next: number;
-      try {
-        next = fs.openSync(at(part), DIR_FLAGS);
-      } catch (error) {
-        throw new TranscriptRefusedError(`${path.join(dirPath, part)}: not a plain directory (${(error as NodeJS.ErrnoException).code ?? 'error'})`);
-      }
-      fs.closeSync(dirFd);
-      dirFd = next;
-      dirPath = path.join(dirPath, part);
-    }
-    if (kind === 'dir') {
-      const fd = dirFd;
-      dirFd = -1; // handed to the caller
-      return fd;
-    }
-    let fd: number;
-    try {
-      fd = fs.openSync(at(parts[parts.length - 1]), FILE_FLAGS);
-    } catch (error) {
-      throw new TranscriptRefusedError(`${target}: not a plain file (${(error as NodeJS.ErrnoException).code ?? 'error'})`);
-    }
-    if (!fs.fstatSync(fd).isFile()) {
-      fs.closeSync(fd);
-      throw new TranscriptRefusedError(`${target}: not a regular file`);
-    }
-    return fd;
-  } finally {
-    if (dirFd >= 0) fs.closeSync(dirFd);
+    return openIsolatedPath(homes, rel, kind === 'file' ? 'read' : 'dir');
+  } catch (error) {
+    throw new TranscriptRefusedError(`${target}: ${(error as Error).message}`);
   }
 }
 
@@ -195,16 +147,68 @@ export async function openTranscriptStream(filePath: string, options: { maxBytes
   return fs.createReadStream(filePath, { fd, autoClose: true, ...end });
 }
 
-/** The whole text of a Claude transcript, read like openTranscriptStream. */
+/**
+ * The whole text of a Claude transcript, read like openTranscriptStream. In an isolated home at most
+ * ISOLATED_TRANSCRIPT_LIMITS.maxTextBytes: a bigger file counts as unreadable (TranscriptRefusedError, logged once).
+ */
 export async function readTranscriptText(filePath: string): Promise<string> {
   if (!isIsolatedTranscriptPath(filePath)) return fsp.readFile(filePath, 'utf8');
+  const maxBytes = ISOLATED_TRANSCRIPT_LIMITS.maxTextBytes;
+  const fd = openIsolatedFd(filePath);
+  const tooBig = () => {
+    warnOnce(`max-text:${homeProjectId(filePath)}`, `${filePath} is larger than ${maxBytes} bytes; it is not read as a whole.`);
+    return new TranscriptRefusedError(`${filePath} is larger than ${maxBytes} bytes`);
+  };
+  if (fs.fstatSync(fd).size > maxBytes) {
+    fs.closeSync(fd);
+    throw tooBig();
+  }
   const chunks: Buffer[] = [];
-  for await (const chunk of await openTranscriptStream(filePath)) chunks.push(chunk as Buffer);
+  let total = 0;
+  // One byte past the cap tells a file that grew while it was read.
+  for await (const chunk of fs.createReadStream(filePath, { fd, autoClose: true, end: maxBytes })) {
+    chunks.push(chunk as Buffer);
+    total += (chunk as Buffer).length;
+  }
+  if (total > maxBytes) throw tooBig();
   return Buffer.concat(chunks).toString('utf8');
 }
 
+/**
+ * The last `maxBytes` of a transcript in an isolated home, opened safely, starting at a row boundary
+ * (`isComplete` when the whole file fit). For the token usage lookup.
+ */
+export async function readTranscriptTail(filePath: string, maxBytes: number): Promise<{ content: string; isComplete: boolean }> {
+  const fd = openIsolatedFd(filePath);
+  try {
+    const { size } = fs.fstatSync(fd);
+    const length = Math.min(size, maxBytes);
+    const buffer = Buffer.alloc(length);
+    let read = 0;
+    while (read < length) {
+      const count = await new Promise<number>((resolve, reject) => {
+        fs.read(fd, buffer, read, length - read, size - length + read, (error, bytes) => (error ? reject(error) : resolve(bytes)));
+      });
+      if (count === 0) break;
+      read += count;
+    }
+    const content = buffer.subarray(0, read).toString('utf8');
+    if (size <= maxBytes) return { content, isComplete: true };
+    const firstNewline = content.indexOf('\n');
+    return { content: firstNewline === -1 ? '' : content.slice(firstNewline + 1), isComplete: false };
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
 /** Caps of the walk over one isolated home's transcripts (the agent decides how many entries and how deep). */
-export const ISOLATED_TRANSCRIPT_LIMITS = { maxDepth: 6, maxEntries: 5000, maxFirstLineBytes: 1024 * 1024 };
+export const ISOLATED_TRANSCRIPT_LIMITS = {
+  maxDepth: 6,
+  maxEntries: 5000,
+  maxFirstLineBytes: 1024 * 1024,
+  /** Whole-file reads (titles, the current model); history is streamed instead. */
+  maxTextBytes: 8 * 1024 * 1024,
+};
 
 /**
  * The .jsonl files under one isolated home's `.claude/projects`, created after `since`, without subagent
@@ -290,4 +294,64 @@ export async function findIsolatedTranscripts(
     warnOnce(`max-entries:${root}`, `${root} holds more than ${limits.maxEntries ?? ISOLATED_TRANSCRIPT_LIMITS.maxEntries} entries; the walk stopped there.`);
   }
   return files;
+}
+
+/** How often the isolated homes are walked for new or changed transcripts (the main watcher polls as often). */
+export const ISOLATED_TRANSCRIPT_POLL_MS = 6_000;
+
+/**
+ * Watches every isolated home's transcripts by walking it with findIsolatedTranscripts every `intervalMs` (bounded
+ * in depth and entries per home) instead of a file watcher: an agent decides how many files and directories its
+ * home holds, and a watcher would spend inotify watches or a stat timer on each. The first walk only records what
+ * is there; later walks report files that appeared ('add') or whose size or mtime changed ('change').
+ */
+export function startIsolatedTranscriptPoller(
+  onChange: (event: 'add' | 'change', filePath: string) => void,
+  options: { intervalMs?: number; limits?: { maxDepth?: number; maxEntries?: number } } = {},
+): { tick(): Promise<void>; stop(): Promise<void> } {
+  let known: Map<string, string> | null = null;
+  let running: Promise<void> | null = null;
+  let stopped = false;
+
+  const walk = async () => {
+    const seen = new Map<string, string>();
+    for (const root of claudeTranscriptRoots().slice(1)) {
+      for (const file of await findIsolatedTranscripts(root, null, options.limits)) {
+        let stamp: string;
+        try {
+          const stats = await fsp.lstat(file);
+          if (!stats.isFile()) continue;
+          stamp = `${stats.size}:${stats.mtimeMs}`;
+        } catch {
+          continue;
+        }
+        seen.set(file, stamp);
+        if (!known || stopped) continue;
+        const previous = known.get(file);
+        if (previous === undefined) onChange('add', file);
+        else if (previous !== stamp) onChange('change', file);
+      }
+    }
+    known = seen;
+  };
+
+  const tick = () => {
+    running ??= walk()
+      .catch((error) => console.error('[Isolation] Walking the isolated homes failed', error))
+      .finally(() => {
+        running = null;
+      });
+    return running;
+  };
+
+  const timer = setInterval(() => void tick(), options.intervalMs ?? ISOLATED_TRANSCRIPT_POLL_MS);
+  timer.unref();
+  return {
+    tick,
+    async stop() {
+      stopped = true;
+      clearInterval(timer);
+      await running;
+    },
+  };
 }

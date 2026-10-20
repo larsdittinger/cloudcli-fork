@@ -1,6 +1,8 @@
 import { access } from 'node:fs/promises';
+import path from 'node:path';
 
 import { projectsDb } from '@/modules/database/index.js';
+import { assertOutsideIsolatedArea } from '@/modules/isolation/index.js';
 import {
   createProject,
   deleteOrArchiveProject,
@@ -14,12 +16,21 @@ import type {
 import { AppError } from '@/shared/utils.js';
 import { createWorktree } from '@/modules/worktrees/services/worktree-create.service.js';
 import { createAndOpenWorktree } from '@/modules/worktrees/services/worktree-create-and-open.service.js';
-import { runGitCommand } from '@/modules/worktrees/services/worktree-git.service.js';
+import { runGitCommand as runGitCommandAnywhere } from '@/modules/worktrees/services/worktree-git.service.js';
 import { listWorktrees } from '@/modules/worktrees/services/worktree-list.service.js';
 import { mergeWorktree } from '@/modules/worktrees/services/worktree-merge.service.js';
 import { openWorktreeAsProject } from '@/modules/worktrees/services/worktree-open.service.js';
 import { removeWorktree } from '@/modules/worktrees/services/worktree-remove.service.js';
 import { createWorktreesRouter } from '@/modules/worktrees/worktrees.routes.js';
+
+/**
+ * git never runs in an isolated project from here: its .git (config, hooks) is the agent's. Checked for the cwd and
+ * every absolute path argument (worktree paths).
+ */
+const runGitCommand: typeof runGitCommandAnywhere = async (args, cwd) => {
+  assertOutsideIsolatedArea([cwd, ...args.filter((arg) => path.isAbsolute(arg))], 'Worktree management');
+  return runGitCommandAnywhere(args, cwd);
+};
 
 /**
  * Real filesystem adapter used only by Worktrees production composition.
@@ -83,6 +94,7 @@ const worktreeServices: WorktreeServices = {
         statusCode: 404,
       });
     }
+    assertOutsideIsolatedArea([projectPath], 'Worktree management');
 
     return projectPath;
   },

@@ -744,7 +744,7 @@ export const parseIncomingJsonObject = (payload: unknown): AnyRecord | null => {
  */
 export const readJsonConfig = async (filePath: string): Promise<Record<string, unknown>> => {
   try {
-    const content = await readFile(filePath, 'utf8');
+    const content = await readProjectTextFile(filePath);
     const parsed = JSON.parse(content) as Record<string, unknown>;
     return readObjectRecord(parsed) ?? {};
   } catch (error) {
@@ -765,9 +765,56 @@ export const readJsonConfig = async (filePath: string): Promise<Record<string, u
  * ends with a trailing newline to keep the file diff-friendly.
  */
 export const writeJsonConfig = async (filePath: string, data: Record<string, unknown>): Promise<void> => {
+  const guard = projectFileGuardFor(filePath);
+  if (guard) {
+    await guard.write(filePath, `${JSON.stringify(data, null, 2)}\n`);
+    return;
+  }
   await mkdir(path.dirname(filePath), { recursive: true });
   await writeFile(filePath, `${JSON.stringify(data, null, 2)}\n`, 'utf8');
 };
+
+// Files in a tree an isolated agent writes (its project, its home) are read and written through a guard the
+// isolation module registers: no symlink is followed, no FIFO blocks, reads are capped. Every other path as before.
+// Registered from there so this file does not depend on it.
+export type ProjectFileGuard = {
+  claims(filePath: string): boolean;
+  read(filePath: string, maxBytes: number): Promise<Buffer>;
+  /** Creates missing parent directories, like writeJsonConfig. */
+  write(filePath: string, content: string): Promise<void>;
+};
+
+const projectFileGuards: ProjectFileGuard[] = [];
+
+export function registerProjectFileGuard(guard: ProjectFileGuard): void {
+  projectFileGuards.push(guard);
+}
+
+function projectFileGuardFor(filePath: string): ProjectFileGuard | undefined {
+  return projectFileGuards.find((guard) => guard.claims(filePath));
+}
+
+/** Cap of a guarded whole-file read (config files, manifests, skills); bigger files fail with 413. */
+export const PROJECT_FILE_MAX_BYTES = 8 * 1024 * 1024;
+
+/** readFile(filePath) for a file that may lie in a project; guarded (see ProjectFileGuard) when it is isolated. */
+export async function readProjectFile(filePath: string, maxBytes = PROJECT_FILE_MAX_BYTES): Promise<Buffer> {
+  const guard = projectFileGuardFor(filePath);
+  return guard ? guard.read(filePath, maxBytes) : readFile(filePath);
+}
+
+/**
+ * readFile(filePath, 'utf8') for a file that may lie in a project; guarded when it is isolated. `readUnguarded`
+ * replaces the plain read (modules with an injected filesystem).
+ */
+export async function readProjectTextFile(
+  filePath: string,
+  maxBytes = PROJECT_FILE_MAX_BYTES,
+  readUnguarded: (filePath: string) => Promise<string> = (target) => readFile(target, 'utf8'),
+): Promise<string> {
+  const guard = projectFileGuardFor(filePath);
+  return guard ? (await guard.read(filePath, maxBytes)).toString('utf8') : readUnguarded(filePath);
+}
 
 // ---------------------------
 //----------------- PROVIDER SKILL FILE UTILITIES ------------
@@ -912,7 +959,7 @@ export async function findProviderSkillMarkdownFiles(
 export async function readProviderSkillMarkdownDefinition(
   skillPath: string,
 ): Promise<{ name: string; description: string }> {
-  const content = await readFile(skillPath, 'utf8');
+  const content = await readProjectTextFile(skillPath, 1024 * 1024);
   return readProviderSkillMarkdownDefinitionFromContent(
     content,
     path.basename(path.dirname(skillPath)),

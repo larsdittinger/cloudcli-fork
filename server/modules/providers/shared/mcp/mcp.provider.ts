@@ -1,5 +1,6 @@
 import path from 'node:path';
 
+import { touchesIsolatedArea } from '@/modules/isolation/index.js';
 import type { IProviderMcp } from '@/shared/interfaces.js';
 import type { LLMProvider, McpScope, McpTransport, ProviderMcpServer, UpsertProviderMcpServerInput } from '@/shared/types.js';
 import { AppError } from '@/shared/utils.js';
@@ -18,6 +19,18 @@ const normalizeServerName = (name: string): string => {
 
   return normalized;
 };
+
+/**
+ * An isolated project runs only Claude, whose config files are read and written through the isolation guard
+ * (readJsonConfig/writeJsonConfig). Other providers' project files there are the agent's and are not touched.
+ */
+const isIsolatedNonClaudeScope = (provider: LLMProvider, scope: McpScope, workspacePath: string): boolean =>
+  provider !== 'claude' && scope !== 'user' && touchesIsolatedArea(workspacePath);
+
+const ISOLATED_MCP_REFUSED = () => new AppError('Only Claude MCP servers can be configured in an isolated project.', {
+  code: 'ISOLATED_PROVIDER_UNSUPPORTED',
+  statusCode: 409,
+});
 
 /**
  * Shared MCP provider for provider-specific config readers/writers.
@@ -60,6 +73,7 @@ export abstract class McpProvider implements IProviderMcp {
     }
 
     const workspacePath = resolveWorkspacePath(options?.workspacePath);
+    if (isIsolatedNonClaudeScope(this.provider, scope, workspacePath)) return [];
     const scopedServers = await this.readScopedServers(scope, workspacePath);
     return Object.entries(scopedServers)
       .map(([name, rawConfig]) => this.normalizeServerConfig(scope, name, rawConfig))
@@ -71,6 +85,7 @@ export abstract class McpProvider implements IProviderMcp {
     this.assertScopeAndTransport(scope, input.transport);
 
     const workspacePath = resolveWorkspacePath(input.workspacePath);
+    if (isIsolatedNonClaudeScope(this.provider, scope, workspacePath)) throw ISOLATED_MCP_REFUSED();
     const normalizedName = normalizeServerName(input.name);
     const scopedServers = await this.readScopedServers(scope, workspacePath);
     scopedServers[normalizedName] = this.buildServerConfig(input);
@@ -100,6 +115,7 @@ export abstract class McpProvider implements IProviderMcp {
     this.assertScope(scope);
 
     const workspacePath = resolveWorkspacePath(input.workspacePath);
+    if (isIsolatedNonClaudeScope(this.provider, scope, workspacePath)) throw ISOLATED_MCP_REFUSED();
     const normalizedName = normalizeServerName(input.name);
     const scopedServers = await this.readScopedServers(scope, workspacePath);
     const removed = Object.prototype.hasOwnProperty.call(scopedServers, normalizedName);

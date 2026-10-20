@@ -7,6 +7,7 @@ import spawn from 'cross-spawn';
 import { githubTokensDb } from '@/modules/database/index.js';
 import { createProject } from '@/modules/projects/services/project-management.service.js';
 import type { WorkspacePathValidationResult } from '@/shared/types.js';
+import { assertOutsideIsolatedArea } from '@/modules/isolation/index.js';
 import { AppError, validateWorkspacePath } from '@/shared/utils.js';
 
 type CloneProjectInput = {
@@ -260,6 +261,8 @@ export async function startCloneProject(
   }
 
   const absolutePath = pathValidation.resolvedPath;
+  // An isolated project's directory is its agent's: no main-side clone (with the user's GitHub token) into it.
+  assertOutsideIsolatedArea([normalizedWorkspacePath, absolutePath], 'Cloning');
   await dependencies.ensureDirectory(absolutePath);
 
   let githubToken: string | null = null;

@@ -1,7 +1,10 @@
 // Isolation — agents of isolated projects run in the sibling sandbox container (daemon/), under their own uid,
 // with a network allowlist and only run-token scoped access back to the app (main.sock).
-import { registerReadOnlyRoots } from '@/shared/utils.js';
+import path from 'node:path';
 
+import { registerProjectFileGuard, registerReadOnlyRoots } from '@/shared/utils.js';
+
+import { isolatedAreaOf, isolatedFs } from './isolated-fs.js';
 import { claudeTranscriptRoots } from './isolation-transcripts.js';
 
 // isolationRoutes: mounted by the server entrypoint at /api/isolation behind authenticateToken + requireAdmin.
@@ -39,16 +42,43 @@ export {
   acceptTranscript,
   claudeTranscriptRoots,
   findIsolatedTranscripts,
-  isIsolatedHomeWatchPath,
   isIsolatedTranscriptPath,
   isolatedHomesRoot,
   isProviderSessionIdFree,
   isReadableTranscript,
   ISOLATED_TRANSCRIPT_LIMITS,
   openTranscriptStream,
+  readTranscriptTail,
   readTranscriptText,
+  startIsolatedTranscriptPoller,
   TranscriptRefusedError,
 } from './isolation-transcripts.js';
+// Main-side access to files of isolated projects and homes: never through a symlink, never blocking on a FIFO.
+export {
+  assertOutsideIsolatedArea,
+  isolatedAreaOf,
+  isolatedFeatureRefused,
+  isolatedFs,
+  IsolatedPathRefusedError,
+  openIsolatedPath,
+  refuseSpawnInIsolatedArea,
+  touchesIsolatedArea,
+  withIsolatedFileSystem,
+} from './isolated-fs.js';
+export type { IsolatedOpenMode } from './isolated-fs.js';
+// guardIsolatedGit: the Git module routes isolated projects' git through the sandbox (or refuses it).
+export { GIT_ISOLATED_REFUSED_TEXT, guardIsolatedGit } from './isolated-git.js';
 
 // The file viewer follows transcript paths (background agent outputs) into isolated homes too.
 registerReadOnlyRoots(() => claudeTranscriptRoots().slice(1));
+
+// Config files, manifests and skills the app reads (and the MCP config it writes) inside isolated trees.
+registerProjectFileGuard({
+  claims: (filePath) => isolatedAreaOf(filePath) !== null,
+  read: (filePath, maxBytes) => isolatedFs.readText(filePath, maxBytes),
+  async write(filePath, content) {
+    const created = await isolatedFs.makeDirectory(path.dirname(filePath), true);
+    await isolatedFs.writeText(filePath, content);
+    await isolatedFs.adopt(created ?? filePath);
+  },
+});

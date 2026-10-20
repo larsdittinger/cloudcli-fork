@@ -6,6 +6,7 @@ import path from 'node:path';
 import Database from 'better-sqlite3';
 
 import { sessionsDb } from '@/modules/database/index.js';
+import { isIsolatedTranscriptPath, readTranscriptTail, readTranscriptText } from '@/modules/isolation/index.js';
 import type { AnyRecord } from '@/shared/types.js';
 import { AppError, getOpenCodeDatabasePath } from '@/shared/utils.js';
 
@@ -68,8 +69,10 @@ const defaultDependencies: ProviderTokenUsageServiceDependencies = {
   getOpenCodeDatabasePath,
   fileExists: (filePath) => fsSync.existsSync(filePath),
   readDirectory: (directoryPath) => fsp.readdir(directoryPath, { withFileTypes: true }),
-  readTextFile: (filePath) => fsp.readFile(filePath, 'utf8'),
+  // An isolated project's transcript is agent-written: opened without following links, never blocking on a FIFO.
+  readTextFile: (filePath) => readTranscriptText(filePath),
   readTextFileTail: async (filePath, maxBytes) => {
+    if (isIsolatedTranscriptPath(filePath)) return readTranscriptTail(filePath, maxBytes);
     const handle = await fsp.open(filePath, 'r');
     try {
       const { size } = await handle.stat();

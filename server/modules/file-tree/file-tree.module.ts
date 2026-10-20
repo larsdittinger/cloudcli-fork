@@ -6,6 +6,7 @@ import mime from 'mime-types';
 import multer from 'multer';
 
 import { projectsDb } from '@/modules/database/index.js';
+import { withIsolatedFileSystem } from '@/modules/isolation/index.js';
 import { createFileTreeRouter } from '@/modules/file-tree/file-tree.routes.js';
 import { createFileTreeService } from '@/modules/file-tree/file-tree.service.js';
 import type {
@@ -32,7 +33,8 @@ function readFileSystemConcurrency(): number {
  * Application services receive this complete capability explicitly and never
  * import Node's mutable filesystem APIs themselves.
  */
-const fileTreeFileSystem: FileTreeFileSystem = {
+// Paths in an isolated project or home go through the isolation module (no symlink followed, no FIFO opened).
+const fileTreeFileSystem: FileTreeFileSystem = withIsolatedFileSystem({
   access: (candidatePath) => fsPromises.access(candidatePath),
   stat: (candidatePath) => fsPromises.stat(candidatePath),
   lstat: (candidatePath) => fsPromises.lstat(candidatePath),
@@ -54,7 +56,7 @@ const fileTreeFileSystem: FileTreeFileSystem = {
   unlink: (filePath) => fsPromises.unlink(filePath),
   copyFile: (sourcePath, destinationPath) => fsPromises.copyFile(sourcePath, destinationPath),
   createReadStream: (filePath) => fs.createReadStream(filePath),
-};
+});
 
 /**
  * Database boundary used only by File Tree production composition.

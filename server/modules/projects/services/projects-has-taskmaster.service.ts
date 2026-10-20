@@ -1,8 +1,8 @@
-import { access, readFile, stat } from 'node:fs/promises';
+import { access, stat } from 'node:fs/promises';
 import path from 'node:path';
 
 import { projectsDb } from '@/modules/database/index.js';
-import { AppError } from '@/shared/utils.js';
+import { AppError, readProjectTextFile } from '@/shared/utils.js';
 
 type TaskMasterTask = {
   status?: string;
@@ -126,7 +126,7 @@ async function detectTaskMasterFolder(projectPath: string): Promise<TaskMasterDe
     if (fileStatus['tasks/tasks.json']) {
       const tasksPath = path.join(taskMasterPath, 'tasks/tasks.json');
       try {
-        const tasksContent = await readFile(tasksPath, 'utf8');
+        const tasksContent = await readProjectTextFile(tasksPath); // guarded in isolated projects
         const parsedTasksJson = JSON.parse(tasksContent) as unknown;
         const tasks = extractTasksFromJson(parsedTasksJson);
 

@@ -4,7 +4,7 @@ import { promises as fsPromises } from 'node:fs';
 
 import chokidar, { type FSWatcher } from 'chokidar';
 
-import { isIsolatedHomeWatchPath, isolatedHomesRoot } from '@/modules/isolation/index.js';
+import { isolatedHomesRoot, startIsolatedTranscriptPoller } from '@/modules/isolation/index.js';
 import { sessionSynchronizerService } from '@/modules/providers/services/session-synchronizer.service.js';
 import { broadcastSessionUpsertedBatch } from '@/modules/websocket/index.js';
 import type { LLMProvider } from '@/shared/types.js';
@@ -46,6 +46,7 @@ const PROJECTS_UPDATE_DEBOUNCE_MS = 500;
 const PROJECTS_UPDATE_MAX_WAIT_MS = 2_000;
 
 const watchers: FSWatcher[] = [];
+let isolatedHomesPoller: ReturnType<typeof startIsolatedTranscriptPoller> | null = null;
 
 type PendingWatcherUpdate = {
   providers: Set<LLMProvider>;
@@ -205,19 +206,21 @@ export async function initializeSessionsWatcher(): Promise<void> {
     failures: initialSync.failures,
   });
 
-  // Isolated projects keep their transcripts in their own homes, which appear at runtime (a copy creates one):
-  // the homes root itself is one more Claude root, narrowed to <home>/.claude/projects.
-  const homesRoot = isolatedHomesRoot();
-  const watchPaths = homesRoot
-    ? [...PROVIDER_WATCH_PATHS, { provider: 'claude' as const, rootPath: homesRoot, isolatedHomes: true }]
-    : PROVIDER_WATCH_PATHS;
+  // Isolated projects keep their transcripts in their own homes, which the agents fill: those are walked on a
+  // timer with a bounded walk instead of being watched (no watcher per agent-made file or directory).
+  if (isolatedHomesRoot() && !isolatedHomesPoller) {
+    isolatedHomesPoller = startIsolatedTranscriptPoller((eventType, filePath) => {
+      void onUpdate(eventType, filePath, 'claude');
+    });
+    void isolatedHomesPoller.tick();
+  }
 
-  for (const { provider, rootPath, isolatedHomes } of watchPaths as Array<{ provider: LLMProvider; rootPath: string; isolatedHomes?: boolean }>) {
+  for (const { provider, rootPath } of PROVIDER_WATCH_PATHS) {
     try {
       await fsPromises.mkdir(rootPath, { recursive: true });
 
       const watcher = chokidar.watch(rootPath, {
-        ignored: isolatedHomes ? (filePath: string) => !isIsolatedHomeWatchPath(filePath) : WATCHER_IGNORED_PATTERNS,
+        ignored: WATCHER_IGNORED_PATTERNS,
         persistent: true,
         ignoreInitial: true,
         followSymlinks: false,
@@ -255,6 +258,9 @@ export async function initializeSessionsWatcher(): Promise<void> {
  */
 export async function closeSessionsWatcher(): Promise<void> {
   clearPendingWatcherFlushTimer();
+  const poller = isolatedHomesPoller;
+  isolatedHomesPoller = null;
+  await poller?.stop();
 
   await Promise.all(
     watchers.map(async (watcher) => {
