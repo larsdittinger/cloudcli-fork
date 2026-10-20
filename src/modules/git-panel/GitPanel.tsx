@@ -123,6 +123,7 @@ export default function GitPanel({
       {!isMissingRepository && (
         <GitPanelHeader
           isMobile={isMobile}
+          remoteDisabled={selectedProject.isolated === true}
           currentBranch={currentBranch}
           branches={branches}
           remoteStatus={remoteStatus}

@@ -194,3 +194,20 @@ test('"sees all chats" lists every chat of an assigned project read-only; admins
     assert.equal(adminProject.sessions.find((session) => session.id === 'mine-1')?.sharedWith, undefined);
   });
 });
+
+test('the project list marks isolated projects', async () => {
+  await withProjectsServer(() => ({ id: 1, role: 'admin' }), async (baseUrl) => {
+    userDb.createUser('boss', 'hash');
+    projectsDb.createProjectPath('/workspace/plain');
+    projectsDb.createProjectPath('/workspace/locked');
+    const lockedId = projectsDb.getProjectPath('/workspace/locked')?.project_id ?? '';
+    const { isolationDb } = await import('@/modules/isolation/index.js');
+    isolationDb.markIsolated(lockedId, 20001);
+
+    const projects = await (await fetch(`${baseUrl}/api/projects?skipSynchronization=1`)).json() as
+      Array<{ fullPath: string; isolated: boolean }>;
+
+    assert.equal(projects.find((p) => p.fullPath === '/workspace/locked')?.isolated, true);
+    assert.equal(projects.find((p) => p.fullPath === '/workspace/plain')?.isolated, false);
+  });
+});

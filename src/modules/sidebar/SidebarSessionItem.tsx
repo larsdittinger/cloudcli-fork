@@ -522,7 +522,8 @@ function SidebarSessionItem({
             onCancelEditingSession={onCancelEditingSession}
             onSaveEditingSession={onSaveEditingSession}
             onDeleteSession={onDeleteSession}
-            onFork={onForkSession ? () => onForkSession(session) : undefined}
+            // The server refuses to fork a chat of an isolated project, so the menu does not offer it.
+            onFork={onForkSession && project.isolated !== true ? () => onForkSession(session) : undefined}
             readOnly={isReadOnly}
             t={t}
           />

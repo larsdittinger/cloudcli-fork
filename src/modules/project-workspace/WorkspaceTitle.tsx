@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { LLMProviderLogo } from '@/shared/ui';
 import type { AppTab, Project, ProjectSession } from '@/shared/types';
 import { usePlugins } from '@/modules/plugins';
+import { IsolationBadge } from '@/modules/isolation';
 import { getSessionTitle } from '@/shared/utils';
 import { useSessionTitleRename } from '@/modules/project-workspace/hooks/useSessionTitleRename';
 
@@ -137,6 +138,8 @@ export default function WorkspaceTitle({
           </div>
         )}
       </div>
+
+      {selectedProject.isolated === true && <IsolationBadge />}
     </div>
   );
 }

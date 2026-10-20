@@ -719,6 +719,23 @@ export const api = {
     run: (id: string, withLog = false) => get(`/api/schedules/runs/${id}${withLog ? '?log=1' : ''}`),
   },
 
+  isolation: {
+    status: () => get('/api/isolation/status'),
+    project: (projectId: string) => get(`/api/isolation/projects/${encodeURIComponent(projectId)}`),
+    saveProject: (projectId: string, body: { allowlist?: string[]; tools?: { channels?: boolean; tasks?: boolean } }) =>
+      put(`/api/isolation/projects/${encodeURIComponent(projectId)}`, body),
+    blocked: (projectId: string) => get(`/api/isolation/projects/${encodeURIComponent(projectId)}/blocked`),
+    selfCheck: (projectId: string) => post(`/api/isolation/projects/${encodeURIComponent(projectId)}/self-check`),
+  },
+
+  copyProject: {
+    preview: (projectId: string) => post(`/api/projects/${encodeURIComponent(projectId)}/copy/preview`),
+    start: (projectId: string, body: { name: string; isolated: boolean; excludeSecretFiles: string[]; carryMcp: string[] }) =>
+      post(`/api/projects/${encodeURIComponent(projectId)}/copy`, body),
+    progress: (jobId: string) => get(`/api/projects/copy-progress/${encodeURIComponent(jobId)}`),
+    cancel: (jobId: string) => post(`/api/projects/copy-progress/${encodeURIComponent(jobId)}/cancel`),
+  },
+
   voice: {
     health: () => get('/api/voice/health'),
     transcribe: (formData: FormData, headers: Record<string, string> = {}) =>

@@ -22,6 +22,8 @@ type SidebarRecentConversationsProps = {
    * conversation can be renamed, copied, forked or archived from here too.
    */
   sessionActions: SessionRowActions;
+  /** Projects that run in the sandbox: their chats cannot be forked. */
+  isolatedProjectIds?: ReadonlySet<string>;
   onConversationSelect: (
     projectId: string | null,
     sessionId: string,
@@ -59,6 +61,7 @@ export default function SidebarRecentConversations({
   selectedSession,
   currentTime,
   sessionActions,
+  isolatedProjectIds,
   onConversationSelect,
   onLoadMore,
   onRetry,
@@ -225,7 +228,7 @@ export default function SidebarRecentConversations({
                 readOnly={Boolean(conversation.readOnly)}
                 // The fork path reads only the id, provider and owning project,
                 // which is all a recents row knows about the session.
-                onFork={sessionActions.onForkSession
+                onFork={sessionActions.onForkSession && !(conversation.projectId && isolatedProjectIds?.has(conversation.projectId))
                   ? () => sessionActions.onForkSession?.({
                     id: conversation.sessionId,
                     summary: conversation.sessionTitle,

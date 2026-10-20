@@ -1,4 +1,4 @@
-import { AlertCircle, Check, ChevronDown, Download, GitBranch, Plus, RefreshCw, RotateCcw, Search, Upload, X } from 'lucide-react';
+import { AlertCircle, Check, ChevronDown, Download, GitBranch, Lock, Plus, RefreshCw, RotateCcw, Search, Upload, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -7,6 +7,8 @@ import NewBranchModal from '@/modules/git-panel/modals/NewBranchModal';
 
 type GitPanelHeaderProps = {
   isMobile: boolean;
+  /** Isolated projects cannot reach the remote: fetch, pull, push and publish are off. */
+  remoteDisabled?: boolean;
   currentBranch: string;
   branches: string[];
   remoteStatus: GitRemoteStatus | null;
@@ -33,6 +35,7 @@ type GitPanelHeaderProps = {
 /** Rendered by GitPanel to host the branch switcher and the fetch/pull/push/publish/revert actions. */
 export default function GitPanelHeader({
   isMobile,
+  remoteDisabled = false,
   currentBranch,
   branches,
   remoteStatus,
@@ -230,7 +233,18 @@ export default function GitPanelHeader({
 
         {/* Action buttons */}
         <div className={`flex items-center ${isMobile ? 'gap-1' : 'gap-2'}`}>
-          {remoteStatus?.hasRemote && (
+          {remoteDisabled && (
+            <button
+              disabled
+              className="flex items-center gap-1 rounded-lg bg-muted px-2.5 py-1 text-sm text-muted-foreground opacity-70"
+              title={t('isolation:git.unavailable')}
+              aria-label={t('isolation:git.unavailable')}
+            >
+              <Lock className="h-3 w-3" />
+              {!isMobile && <span>{t('git:header.fetch')}</span>}
+            </button>
+          )}
+          {!remoteDisabled && remoteStatus?.hasRemote && (
             <>
               {!remoteStatus.hasUpstream ? (
                 <button

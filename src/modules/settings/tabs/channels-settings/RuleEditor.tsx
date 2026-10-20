@@ -153,7 +153,10 @@ export default function RuleEditor({ open, rule, accounts, onOpenChange, onSubmi
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) => setForm((current) => ({ ...current, [key]: value }));
   const input = toInput(form);
   const ruleAccount = accounts.find((account) => account.id === input.accountId);
-  const warning = ruleOpenAutonomyError(input, ruleAccount?.config.autoReplyAnyone === true);
+  const ruleProjectIsolated = projects.some((project) => project.fullPath === input.projectPath && project.isolated === true);
+  const warning = ruleOpenAutonomyError(input, ruleAccount?.config.autoReplyAnyone === true, ruleProjectIsolated);
+  const openIsolatedHint = ruleProjectIsolated && input.permissionMode !== 'default'
+    && (input.conditions.senders ?? []).every((sender) => !sender.trim() || sender.trim() === '*');
   const canSave = Boolean(input.name && input.projectPath) && !warning;
 
   const submit = async () => {
@@ -249,6 +252,9 @@ export default function RuleEditor({ open, rule, accounts, onOpenChange, onSubmi
                   <option value="bypassPermissions">{t('ruleEditor.permissionBypass')}</option>
                 </select>
               </Field>
+              {openIsolatedHint && (
+                <p className="text-xs text-muted-foreground sm:col-span-2">{t('isolation:rule.openIsolatedHint')}</p>
+              )}
               <Field label={t('ruleEditor.model')} hint={t('ruleEditor.modelHint')}><Input value={form.model} onChange={(event) => set('model', event.target.value)} placeholder={t('ruleEditor.modelPlaceholder')} /></Field>
               <Field label={t('ruleEditor.effort')} hint={t('ruleEditor.effortHint')}><Input value={form.effort} onChange={(event) => set('effort', event.target.value)} placeholder="low / medium / high" /></Field>
               <Field label={t('ruleEditor.onMatch')} className="sm:col-span-2">

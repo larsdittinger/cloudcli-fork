@@ -29,6 +29,8 @@ import enChannels from '@/modules/i18n/locales/en/channels.json';
 import enSchedules from '@/modules/i18n/locales/en/schedules.json';
 // oxlint-disable-next-line importx/order
 import enAgentTasks from '@/modules/i18n/locales/en/agentTasks.json';
+// oxlint-disable-next-line importx/order
+import enIsolation from '@/modules/i18n/locales/en/isolation.json';
 
 import frCommon from '@/modules/i18n/locales/fr/common.json';
 import frSettings from '@/modules/i18n/locales/fr/settings.json';
@@ -134,6 +136,8 @@ import csChannels from '@/modules/i18n/locales/cs/channels.json';
 import csSchedules from '@/modules/i18n/locales/cs/schedules.json';
 // oxlint-disable-next-line importx/order
 import csAgentTasks from '@/modules/i18n/locales/cs/agentTasks.json';
+// oxlint-disable-next-line importx/order
+import csIsolation from '@/modules/i18n/locales/cs/isolation.json';
 
 import heCommon from '@/modules/i18n/locales/he/common.json';
 import heSettings from '@/modules/i18n/locales/he/settings.json';
@@ -204,6 +208,7 @@ git: enGit,
         channels: enChannels,
         schedules: enSchedules,
         agentTasks: enAgentTasks,
+        isolation: enIsolation,
       },
       fr: {
         common: frCommon,
@@ -308,6 +313,7 @@ git: enGit,
         channels: csChannels,
         schedules: csSchedules,
         agentTasks: csAgentTasks,
+        isolation: csIsolation,
       },
       he: {
         common: heCommon,
@@ -350,7 +356,7 @@ git: enGit,
     debug: false,
 
     // Namespaces - load only what's needed
-    ns: ['common', 'settings', 'auth', 'sidebar', 'chat', 'codeEditor', 'tasks', 'git', 'channels', 'schedules', 'agentTasks'],
+    ns: ['common', 'settings', 'auth', 'sidebar', 'chat', 'codeEditor', 'tasks', 'git', 'channels', 'schedules', 'agentTasks', 'isolation'],
     defaultNS: 'common',
 
     // Key separator for nested keys (default: '.')

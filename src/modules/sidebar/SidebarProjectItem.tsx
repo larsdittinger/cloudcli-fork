@@ -1,5 +1,5 @@
 import { memo, useEffect, useRef } from 'react';
-import { Check, ChevronDown, ChevronRight, Edit3, Star, Trash2, X } from 'lucide-react';
+import { Check, ChevronDown, ChevronRight, Edit3, Lock, Star, Trash2, X } from 'lucide-react';
 import type { TFunction } from 'i18next';
 
 import { Button } from '@/shared/ui';
@@ -11,6 +11,8 @@ import SidebarProjectSessions from '@/modules/sidebar/SidebarProjectSessions';
 import { useCompactSidebar } from '@/modules/sidebar/hooks/useCompactSidebar';
 import { useIsAdmin } from '@/shared/hooks/useIsAdmin';
 import { ProjectAttentionBadge } from '@/modules/agent-tasks';
+import { ProjectOptionsMenu } from '@/modules/isolation';
+import { usePaletteOps } from '@/modules/command-palette';
 
 type SidebarProjectItemProps = {
   project: Project;
@@ -109,6 +111,15 @@ function SidebarProjectItem({
   t,
 }: SidebarProjectItemProps) {
   const isAdmin = useIsAdmin();
+  const paletteOps = usePaletteOps();
+  const isolated = project.isolated === true;
+  const isolationTitle = isolated ? t('sidebar.tooltip', { ns: 'isolation' }) : undefined;
+  const isolatedClasses = 'border border-red-500/70 bg-red-500/5 dark:border-red-400/70';
+
+  // A finished copy: refresh the list so the row exists, then open the new project.
+  const handleCopied = (copied: Project) => {
+    void Promise.resolve(paletteOps.refreshProjects()).finally(() => onProjectSelect(copied));
+  };
 
   // Project identity is tracked by the DB-assigned `projectId` everywhere
   // after the projectName → projectId migration.
@@ -160,13 +171,16 @@ function SidebarProjectItem({
 
   return (
     <div className={cn('md:space-y-1', isDeleting && 'opacity-50 pointer-events-none')}>
-      <div className="sticky top-0 z-10 md:group group">
+      <div className="relative sticky top-0 z-10 md:group group">
         {isCompact && (
         <div className="bg-background">
           <div
+            data-isolated={isolated ? 'true' : undefined}
+            title={isolationTitle}
             className={cn(
               'p-3 mx-3 my-1 rounded-lg bg-card border border-border/50 active:scale-[0.98] transition-all duration-150',
               isSelected && 'bg-primary/5 border-primary/20',
+              isolated && isolatedClasses,
               isStarred &&
                 !isSelected &&
                 'bg-yellow-50/50 dark:bg-yellow-900/5 border-yellow-200/30 dark:border-yellow-800/30',
@@ -232,6 +246,7 @@ function SidebarProjectItem({
                       <div className="flex min-w-0 flex-1 items-center justify-between">
                         <div className="flex min-w-0 items-center gap-1.5">
                           {isAdmin && <ProjectAttentionBadge projectPath={project.fullPath} />}
+                          {isolated && <Lock className="h-3.5 w-3.5 flex-shrink-0 text-red-600 dark:text-red-400" aria-hidden />}
                           <h3 className="truncate text-sm font-normal text-foreground">{project.displayName}</h3>
                         </div>
                         {tasksEnabled && (
@@ -272,6 +287,8 @@ function SidebarProjectItem({
                   </>
                 ) : (
                   <>
+                    {isAdmin && <ProjectOptionsMenu project={project} onCopied={handleCopied} />}
+
                     {isAdmin && (
                       <button
                         className="flex h-8 w-8 items-center justify-center rounded-lg border border-red-200 bg-red-500/10 active:scale-90 dark:border-red-800 dark:bg-red-900/30"
@@ -314,8 +331,12 @@ function SidebarProjectItem({
         {!isCompact && (
         <Button
           variant="ghost"
+          data-isolated={isolated ? 'true' : undefined}
+          title={isolationTitle}
           className={cn(
             'sticky top-0 z-10 flex w-full justify-between p-2 h-auto font-normal hover:bg-accent/50',
+            isAdmin && 'pr-9',
+            isolated && isolatedClasses,
             isSelected
               ? 'bg-accent text-accent-foreground'
               : isStarred
@@ -379,6 +400,7 @@ function SidebarProjectItem({
                 <div>
                   <div className="flex min-w-0 items-center gap-1.5">
                     {isAdmin && <ProjectAttentionBadge projectPath={project.fullPath} />}
+                    {isolated && <Lock className="h-3.5 w-3.5 flex-shrink-0 text-red-600 dark:text-red-400" aria-hidden />}
                     <div className="truncate text-sm font-normal text-foreground" title={project.displayName}>
                       {project.displayName}
                     </div>
@@ -454,6 +476,9 @@ function SidebarProjectItem({
             )}
           </div>
         </Button>
+        )}
+        {!isCompact && isAdmin && !isEditing && (
+          <ProjectOptionsMenu project={project} onCopied={handleCopied} className="absolute right-1 top-1/2 z-20 -translate-y-1/2" />
         )}
       </div>
 

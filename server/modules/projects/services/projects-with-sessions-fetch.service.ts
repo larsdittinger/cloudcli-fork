@@ -1,6 +1,7 @@
 import path from 'node:path';
 
 import { projectsDb, sessionSharesDb, sessionsDb } from '@/modules/database/index.js';
+import { isolationDb } from '@/modules/isolation/index.js';
 import { sessionSynchronizerService } from '@/modules/providers/index.js';
 import { WS_OPEN_STATE, connectedClients } from '@/modules/websocket/index.js';
 import type { RealtimeClientConnection } from '@/shared/types.js';
@@ -33,6 +34,8 @@ export type ProjectListItem = {
   displayName: string;
   fullPath: string;
   isStarred: boolean;
+  /** Runs in the sandbox; the UI marks it with a lock. */
+  isolated: boolean;
   sessions: SessionSummary[];
   sessionMeta: {
     hasMore: boolean;
@@ -221,6 +224,7 @@ export async function getProjectsWithSessions(
     isStarred?: number;
   }>;
   const totalProjects = projectRows.length;
+  const isolatedIds = new Set(isolationDb.listIsolated().map((project) => project.projectId));
   const projects: ProjectListItem[] = [];
   let processedProjects = 0;
 
@@ -257,6 +261,7 @@ export async function getProjectsWithSessions(
       displayName,
       fullPath: projectPath,
       isStarred: Boolean(row.isStarred),
+      isolated: isolatedIds.has(projectId),
       sessions: sessionsPage.sessions,
       sessionMeta: {
         hasMore: sessionsPage.hasMore,
@@ -294,6 +299,7 @@ export async function getArchivedProjectsWithSessions(
   }>;
 
   const archivedProjects: ArchivedProjectListItem[] = [];
+  const isolatedIds = new Set(isolationDb.listIsolated().map((project) => project.projectId));
 
   for (const row of projectRows) {
     const displayName =
@@ -309,6 +315,7 @@ export async function getArchivedProjectsWithSessions(
       displayName,
       fullPath: row.project_path,
       isStarred: Boolean(row.isStarred),
+      isolated: isolatedIds.has(row.project_id),
       isArchived: true,
       sessions: sessionsPage.sessions,
       sessionMeta: {

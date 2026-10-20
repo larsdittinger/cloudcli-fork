@@ -25,3 +25,14 @@ describe('parseLines', () => {
     expect(parseLines(' a@b.cz\n@firma.cz, +420*\n\n')).toEqual(['a@b.cz', '@firma.cz', '+420*']);
   });
 });
+
+describe('ruleOpenAutonomyError in an isolated project', () => {
+  it('lets an open rule use bypass because the sandbox is the boundary', () => {
+    expect(ruleOpenAutonomyError({ conditions: {}, permissionMode: 'bypassPermissions', replyMode: 'draft' }, false, true)).toBeNull();
+    expect(ruleOpenAutonomyError({ conditions: {}, permissionMode: 'bypassPermissions', replyMode: 'draft' }, false, false)).toMatch(/sender filter/);
+  });
+
+  it('still refuses automatic replies to anyone without the account switch', () => {
+    expect(ruleOpenAutonomyError({ conditions: {}, permissionMode: 'bypassPermissions', replyMode: 'auto' }, false, true)).toMatch(/Reply automatically to anyone/);
+  });
+});

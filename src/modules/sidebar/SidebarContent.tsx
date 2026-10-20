@@ -1,4 +1,4 @@
-import { type ReactNode } from 'react';
+import { useMemo, type ReactNode } from 'react';
 import { Activity, Archive, Folder, MessageSquare, RotateCcw, Search, Trash2 } from 'lucide-react';
 import type { TFunction } from 'i18next';
 
@@ -183,6 +183,10 @@ export default function SidebarContent({
   const groupedArchivedSessions = groupArchivedSessionsByProject(archivedSessions);
   const visibleArchivedItemsCount = archivedProjects.length + archivedSessions.length;
   const isRenamingOnMobile = isMobile && projectListProps.activeRename !== null;
+  const isolatedProjectIds = useMemo(
+    () => new Set(projects.filter((project) => project.isolated === true).map((project) => project.projectId)),
+    [projects],
+  );
 
   return (
     <div
@@ -386,6 +390,7 @@ export default function SidebarContent({
             selectedSession={projectListProps.selectedSession}
             currentTime={projectListProps.currentTime}
             sessionActions={projectListProps}
+            isolatedProjectIds={isolatedProjectIds}
             onConversationSelect={onConversationResultClick}
             onLoadMore={onLoadMoreRecentConversations}
             onRetry={onRetryRecentConversations}

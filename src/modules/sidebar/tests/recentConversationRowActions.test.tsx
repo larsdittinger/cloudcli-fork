@@ -159,3 +159,27 @@ test('a session needing attention gets the amber dot', () => {
   const rows = container.querySelectorAll('[data-testid="recent-conversation-row"]');
   assert.equal(rows.length, 2);
 });
+
+test('a conversation of an isolated project offers no fork', () => {
+  const sessionActions = makeActions({ onForkSession: noop });
+  render(
+    <SidebarRecentConversations
+      conversations={[conversation('s1', { projectId: 'iso' }), conversation('s2')]}
+      total={2}
+      hasMore={false}
+      isLoading={false}
+      isLoadingMore={false}
+      hasError={false}
+      selectedSession={null}
+      currentTime={NOW}
+      sessionActions={sessionActions}
+      isolatedProjectIds={new Set(['iso'])}
+      onConversationSelect={noop}
+      onLoadMore={noop}
+      onRetry={noop}
+      t={t}
+    />,
+  );
+  assert.equal(recordedOptionsProps[0].onFork, undefined);
+  assert.equal(typeof recordedOptionsProps[1].onFork, 'function');
+});
