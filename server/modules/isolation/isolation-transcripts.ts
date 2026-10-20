@@ -2,6 +2,7 @@
 // the app reads but the agent writes. Indexing them must not let an agent plant sessions in other projects,
 // take over existing sessions, or point the app at files outside its home.
 import fs from 'node:fs';
+import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -84,6 +85,16 @@ export function isReadableTranscript(filePath: string): boolean {
 }
 
 /**
+ * Whether a provider session id may become (or stay) a session of the isolated project `projectId`: it must not
+ * name a session of any other project. `appSessionId` is the session the run belongs to (its own row is fine).
+ */
+export function isProviderSessionIdFree(projectId: string, providerSessionId: string, appSessionId?: string | null): boolean {
+  const existing = sessionsDb.getSessionByProviderSessionId(providerSessionId) ?? sessionsDb.getSessionById(providerSessionId);
+  if (!existing || (appSessionId && existing.session_id === appSessionId)) return true;
+  return isolationDb.getByPath(existing.project_path ?? '')?.projectId === projectId;
+}
+
+/**
  * After a transcript was parsed: one from an isolated home counts only for a session of that same isolated
  * project — its cwd inside the project, and its session id not one of a session elsewhere.
  */
@@ -95,7 +106,142 @@ export function acceptTranscript(filePath: string, parsed: { sessionId: string; 
   if (!project) return false;
   const owner = isolationDb.getByPath(parsed.projectPath);
   if (owner?.projectId !== project.projectId) return false;
-  const existing = sessionsDb.getSessionByProviderSessionId(parsed.sessionId) ?? sessionsDb.getSessionById(parsed.sessionId);
-  if (existing && isolationDb.getByPath(existing.project_path ?? '')?.projectId !== project.projectId) return false;
-  return true;
+  return isProviderSessionIdFree(project.projectId, parsed.sessionId);
+}
+
+export class TranscriptRefusedError extends Error {}
+
+const hasProcFd = fs.existsSync('/proc/self/fd');
+const DIR_FLAGS = fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | fs.constants.O_NOFOLLOW;
+// O_NONBLOCK: opening a FIFO for reading would otherwise wait for a writer (and pin a threadpool worker).
+const FILE_FLAGS = fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK;
+
+/** Whether `filePath` lies in an isolated home, i.e. in a tree the agent writes. */
+export function isIsolatedTranscriptPath(filePath: string): boolean {
+  return homeProjectId(filePath) !== null;
+}
+
+/**
+ * Opens a file in an isolated home without following a symlink anywhere below the homes root: every directory
+ * is opened with O_NOFOLLOW relative to the previous one (through /proc/self/fd where it exists, i.e. Linux),
+ * and the file itself must be a regular file. Returns the fd; throws TranscriptRefusedError otherwise.
+ */
+function openIsolatedFd(filePath: string): number {
+  const homes = path.resolve(isolatedHomesRoot()!);
+  const parts = path.relative(homes, path.resolve(filePath)).split(path.sep);
+  if (parts.length < 2 || parts.some((part) => !part || part === '.' || part === '..')) {
+    throw new TranscriptRefusedError(`Not a file in an isolated home: ${filePath}`);
+  }
+  // The homes root itself belongs to the deployment, not to an agent.
+  let dirFd = fs.openSync(homes, fs.constants.O_RDONLY | fs.constants.O_DIRECTORY);
+  let dirPath = homes;
+  const at = (name: string) => (hasProcFd ? `/proc/self/fd/${dirFd}/${name}` : path.join(dirPath, name));
+  try {
+    for (const part of parts.slice(0, -1)) {
+      let next: number;
+      try {
+        next = fs.openSync(at(part), DIR_FLAGS);
+      } catch (error) {
+        throw new TranscriptRefusedError(`${path.join(dirPath, part)}: not a plain directory (${(error as NodeJS.ErrnoException).code ?? 'error'})`);
+      }
+      fs.closeSync(dirFd);
+      dirFd = next;
+      dirPath = path.join(dirPath, part);
+    }
+    let fd: number;
+    try {
+      fd = fs.openSync(at(parts[parts.length - 1]), FILE_FLAGS);
+    } catch (error) {
+      throw new TranscriptRefusedError(`${filePath}: not a plain file (${(error as NodeJS.ErrnoException).code ?? 'error'})`);
+    }
+    if (!fs.fstatSync(fd).isFile()) {
+      fs.closeSync(fd);
+      throw new TranscriptRefusedError(`${filePath}: not a regular file`);
+    }
+    return fd;
+  } finally {
+    fs.closeSync(dirFd);
+  }
+}
+
+const warned = new Set<string>();
+
+/** One log line per cap and place for the life of the process. */
+function warnOnce(key: string, message: string): void {
+  if (warned.has(key)) return;
+  warned.add(key);
+  console.warn(`[Isolation] ${message}`);
+}
+
+/**
+ * A read stream over a Claude transcript. In an isolated home the file is opened safely (see openIsolatedFd);
+ * anywhere else exactly as before. `maxBytes` stops the stream after that many bytes.
+ */
+export async function openTranscriptStream(filePath: string, options: { maxBytes?: number } = {}): Promise<fs.ReadStream> {
+  const end = options.maxBytes && options.maxBytes > 0 ? { end: options.maxBytes - 1 } : {};
+  if (!isIsolatedTranscriptPath(filePath)) return fs.createReadStream(filePath, end);
+  const fd = openIsolatedFd(filePath);
+  if (options.maxBytes && fs.fstatSync(fd).size > options.maxBytes) {
+    warnOnce(`max-bytes:${homeProjectId(filePath)}`, `${filePath} is larger than ${options.maxBytes} bytes; only its start is read.`);
+  }
+  return fs.createReadStream(filePath, { fd, autoClose: true, ...end });
+}
+
+/** The whole text of a Claude transcript, read like openTranscriptStream. */
+export async function readTranscriptText(filePath: string): Promise<string> {
+  if (!isIsolatedTranscriptPath(filePath)) return fsp.readFile(filePath, 'utf8');
+  const chunks: Buffer[] = [];
+  for await (const chunk of await openTranscriptStream(filePath)) chunks.push(chunk as Buffer);
+  return Buffer.concat(chunks).toString('utf8');
+}
+
+/** Caps of the walk over one isolated home's transcripts (the agent decides how many files and how deep). */
+export const ISOLATED_TRANSCRIPT_LIMITS = { maxDepth: 6, maxFiles: 5000, maxFirstLineBytes: 1024 * 1024 };
+
+/**
+ * The .jsonl files under one isolated home's `.claude/projects`, created after `since`: real directories only,
+ * at most `maxDepth` levels deep and `maxFiles` files, without subagent transcripts and tool results.
+ */
+export async function findIsolatedTranscripts(
+  root: string,
+  since: Date | null,
+  limits: { maxDepth?: number; maxFiles?: number } = {},
+): Promise<string[]> {
+  const maxDepth = limits.maxDepth ?? ISOLATED_TRANSCRIPT_LIMITS.maxDepth;
+  const maxFiles = limits.maxFiles ?? ISOLATED_TRANSCRIPT_LIMITS.maxFiles;
+  const files: string[] = [];
+  const walk = async (dir: string, depth: number): Promise<void> => {
+    let entries: fs.Dirent[];
+    try {
+      entries = await fsp.readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (files.length >= maxFiles) {
+        warnOnce(`max-files:${root}`, `${root} holds more than ${maxFiles} transcripts; the rest is not indexed.`);
+        return;
+      }
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (entry.name === 'subagents' || entry.name === 'tool-results') continue;
+        if (depth >= maxDepth) {
+          warnOnce(`max-depth:${root}`, `${root} nests deeper than ${maxDepth} levels; deeper transcripts are not indexed.`);
+          continue;
+        }
+        await walk(full, depth + 1);
+      } else if (entry.isFile() && entry.name.endsWith('.jsonl')) {
+        if (since) {
+          try {
+            if ((await fsp.lstat(full)).birthtime <= since) continue;
+          } catch {
+            continue;
+          }
+        }
+        files.push(full);
+      }
+    }
+  };
+  await walk(root, 0);
+  return files;
 }

@@ -19,7 +19,7 @@ import { isolationEnvFor, withIsolatedDatabase, withIsolationEnv } from '@/modul
 
 const CLAUDE_ENV_KEYS = [
   'PATH', 'LANG', 'TERM', 'HOME',
-  'HTTPS_PROXY', 'HTTP_PROXY', 'NO_PROXY', 'NODE_USE_ENV_PROXY',
+  'HTTPS_PROXY', 'HTTP_PROXY', 'NO_PROXY', 'https_proxy', 'http_proxy', 'no_proxy', 'NODE_USE_ENV_PROXY',
   'ANTHROPIC_BASE_URL', 'CLAUDE_CODE_OAUTH_TOKEN',
   'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC', 'DISABLE_AUTOUPDATER',
   'CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS', 'CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS',
@@ -93,6 +93,10 @@ test('isolated: allowlisted env only, project settings only, sandbox MCP servers
       assert.equal(env.HTTPS_PROXY, `http://${project.projectId}:${project.proxySecret}@127.0.0.1:7702`);
       assert.equal(env.HTTP_PROXY, env.HTTPS_PROXY);
       assert.equal(env.NO_PROXY, '127.0.0.1,localhost');
+      // curl, wget, pip and git read the lowercase names (curl only those for plain http).
+      assert.equal(env.https_proxy, env.HTTPS_PROXY);
+      assert.equal(env.http_proxy, env.HTTPS_PROXY);
+      assert.equal(env.no_proxy, env.NO_PROXY);
       assert.equal(env.NODE_USE_ENV_PROXY, '1');
       assert.equal(env.ANTHROPIC_BASE_URL, 'http://127.0.0.1:7701/anthropic');
       assert.equal(env.CLAUDE_CODE_OAUTH_TOKEN, env.CLOUDCLI_RUN_TOKEN);

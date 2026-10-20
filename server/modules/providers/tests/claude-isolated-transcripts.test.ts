@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
@@ -7,7 +8,9 @@ import test from 'node:test';
 
 import { closeConnection, initializeDatabase, projectsDb, sessionsDb } from '@/modules/database/index.js';
 import { isolationDb } from '@/modules/isolation/index.js';
+import { ClaudeProviderModels } from '@/modules/providers/list/claude/claude-models.provider.js';
 import { ClaudeSessionSynchronizer } from '@/modules/providers/list/claude/claude-session-synchronizer.provider.js';
+import { ClaudeSessionsProvider } from '@/modules/providers/list/claude/claude-sessions.provider.js';
 
 /**
  * Transcripts of isolated projects live in their homes (<CLOUDCLI_ISOLATED_HOMES>/<projectId>/.claude/projects),
@@ -124,3 +127,55 @@ test('an isolated agent cannot plant sessions in other projects or point the app
     assert.equal(after?.jsonl_path, ceoRow?.jsonl_path);
   });
 });
+
+test('the synchronizer reads at most 1 MiB of an isolated transcript to find its first valid line', async () => {
+  await withHomes(async ({ dir, homeOf }) => {
+    const project = isolatedProject(dir, 'x', 20001);
+    const junk = `${JSON.stringify({ type: 'noise', pad: 'x'.repeat(1024 * 1024 + 10) })}\n`;
+    const file = writeTranscript(homeOf(project.projectId), project.projectPath, 'big-first-line', junk + line('big-first-line', project.projectPath));
+    const synchronizer = new ClaudeSessionSynchronizer();
+    assert.equal(await synchronizer.synchronizeFile(file), null);
+    // The same layout in the main home has no cap.
+    const mainFile = writeTranscript(os.homedir(), path.join(dir, 'plain'), 'big-main', junk + line('big-main', path.join(dir, 'plain')));
+    assert.ok(await synchronizer.synchronizeFile(mainFile));
+  });
+});
+
+test('after indexing, a transcript swapped for a FIFO or a symlink is neither waited on nor followed', async () => {
+  await withHomes(async ({ dir, homeOf }) => {
+    const project = isolatedProject(dir, 'x', 20001);
+    const file = writeTranscript(homeOf(project.projectId), project.projectPath, 'swap-1');
+    const synchronizer = new ClaudeSessionSynchronizer();
+    const appId = await synchronizer.synchronizeFile(file);
+    assert.ok(appId);
+
+    const secret = path.join(dir, 'secret.jsonl');
+    fs.writeFileSync(secret, `${JSON.stringify({ type: 'assistant', sessionId: 'swap-1', uuid: 's', message: { role: 'assistant', model: 'secret-model', content: [{ type: 'text', text: 'SECRET' }] } })}\n`);
+    const sessions = new ClaudeSessionsProvider({ getLiveRunStartTime: () => null });
+    const models = new ClaudeProviderModels();
+
+    for (const swap of ['fifo', 'symlink'] as const) {
+      fs.rmSync(file);
+      if (swap === 'fifo') execFileSync('mkfifo', [file]);
+      else fs.symlinkSync(secret, file);
+      const started = Date.now();
+      const history: string = await within<string>(sessions.fetchHistory(appId!, {}).then(
+        (result) => JSON.stringify(result),
+        (error: Error) => error.message,
+      ));
+      assert.equal(history.includes('SECRET'), false, swap);
+      const model = await within(models.getCurrentActiveModel(appId!));
+      assert.notEqual(model.model, 'secret-model');
+      assert.ok(Date.now() - started < 3000, swap);
+    }
+  });
+});
+
+/** Fails instead of hanging when a read blocks. */
+function within<T>(promise: Promise<T>, ms = 3000): Promise<T> {
+  let timer: NodeJS.Timeout;
+  return Promise.race([
+    promise.finally(() => clearTimeout(timer)),
+    new Promise<T>((_, reject) => { timer = setTimeout(() => reject(new Error(`still blocked after ${ms} ms`)), ms); }),
+  ]);
+}

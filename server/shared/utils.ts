@@ -1192,10 +1192,13 @@ export async function buildLookupMap(
  */
 export async function extractFirstValidJsonlData<T>(
   filePath: string,
-  extractor: (parsedJson: unknown) => T | null | undefined
+  extractor: (parsedJson: unknown) => T | null | undefined,
+  // Callers that need a guarded open (transcripts written by isolated agents) supply their own.
+  openStream: (target: string) => fs.ReadStream | Promise<fs.ReadStream> = (target) => fs.createReadStream(target)
 ): Promise<T | null> {
+  let fileStream: fs.ReadStream | null = null;
   try {
-    const fileStream = fs.createReadStream(filePath);
+    fileStream = await openStream(filePath);
     const lineReader = readline.createInterface({ input: fileStream, crlfDelay: Infinity });
 
     for await (const line of lineReader) {
@@ -1214,6 +1217,8 @@ export async function extractFirstValidJsonlData<T>(
     }
   } catch {
     // Ignore malformed or missing artifacts so full scans keep progressing.
+  } finally {
+    fileStream?.destroy();
   }
 
   return null;

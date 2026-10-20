@@ -5,7 +5,7 @@ import path from 'node:path';
 import { PassThrough } from 'node:stream';
 import test, { mock } from 'node:test';
 
-import { projectsDb } from '@/modules/database/index.js';
+import { projectsDb, sessionsDb } from '@/modules/database/index.js';
 import { daemonClient, isolationDb, runTokens, SANDBOX_DOWN_TEXT } from '@/modules/isolation/index.js';
 import type { SpawnRequest } from '@/modules/isolation/index.js';
 import { ClaudeForkProvider } from '@/modules/providers/list/claude/claude-fork.provider.js';
@@ -267,6 +267,37 @@ test('a follow-up turn of an isolated session counts as busy from the runtime, n
       });
       // (The developer's own ~/.claude/sessions may list real sessions too; only ours matter here.)
       assert.deepEqual(plainSessions.map((entry) => entry.providerSessionId).filter((id) => id.startsWith('native-iso')), ['native-iso-live']);
+    });
+  });
+});
+
+test('a provider session id that belongs to a session of another project aborts the isolated run', async () => {
+  await withIsolatedDatabase(async (dir) => {
+    await withIsolationEnv(isolationEnvFor(dir), async () => {
+      const project = isolatedProject(dir);
+      const ceo = path.join(dir, 'workspace', 'ceo');
+      fs.mkdirSync(ceo, { recursive: true });
+      sessionsDb.createSession('ceo-native', 'claude', ceo, 'CEO', undefined, undefined, null);
+      const record = newRecord();
+      const spawnMock = mock.method(daemonClient, 'spawn', () => fakeSandboxProcess(record) as never);
+      const assigned: string[] = [];
+      try {
+        const sent: NormalizedMessage[] = [];
+        const writer = { ...writerFor(sent), setSessionId: (id: string) => { assigned.push(id); } };
+        const messages = [
+          { type: 'system', subtype: 'init', session_id: 'ceo-native' },
+          { type: 'result', subtype: 'success', session_id: 'ceo-native', is_error: false, result: 'ok', usage: {} },
+        ];
+        await queryClaudeSDK('ahoj', { sessionId: 'iso-s5', cwd: project.projectPath, projectPath: project.projectPath }, writer as never, contextFor(sdkLikeQuery(record, messages)));
+        assert.deepEqual(assigned, []);
+        assert.equal(sent.some((message) => message.kind === 'session_created'), false);
+        const errors = errorsOf(sent);
+        assert.equal(errors.length, 1);
+        assert.match(errors[0], /ceo-native/);
+        assert.equal(sessionsDb.getSessionByProviderSessionId('ceo-native')?.project_path, ceo);
+      } finally {
+        spawnMock.mock.restore();
+      }
     });
   });
 });

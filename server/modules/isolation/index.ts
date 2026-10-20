@@ -35,9 +35,16 @@ export { ATTACHMENTS_DIR, stageForSandbox } from './sandbox-attachments.js';
 export {
   acceptTranscript,
   claudeTranscriptRoots,
+  findIsolatedTranscripts,
   isIsolatedHomeWatchPath,
+  isIsolatedTranscriptPath,
   isolatedHomesRoot,
+  isProviderSessionIdFree,
   isReadableTranscript,
+  ISOLATED_TRANSCRIPT_LIMITS,
+  openTranscriptStream,
+  readTranscriptText,
+  TranscriptRefusedError,
 } from './isolation-transcripts.js';
 
 // The file viewer follows transcript paths (background agent outputs) into isolated homes too.

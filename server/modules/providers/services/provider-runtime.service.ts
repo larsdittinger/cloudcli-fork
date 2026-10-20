@@ -71,8 +71,13 @@ export function createProviderRuntimeService(
   ): Promise<unknown> => {
     // Every caller (chat, external agent API, git messages) ends here: an isolated project runs Claude in the
     // sandbox, and no other provider at all.
-    if (providerName !== 'claude' && [options?.projectPath, options?.cwd].some((candidate) => typeof candidate === 'string' && candidate && isIsolatedPath(candidate))) {
-      return Promise.reject(new Error(ISOLATED_CLAUDE_ONLY_TEXT));
+    try {
+      if (providerName !== 'claude' && [options?.projectPath, options?.cwd].some((candidate) => typeof candidate === 'string' && candidate && isIsolatedPath(candidate))) {
+        return Promise.reject(new Error(ISOLATED_CLAUDE_ONLY_TEXT));
+      }
+    } catch (error) {
+      // The check itself failed (database): no run, and callers always get a promise.
+      return Promise.reject(error);
     }
     const provider = dependencies.resolveProvider(providerName);
     return provider.runtime.run(command, options, writer, createRuntimeContext(provider));

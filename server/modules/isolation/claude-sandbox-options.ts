@@ -7,6 +7,7 @@ import path from 'node:path';
 import { daemonClient, SANDBOX_DOWN_TEXT, type SandboxProcess } from '@/modules/isolation/daemon-client.js';
 import { isolationConfig } from '@/modules/isolation/isolation.config.js';
 import { isIsolatedPath, isolationDb, type IsolatedProject } from '@/modules/isolation/isolation.db.js';
+import { isProviderSessionIdFree } from '@/modules/isolation/isolation-transcripts.js';
 import { runTokens, type RunChannelContext } from '@/modules/isolation/run-tokens.js';
 
 /** The daemon's loopback forward to the app's main.sock (Claude proxy, MCP), as seen inside the sandbox. */
@@ -41,6 +42,11 @@ export type SandboxRun = {
   error(): string | null;
   /** Whether a later turn may be fed into this process: its token and env were minted for one context. */
   accepts(next: Pick<SandboxRunContext, 'channelContext' | 'taskId'>): boolean;
+  /**
+   * Whether the session id the sandboxed CLI reports may be recorded for the app session `appSessionId`: it must
+   * not name a session of another project (the same rule as for transcripts in isolated homes).
+   */
+  acceptsProviderSessionId(providerSessionId: string, appSessionId?: string | null): boolean;
 };
 
 export type SandboxEnvOptions = {
@@ -73,6 +79,10 @@ export function buildSandboxEnv(
     HTTPS_PROXY: proxy,
     HTTP_PROXY: proxy,
     NO_PROXY: '127.0.0.1,localhost',
+    // curl, wget, pip and git read the lowercase names (curl only these for plain http).
+    https_proxy: proxy,
+    http_proxy: proxy,
+    no_proxy: '127.0.0.1,localhost',
     NODE_USE_ENV_PROXY: '1',
     CLOUDCLI_RUN_TOKEN: runToken,
   };
@@ -240,5 +250,7 @@ export function applySandboxOptions(sdkOptions: Record<string, any>, ctx: Sandbo
     release,
     error: () => lastError,
     accepts: (next) => sameContext(channel, cleanChannelContext(next.channelContext)) && taskId === cleanTaskId(next.taskId),
+    acceptsProviderSessionId: (providerSessionId, appSessionId) =>
+      isProviderSessionIdFree(project.projectId, providerSessionId, appSessionId),
   };
 }

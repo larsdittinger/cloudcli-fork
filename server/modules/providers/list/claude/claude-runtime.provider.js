@@ -1468,6 +1468,12 @@ async function queryClaudeSDK(command, options = {}, ws, context) {
     for await (const message of queryInstance) {
       // Capture session ID from first message
       if (message.session_id && !capturedSessionId) {
+        // An isolated run's session id comes from the sandbox: it must not take over a session of another
+        // project before it is recorded for this chat.
+        if (sandboxRun && !sandboxRun.acceptsProviderSessionId(message.session_id, sessionId)) {
+          queryInstance.close?.();
+          throw new Error(`Sandbox ohlásil sezení ${message.session_id}, které patří jinému projektu — běh byl zastaven.`);
+        }
 
         capturedSessionId = message.session_id;
         addSession(sessionKey(), queryInstance, ws, releasePromptStream, injectTurn, () => promptReleased(), canTakeTurn);

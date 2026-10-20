@@ -1,9 +1,17 @@
 import os from 'node:os';
 import path from 'node:path';
-import { readFile } from 'node:fs/promises';
 
 import { sessionsDb } from '@/modules/database/index.js';
-import { acceptTranscript, claudeTranscriptRoots, isReadableTranscript } from '@/modules/isolation/index.js';
+import {
+  acceptTranscript,
+  claudeTranscriptRoots,
+  findIsolatedTranscripts,
+  isIsolatedTranscriptPath,
+  ISOLATED_TRANSCRIPT_LIMITS,
+  isReadableTranscript,
+  openTranscriptStream,
+  readTranscriptText,
+} from '@/modules/isolation/index.js';
 import {
   buildLookupMap,
   extractFirstValidJsonlData,
@@ -48,9 +56,11 @@ export class ClaudeSessionSynchronizer implements IProviderSessionSynchronizer {
    */
   async synchronize(since?: Date): Promise<number> {
     const nameMap = await buildLookupMap(path.join(this.claudeHome, 'history.jsonl'), 'sessionId', 'display');
-    const files: string[] = [];
-    for (const root of claudeTranscriptRoots()) {
-      await findFilesRecursivelyCreatedAfter(root, '.jsonl', since ?? null, files);
+    const [mainRoot, ...isolatedRoots] = claudeTranscriptRoots();
+    const files = await findFilesRecursivelyCreatedAfter(mainRoot, '.jsonl', since ?? null);
+    // Isolated homes are agent-written: their walk is capped in depth and file count.
+    for (const root of isolatedRoots) {
+      files.push(...await findIsolatedTranscripts(root, since ?? null));
     }
 
     let processed = 0;
@@ -120,6 +130,11 @@ export class ClaudeSessionSynchronizer implements IProviderSessionSynchronizer {
     if (!isReadableTranscript(filePath)) {
       return null;
     }
+    // In an isolated home: opened safely, and only the first MiB is searched for the first valid line.
+    const openStream = (target: string) => openTranscriptStream(
+      target,
+      isIsolatedTranscriptPath(target) ? { maxBytes: ISOLATED_TRANSCRIPT_LIMITS.maxFirstLineBytes } : {},
+    );
     const parsed = await extractFirstValidJsonlData(filePath, (rawData) => {
       const data = rawData as Record<string, unknown>;
       const sessionId = typeof data.sessionId === 'string' ? data.sessionId : undefined;
@@ -133,7 +148,7 @@ export class ClaudeSessionSynchronizer implements IProviderSessionSynchronizer {
         sessionId,
         projectPath,
       };
-    });
+    }, openStream);
 
     if (!parsed || !acceptTranscript(filePath, parsed)) {
       return null;
@@ -177,7 +192,7 @@ export class ClaudeSessionSynchronizer implements IProviderSessionSynchronizer {
     sessionId: string
   ): Promise<string | undefined> {
     try {
-      const content = await readFile(filePath, 'utf8');
+      const content = await readTranscriptText(filePath);
       const lines = content.split(/\r?\n/);
 
       let foundCustomTitle: string | undefined;

@@ -31,6 +31,7 @@ import {
   truncateSubagentActivity,
 } from '@/shared/utils.js';
 import { sessionsDb } from '@/modules/database/index.js';
+import { openTranscriptStream, readTranscriptText } from '@/modules/isolation/index.js';
 import { getClaudeSDKSessionStartTime } from '@/modules/providers/list/claude/claude-runtime.provider.js';
 import {
   getReportedClaudeContextWindow,
@@ -110,7 +111,8 @@ async function readClaudeSubagentTranscript(filePath: string): Promise<ClaudeSub
   const toolsById = new Map<string, SubagentActivity>();
 
   try {
-    const fileStream = fs.createReadStream(filePath);
+    // Transcripts of isolated projects are agent-written: opened without following symlinks, regular files only.
+    const fileStream = await openTranscriptStream(filePath);
     const rl = readline.createInterface({
       input: fileStream,
       crlfDelay: Infinity,
@@ -204,7 +206,7 @@ type ClaudeSubagentMeta = {
 /** Reads the sidecar `.meta.json` Claude writes next to a subagent transcript. */
 async function readClaudeSubagentMeta(metaPath: string): Promise<ClaudeSubagentMeta> {
   try {
-    const parsed = JSON.parse(await fsp.readFile(metaPath, 'utf8')) as AnyRecord;
+    const parsed = JSON.parse(await readTranscriptText(metaPath)) as AnyRecord;
     return {
       agentType: typeof parsed.agentType === 'string' ? parsed.agentType : undefined,
       description: typeof parsed.description === 'string' ? parsed.description : undefined,
@@ -262,7 +264,7 @@ async function readWorkflowJournal(transcriptDir: string): Promise<WorkflowAgent
 
   let journal: string;
   try {
-    journal = await fsp.readFile(path.join(transcriptDir, 'journal.jsonl'), 'utf8');
+    journal = await readTranscriptText(path.join(transcriptDir, 'journal.jsonl'));
   } catch {
     return [];
   }
@@ -478,7 +480,8 @@ function replaceLaunchToolResultContent(message: AnyRecord, replacement: string)
  */
 async function readTranscriptRows(jsonlPath: string, providerSessionId: string): Promise<AnyRecord[]> {
   const rows: AnyRecord[] = [];
-  const fileStream = fs.createReadStream(jsonlPath);
+  // Transcripts of isolated projects are agent-written: opened without following symlinks, regular files only.
+  const fileStream = await openTranscriptStream(jsonlPath);
   const rl = readline.createInterface({ input: fileStream, crlfDelay: Infinity });
 
   for await (const line of rl) {

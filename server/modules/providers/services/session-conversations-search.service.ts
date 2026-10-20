@@ -7,6 +7,7 @@ import { rgPath } from '@vscode/ripgrep';
 
 import { isClaudeNonTurnMessageRow, stripAnsiSequences } from '@/shared/utils.js';
 import { projectsDb, sessionsDb } from '@/modules/database/index.js';
+import { isReadableTranscript, openTranscriptStream } from '@/modules/isolation/index.js';
 
 type AnyRecord = Record<string, any>;
 type SearchableProvider = 'claude' | 'codex';
@@ -542,6 +543,10 @@ function normalizeSearchableSessions(rows: SessionRepositoryRow[]): SearchableSe
     if (!fsSync.existsSync(absoluteJsonlPath)) {
       continue;
     }
+    // ripgrep gets these paths too: in an isolated home only plain files (no symlink, no FIFO).
+    if (!isReadableTranscript(absoluteJsonlPath)) {
+      continue;
+    }
 
     /**
      * Active session rows can still belong to an archived project because
@@ -893,7 +898,7 @@ async function parseClaudeSessionMatches(
     let currentSessionId: string | null = null;
 
     try {
-      const fileStream = fsSync.createReadStream(session.jsonl_path);
+      const fileStream = await openTranscriptStream(session.jsonl_path);
       const rl = readline.createInterface({ input: fileStream, crlfDelay: Infinity });
 
       for await (const line of rl) {
@@ -1027,7 +1032,7 @@ async function parseCodexSessionMatches(
   const seenMessageFingerprints = new Set<string>();
 
   try {
-    const fileStream = fsSync.createReadStream(session.jsonl_path);
+    const fileStream = await openTranscriptStream(session.jsonl_path);
     const rl = readline.createInterface({ input: fileStream, crlfDelay: Infinity });
 
     for await (const line of rl) {

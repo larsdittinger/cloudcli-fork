@@ -1,6 +1,5 @@
-import { readFile } from 'node:fs/promises';
-
 import { sessionsDb } from '@/modules/database/index.js';
+import { readTranscriptText } from '@/modules/isolation/index.js';
 import type { IProviderModels } from '@/shared/interfaces.js';
 import type {
   ProviderCurrentActiveModel,
@@ -334,7 +333,8 @@ const readClaudeSessionModelFromJsonl = async (
   sessionId: string,
   jsonlPath: string,
 ): Promise<ProviderCurrentActiveModel | null> => {
-  const content = await readFile(jsonlPath, 'utf8');
+  // An isolated project's transcript is agent-written: read without following symlinks, regular files only.
+  const content = await readTranscriptText(jsonlPath);
   const lines = content
     .split(/\r?\n/)
     .map((line) => line.trim())

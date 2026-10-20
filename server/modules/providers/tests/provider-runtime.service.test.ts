@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import test, { mock } from 'node:test';
 
+import { isolationDb } from '@/modules/isolation/index.js';
 import { providerRegistry } from '@/modules/providers/provider.registry.js';
 import { createProviderRuntimeService } from '@/modules/providers/services/provider-runtime.service.js';
 import type { IProvider, IProviderRuntime } from '@/shared/interfaces.js';
@@ -146,4 +147,27 @@ test('a live turn is accepted only by a runtime that can take one for the sessio
 
   assert.equal(service.acceptsLiveTurn('held-session'), true);
   assert.equal(service.acceptsLiveTurn('other-session'), false);
+});
+
+test('an isolated project runs no provider but Claude, and a failing isolation check is a rejection', async () => {
+  const codex = createProvider('codex', createRuntime());
+  const service = createService([codex]);
+  const getByPath = mock.method(isolationDb, 'getByPath', () => {
+    throw new Error('database is locked');
+  });
+  try {
+    let promise: Promise<unknown> | undefined;
+    assert.doesNotThrow(() => {
+      promise = service.run('codex', 'x', { projectPath: '/somewhere' }, { send() {} } as never);
+    });
+    await assert.rejects(promise!, /database is locked/);
+  } finally {
+    getByPath.mock.restore();
+  }
+  const isolated = mock.method(isolationDb, 'getByPath', () => ({ projectId: 'p' }) as never);
+  try {
+    await assert.rejects(service.run('codex', 'x', { projectPath: '/isolated/x' }, { send() {} } as never), /jen Claude/);
+  } finally {
+    isolated.mock.restore();
+  }
 });
