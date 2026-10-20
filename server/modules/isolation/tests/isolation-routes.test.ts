@@ -65,6 +65,10 @@ test('restricted users get 403 on every isolation route', async () => {
       ['PUT', '/api/isolation/projects/x'],
       ['GET', '/api/isolation/projects/x/blocked'],
       ['POST', '/api/isolation/projects/x/self-check'],
+      ['GET', '/api/isolation/claude-login'],
+      ['PUT', '/api/isolation/claude-login'],
+      ['POST', '/api/isolation/claude-login/check'],
+      ['DELETE', '/api/isolation/claude-login'],
     ] as const) {
       const res = await call(method, urlPath, method === 'GET' ? undefined : {});
       assert.equal(res.status, 403, `${method} ${urlPath}`);

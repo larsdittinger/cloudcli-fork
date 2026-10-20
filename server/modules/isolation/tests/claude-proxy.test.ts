@@ -6,7 +6,7 @@ import path from 'node:path';
 import test, { after, before } from 'node:test';
 
 import { appConfigDb } from '@/modules/database/index.js';
-import { CLAUDE_LOGIN_MISSING, createClaudeProxy, ISOLATION_CLAUDE_TOKEN_KEY } from '@/modules/isolation/claude-proxy.js';
+import { CLAUDE_LOGIN_MISSING, claudeUpstreamHealth, createClaudeProxy, ISOLATION_CLAUDE_TOKEN_KEY } from '@/modules/isolation/claude-proxy.js';
 import { runTokens } from '@/modules/isolation/run-tokens.js';
 import { createSandboxApiApp, startSandboxApiServer, type SandboxApiServer } from '@/modules/isolation/sandbox-api.server.js';
 import { withIsolatedDatabase } from '@/modules/isolation/tests/helpers.js';
@@ -26,6 +26,14 @@ before(async () => {
     req.on('data', (chunk: Buffer) => chunks.push(chunk));
     req.on('end', () => {
       seen.push({ method: req.method ?? '', url: req.url ?? '', headers: req.headers, body: Buffer.concat(chunks).toString() });
+      if (req.url === '/v1/models/denied') {
+        // Echoes the credential it got, as a careless upstream might: the proxy must not keep it.
+        res.writeHead(401, { 'Content-Type': 'application/json' }).end(JSON.stringify({
+          type: 'error',
+          error: { type: 'authentication_error', message: `OAuth token has been revoked (${String(req.headers.authorization)})` },
+        }));
+        return;
+      }
       if (/^\/v1\/messages(\?|$)/.test(req.url ?? '')) {
         res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' });
         res.write('event: one\ndata: {"n":1}\n\n');
@@ -300,4 +308,42 @@ test('main.sock replaces a stale socket file at startup', async () => {
     await server.close();
   }
   assert.equal(fs.existsSync(socketPath), false);
+});
+
+test('the proxy remembers its last success and last upstream error per token, without the token', async () => {
+  const token = runTokens.mint({ projectId: 'p1', sessionId: 's1', purpose: 'claude' });
+  claudeUpstreamHealth.reset();
+  try {
+    await withSandboxApi({ upstreamUrl, storedToken: () => SETUP_TOKEN }, async (socketPath) => {
+      assert.deepEqual(claudeUpstreamHealth.forToken(SETUP_TOKEN), {});
+      const ok = await call(socketPath, 'GET', '/anthropic/v1/models', { Authorization: `Bearer ${token}` });
+      assert.equal(ok.status, 200);
+      const okAt = claudeUpstreamHealth.forToken(SETUP_TOKEN).okAt;
+      assert.ok(okAt && Date.parse(okAt) > Date.now() - 60_000);
+      assert.equal(claudeUpstreamHealth.forToken(SETUP_TOKEN).error, undefined);
+
+      const denied = await call(socketPath, 'GET', '/anthropic/v1/models/denied', { Authorization: `Bearer ${token}` });
+      assert.equal(denied.status, 401);
+      assert.match(denied.body, /revoked/, 'the CLI still gets the upstream answer');
+      const health = claudeUpstreamHealth.forToken(SETUP_TOKEN);
+      assert.equal(health.okAt, okAt);
+      assert.equal(health.error?.status, 401);
+      assert.match(health.error?.message ?? '', /OAuth token has been revoked/);
+      assert.ok(!JSON.stringify(health).includes(SETUP_TOKEN), 'the echoed token is redacted');
+      assert.ok((health.error?.message.length ?? 0) <= 300);
+      assert.deepEqual(claudeUpstreamHealth.forToken('sk-ant-oat01-another-token'), {}, 'another token has its own record');
+    });
+
+    // Anthropic unreachable: an error without an HTTP status.
+    await withSandboxApi({ upstreamUrl: 'http://127.0.0.1:9', storedToken: () => SETUP_TOKEN }, async (socketPath) => {
+      const res = await call(socketPath, 'GET', '/anthropic/v1/models', { Authorization: `Bearer ${token}` });
+      assert.equal(res.status, 502);
+      const health = claudeUpstreamHealth.forToken(SETUP_TOKEN);
+      assert.equal(health.error?.status, null);
+      assert.match(health.error?.message ?? '', /unreachable/);
+    });
+  } finally {
+    runTokens.revoke(token);
+    claudeUpstreamHealth.reset();
+  }
 });
