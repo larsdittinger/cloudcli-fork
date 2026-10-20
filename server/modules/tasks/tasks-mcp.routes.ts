@@ -3,7 +3,7 @@ import path from 'node:path';
 
 import express, { type Request, type Response } from 'express';
 
-import { channelsService } from '@/modules/channels/index.js';
+import { channelsService, isolatedProjectAccounts } from '@/modules/channels/index.js';
 import { channelAccountsDb, tasksDb } from '@/modules/database/index.js';
 import { ISOLATED_DENIED_TEXT } from '@/modules/isolation/index.js';
 import type { SandboxApiRequest, SandboxMcpScope } from '@/modules/isolation/index.js';
@@ -115,12 +115,14 @@ function runTaskId(scope: SandboxMcpScope, value: unknown): number {
   return id;
 }
 
-/** tasks_get_info for an isolated run: its own task, or without one this project's open tasks. */
+/**
+ * tasks_get_info for an isolated run: its own task only. Without one, no tasks at all — a prompt-injected agent
+ * could paste the project's other cards into a reply.
+ */
 function isolatedInfo(scope: SandboxMcpScope, cwd: string) {
-  const open = (task: PublicTask) => task.status !== 'done' && task.status !== 'cancelled';
   const tasks = scope.taskId !== undefined
     ? tasksService.list({ includeOldClosed: true }).filter((task) => task.id === scope.taskId)
-    : tasksService.list().filter((task) => open(task) && path.resolve(task.projectPath) === cwd);
+    : [];
   return {
     guide: buildTasksGuide({ publicUrl: channelsService.getPublicUrl(), cwd }),
     state: {
@@ -133,7 +135,7 @@ function isolatedInfo(scope: SandboxMcpScope, cwd: string) {
       // The owner's switch does not apply to isolated agents.
       trustAgentMandates: false,
       channelsEnabled: channelsService.isEnabled(),
-      channelAccounts: accounts(),
+      channelAccounts: isolatedProjectAccounts(scope.projectId),
     },
   };
 }

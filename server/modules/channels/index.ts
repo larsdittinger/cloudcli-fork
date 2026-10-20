@@ -37,7 +37,7 @@ export { default as channelsRoutes } from './channels.routes.js';
 export { default as channelsWebhookRoutes } from './channels-webhook.routes.js';
 export { default as channelsMcpRoutes } from './channels-mcp.routes.js';
 // channelsSandboxMcpRoutes: the same tools for isolated agents, registered on main.sock (run-token scope only).
-export { channelsSandboxMcpRoutes } from './channels-mcp.routes.js';
+export { channelsSandboxMcpRoutes, isolatedProjectAccounts } from './channels-mcp.routes.js';
 export { channelsService } from './channels.service.js';
 // outboxService / setChannelTaskHooks: used by the Tasks module to send a task's messages and route their replies back.
 export { outboxService } from './outbox.service.js';

@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import path from 'node:path';
+
 import { senderFailedAuth } from '@/modules/channels/sender-auth.js';
 import { normalizeAddress } from '@/modules/channels/thread-key.js';
 import { parseJson } from '@/modules/channels/types.js';
@@ -9,7 +12,7 @@ import type {
   RuleConditions,
   RuleInput,
 } from '@/modules/channels/types.js';
-import { isIsolatedPath } from '@/modules/isolation/index.js';
+import { isolationDb } from '@/modules/isolation/index.js';
 import { AppError } from '@/shared/utils.js';
 
 const PERMISSION_MODES = new Set(['default', 'bypassPermissions', 'acceptEdits', 'plan']);
@@ -112,6 +115,24 @@ export function senderTrustedForAutoReply(rule: ChannelRuleRow, message: Inbound
   return patterns.some((pattern) => pattern.trim() !== '*' && senderMatches(pattern, message));
 }
 
+/**
+ * Whether a rule without a sender filter may run its agent on its own: only in an isolated project's own
+ * directory, named by its real path. The sandbox is the boundary there. A symlink, a subdirectory or a path
+ * that does not exist yet could be (re)pointed by an agent at a main project after the rule was saved, so
+ * the dispatcher asks again before every run.
+ */
+export function openAutonomyAllowed(projectPath: string): boolean {
+  if (typeof projectPath !== 'string' || !path.isAbsolute(projectPath)) return false;
+  const project = isolationDb.getByPath(projectPath);
+  if (!project) return false;
+  try {
+    const real = fs.realpathSync(projectPath);
+    return real === path.resolve(projectPath) && real === fs.realpathSync(project.projectPath);
+  } catch {
+    return false;
+  }
+}
+
 /** `account` is the rule's own account (null for rules over every account or a whole channel type). */
 export function validateRuleInput(input: RuleInput, account: ChannelAccountRow | null = null): void {
   const fail = (message: string, code: string) => {
@@ -138,7 +159,7 @@ export function validateRuleInput(input: RuleInput, account: ChannelAccountRow |
   if (!isOpenRule(conditions)) return;
   // Open to anyone who can reach the mailbox or number: a stranger's message must not drive an agent without prompts
   // — unless the project is isolated: its sandbox is the boundary, and running on its own is the point of it.
-  if (input.permissionMode && input.permissionMode !== 'default' && !isIsolatedPath(input.projectPath)) {
+  if (input.permissionMode && input.permissionMode !== 'default' && !openAutonomyAllowed(input.projectPath)) {
     fail(
       'A rule without a sender filter may not bypass permissions: anyone who writes in would steer the agent. Add the senders you trust, or keep the default permission mode.',
       'RULE_OPEN_AUTONOMY',

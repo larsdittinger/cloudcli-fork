@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { broadcastInboxUpdated } from '@/modules/channels/channels-broadcast.js';
 import { injectionGuard, isQuarantined } from '@/modules/channels/injection/injection-guard.service.js';
 import { buildTemplateVars, channelLabel, DEFAULT_PROMPT_TEMPLATE, renderPromptTemplate } from '@/modules/channels/prompt-template.js';
+import { isOpenRule, openAutonomyAllowed, parseConditions } from '@/modules/channels/rules.service.js';
 import { parseJson } from '@/modules/channels/types.js';
 import type { ChannelMessageRow, ChannelRuleRow, InboundAttachment, InboundMessage } from '@/modules/channels/types.js';
 import {
@@ -120,6 +121,11 @@ export async function dispatchMessage(
   const account = channelAccountsDb.get(message.account_id);
   if (!account) {
     return fail(messageId, 'The account no longer exists.');
+  }
+  // Checked at save time too, but the path may have changed since (a symlink repointed): an open rule runs on its
+  // own only while its path still is an isolated project's own directory.
+  if (rule.permission_mode && rule.permission_mode !== 'default' && isOpenRule(parseConditions(rule.conditions)) && !openAutonomyAllowed(rule.project_path)) {
+    return fail(messageId, 'Open rule with bypass is allowed only for isolated projects.');
   }
   // Held by the prompt-injection filter: only the owner's hand ("Send to agent") lets it through.
   if (isQuarantined(message)) {

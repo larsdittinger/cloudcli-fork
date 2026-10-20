@@ -8,7 +8,6 @@ import { channelsService } from '@/modules/channels/channels.service.js';
 import { isQuarantined } from '@/modules/channels/injection/injection-guard.service.js';
 import { outboxService } from '@/modules/channels/outbox.service.js';
 import { proposalsService } from '@/modules/channels/proposals.service.js';
-import { publicRule } from '@/modules/channels/rules.service.js';
 import { getChannelTaskHooks } from '@/modules/channels/task-hooks.js';
 import { parseJson } from '@/modules/channels/types.js';
 import type { ChannelMessageRow, ChannelType, InboundAttachment, RuleInput } from '@/modules/channels/types.js';
@@ -125,7 +124,24 @@ const ISOLATED_GUIDE = `Jsi izolovaný agent: z Channels vidíš jen zprávy sv�
 - \`channels_reply\` (message_id, text) — odpověď na zprávu tohoto sezení; podle pravidla odejde hned, nebo čeká jako koncept na schválení (pak ji neposílej znovu).
 Přílohy jsou zkopírované v projektu v \`${ATTACHMENTS_DIR}/<id zprávy>/\`. Návrhy účtů a pravidel, volné posílání zpráv a odkazy izolovaný agent nemá.`;
 
-/** channels_get_info for an isolated run: no account config or secrets, no other project's rules. */
+/** The approved rules that start runs in this isolated project. */
+function rulesOfIsolatedProject(projectId: string) {
+  return channelRulesDb.listOrdered()
+    .filter((rule) => rule.proposal === null && isolationDb.getByPath(rule.project_path)?.projectId === projectId);
+}
+
+/**
+ * The accounts an isolated project works with: those its rules name. Labels often carry addresses, so the
+ * agent does not see the instance's other accounts.
+ */
+export function isolatedProjectAccounts(projectId: string): Array<{ id: string; type: string; label: string }> {
+  const used = new Set(rulesOfIsolatedProject(projectId).map((rule) => rule.account_id).filter(Boolean));
+  return channelAccountsDb.list()
+    .filter((account) => account.proposal === null && used.has(account.id))
+    .map((account) => ({ id: account.id, type: account.type, label: account.label }));
+}
+
+/** channels_get_info for an isolated run: no account config or secrets, no other project's rules or senders. */
 function isolatedInfo(scope: SandboxMcpScope) {
   return {
     guide: ISOLATED_GUIDE,
@@ -133,12 +149,13 @@ function isolatedInfo(scope: SandboxMcpScope) {
       isolated: true,
       channelsEnabled: channelsService.isEnabled(),
       yourWorkingDirectory: scope.projectPath,
-      accounts: channelAccountsDb.list()
-        .filter((account) => account.proposal === null)
-        .map((account) => ({ id: account.id, type: account.type, label: account.label })),
-      rules: channelRulesDb.listOrdered()
-        .filter((rule) => rule.proposal === null && isolationDb.getByPath(rule.project_path)?.projectId === scope.projectId)
-        .map(publicRule),
+      accounts: isolatedProjectAccounts(scope.projectId),
+      rules: rulesOfIsolatedProject(scope.projectId).map((rule) => ({
+        name: rule.name,
+        replyMode: rule.reply_mode,
+        permissionMode: rule.permission_mode,
+        conversation: rule.conversation,
+      })),
     },
   };
 }

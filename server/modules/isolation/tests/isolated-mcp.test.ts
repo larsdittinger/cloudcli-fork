@@ -95,7 +95,7 @@ async function withHarness(run: (h: Harness) => Promise<void>) {
 
 async function seedMessages(h: Harness) {
   const account = channelAccountsDb.create({ type: 'webhook', label: 'Hook', config: {}, secrets: { token: 'webhook-secret' } });
-  const ruleA = channelRulesDb.create({ name: 'support a', conditions: {}, projectPath: h.a.projectPath, provider: 'claude', replyMode: 'draft' });
+  const ruleA = channelRulesDb.create({ name: 'support a', accountId: account.id, conditions: {}, projectPath: h.a.projectPath, provider: 'claude', replyMode: 'draft' });
   const ruleB = channelRulesDb.create({ name: 'support b', conditions: {}, projectPath: h.b.projectPath, provider: 'claude', replyMode: 'draft' });
   const insert = (thread: string, from: string) => channelMessagesDb.insert({
     id: `msg-${thread}-${Math.random().toString(16).slice(2)}`,
@@ -211,15 +211,19 @@ test('channels_propose_rule denied for run token', async () => {
 
 test('channels_get_info shows a reduced view: no secrets, no other projects', async () => {
   await withHarness(async (h) => {
-    await seedMessages(h);
+    const { account } = await seedMessages(h);
+    channelAccountsDb.create({ type: 'email', label: 'Unused <ceo@ethia.cz>', config: {}, secrets: {} });
     const token = h.mint({});
     const info = await h.sandbox('channels', 'channels_get_info', { cwd: h.b.projectPath }, token);
     assert.equal(info.status, 200);
     const { state } = info.json.data;
-    assert.equal(state.yourWorkingDirectory, h.a.projectPath);
-    assert.deepEqual(state.rules.map((rule: { name: string }) => rule.name), ['support a']);
-    assert.deepEqual(Object.keys(state.accounts[0]).sort(), ['id', 'label', 'type']);
     const text = JSON.stringify(info.json.data);
+    assert.equal(state.yourWorkingDirectory, h.a.projectPath);
+    // Rules: only this project's, and only what the agent needs to know about its own run.
+    assert.deepEqual(state.rules, [{ name: 'support a', replyMode: 'draft', permissionMode: 'default', conversation: 'thread' }]);
+    // Accounts: only those this project's rules use.
+    assert.deepEqual(state.accounts, [{ id: account.id, type: 'webhook', label: 'Hook' }]);
+    assert.ok(!text.includes('Unused'), 'an account no rule of this project uses leaked');
     assert.ok(!text.includes(h.b.projectPath), 'another project leaked');
     assert.ok(!/webhookUrl|hasSecrets|token/i.test(JSON.stringify(state)), 'account details leaked');
   });
@@ -238,9 +242,14 @@ test('body cwd ignored', async () => {
     const foreign = await h.sandbox('tasks', 'tasks_log', { id: taskB.id, text: 'hijack', cwd: h.b.projectPath }, token);
     assert.equal(foreign.status, 403);
 
+    makeTask(h.a.projectPath, 'A sibling');
+    const used = channelAccountsDb.create({ type: 'email', label: 'Podpora', config: {}, secrets: {}, agentSend: 'draft' });
+    channelAccountsDb.create({ type: 'email', label: 'CEO', config: {}, secrets: {} });
+    channelRulesDb.create({ name: 'a', accountId: used.id, conditions: {}, projectPath: h.a.projectPath, provider: 'claude' });
     const info = await h.sandbox('tasks', 'tasks_get_info', { cwd: h.b.projectPath }, token);
     assert.equal(info.json.data.state.yourWorkingDirectory, h.a.projectPath);
     assert.deepEqual(info.json.data.state.openTasks.map((task: { id: number }) => task.id), [taskA.id]);
+    assert.deepEqual(info.json.data.state.channelAccounts, [{ id: used.id, type: 'email', label: 'Podpora' }]);
 
     const created = await h.sandbox('tasks', 'tasks_create', {
       title: 'Follow up', brief: 'Ask again', cwd: h.b.projectPath, project_path: h.b.projectPath,
@@ -317,9 +326,10 @@ test('tasks other task denied', async () => {
     const plain = h.mint({});
     assert.equal((await h.sandbox('tasks', 'tasks_log', { id: mine.id, text: 'x' }, plain)).status, 403);
     assert.equal((await h.sandbox('tasks', 'tasks_get', { id: mine.id }, plain)).status, 403);
+    // ...and the info lists no tasks: a prompt-injected agent could paste their summaries into a reply.
     const info = await h.sandbox('tasks', 'tasks_get_info', {}, plain);
     assert.equal(info.status, 200);
-    assert.deepEqual(info.json.data.state.openTasks.map((task: { id: number }) => task.id).sort(), [mine.id, sibling.id].sort());
+    assert.deepEqual(info.json.data.state.openTasks, []);
   });
 });
 

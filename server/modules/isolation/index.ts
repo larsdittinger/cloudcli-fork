@@ -20,7 +20,8 @@ export type { BlockedEntry, DaemonClient, DaemonStatus, SelfCheckResult, SpawnRe
 export { runTokens } from './run-tokens.js';
 export type { RunChannelContext, RunTokenInfo, RunTokenInput, RunTokenPurpose } from './run-tokens.js';
 // registerSandboxMcpRouter: lets Channels / Tasks plug their run-token scoped MCP routers into main.sock.
-export { ISOLATED_DENIED_TEXT, registerSandboxMcpRouter, requireRunToken } from './sandbox-api.server.js';
+// createSandboxApiApp: main.sock's app; exported for integration tests of the modules that plug into it.
+export { createSandboxApiApp, ISOLATED_DENIED_TEXT, registerSandboxMcpRouter, requireRunToken } from './sandbox-api.server.js';
 export type { SandboxApiRequest, SandboxMcpKind, SandboxMcpScope } from './sandbox-api.server.js';
 export { CLAUDE_LOGIN_MISSING, ISOLATION_CLAUDE_TOKEN_KEY } from './claude-proxy.js';
 // Claude runs of isolated projects (runtime hook) and what they need around them.
