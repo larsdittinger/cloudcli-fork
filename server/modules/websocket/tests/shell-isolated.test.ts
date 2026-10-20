@@ -215,3 +215,25 @@ test('isolated project reached through a symlink still runs in the sandbox, neve
     }
   });
 });
+
+test('a plain project reached through a symlink keeps the symlink path as the terminal cwd', async () => {
+  await withIsolatedProject(async (projectPath) => {
+    const base = path.dirname(path.dirname(projectPath));
+    const real = path.join(base, 'plain-real');
+    const link = path.join(base, 'plain-link');
+    fs.mkdirSync(real);
+    fs.symlinkSync(real, link);
+    const spawns: Array<{ cwd?: string }> = [];
+    const socket = createFakeSocket();
+    const fakePty = { onData: () => ({ dispose() {} }), onExit: () => ({ dispose() {} }), write() {}, resize() {}, kill() {}, pid: 1 };
+    handleShellConnection(socket as never, {
+      resolveProviderSessionId: (id: string) => id,
+      spawnPty: ((_file: string, _args: string[], options: { cwd?: string }) => { spawns.push(options); return fakePty; }) as never,
+    });
+    socket.emit('message', JSON.stringify({ type: 'init', cols: 80, rows: 24, projectPath: link, sessionId: `plain-link-${Date.now()}`, provider: 'plain-shell', isPlainShell: true, initialCommand: 'pwd' }));
+    await tick();
+    assert.equal(spawns.length, 1);
+    // Upstream behaviour: the shell shows the path the project was opened with, not its target.
+    assert.equal(spawns[0].cwd, link);
+  });
+});

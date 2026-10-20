@@ -623,7 +623,7 @@ export function handleShellConnection(
         }
 
         const resolvedProjectPath = path.resolve(projectPath);
-        // The directory the shell really starts in: a symlink must not decide "local" while the target is isolated.
+        // Where the path really leads: a symlink must not decide "local" while the target is isolated.
         let realProjectPath = resolvedProjectPath;
         try {
           realProjectPath = fs.realpathSync(resolvedProjectPath);
@@ -687,7 +687,8 @@ export function handleShellConnection(
             name: 'xterm-256color',
             cols: termCols,
             rows: termRows,
-            cwd: realProjectPath,
+            // Local terminals keep the path the project was opened with (upstream); realpath only decides isolation.
+            cwd: resolvedProjectPath,
             env: {
               ...process.env,
               [prioritizedPath.key]: prioritizedPath.value,
