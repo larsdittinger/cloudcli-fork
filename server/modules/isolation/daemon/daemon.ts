@@ -26,6 +26,7 @@ import {
   expectedHome,
   HOME_TMP_DIR,
   prepareProject,
+  shareTranscripts,
   validateSpawn,
   type PathConfig,
 } from './projects.js';
@@ -256,7 +257,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       );
       return;
     }
-    const actionMatch = /^\/v1\/projects\/([^/]+)\/(prepare|self-check|adopt)$/.exec(url.pathname);
+    const actionMatch = /^\/v1\/projects\/([^/]+)\/(prepare|self-check|adopt|share-transcripts)$/.exec(url.pathname);
     if (req.method === 'POST' && actionMatch) {
       const projectId = decodeURIComponent(actionMatch[1]);
       if (!PROJECT_ID.test(projectId)) return json(400, { error: 'Invalid projectId' });
@@ -274,6 +275,15 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
             if (known.uid !== uid) return json(409, { error: 'uid does not match the project' });
             const { warnings } = adoptPaths({ projectId, uid, projectDir: body.projectDir, paths: body.paths as string[] }, { ...pathConfig, dev, mainGid: options.mainGid });
             return json(200, { ok: true, warnings });
+          }
+          if (actionMatch[2] === 'share-transcripts') {
+            const uid = body.uid;
+            if (typeof uid !== 'number' || !Number.isInteger(uid) || uid < MIN_ISOLATED_UID) return json(400, { error: `uid must be an integer >= ${MIN_ISOLATED_UID}` });
+            const known = store.get(projectId);
+            if (!known) return json(409, { error: 'Unknown project: push its config (PUT) first' });
+            if (known.uid !== uid) return json(409, { error: 'uid does not match the project' });
+            const { changed, truncated, warnings } = shareTranscripts({ projectId, uid }, { ...pathConfig, dev, mainGid: options.mainGid });
+            return json(200, { ok: true, changed, truncated, warnings });
           }
           if (actionMatch[2] === 'prepare') {
             const uid = body.uid;

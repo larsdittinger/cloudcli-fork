@@ -7,9 +7,10 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { sessionsDb } from '@/modules/database/index.js';
+import { daemonClient } from '@/modules/isolation/daemon-client.js';
 import { isolatedAreaOf, openIsolatedPath } from '@/modules/isolation/isolated-fs.js';
 import { isolationConfig } from '@/modules/isolation/isolation.config.js';
-import { isolationDb } from '@/modules/isolation/isolation.db.js';
+import { isolationDb, type IsolatedProject } from '@/modules/isolation/isolation.db.js';
 
 const isRealDir = (p: string) => {
   try {
@@ -307,6 +308,38 @@ export async function findIsolatedTranscripts(
   return files;
 }
 
+/** The daemon's share pass for one home; nothing when isolation is not set up on the instance. */
+async function shareThroughDaemon(project: IsolatedProject): Promise<unknown> {
+  if (!isolationConfig().available) return undefined;
+  return daemonClient.shareTranscripts(project);
+}
+
+/**
+ * The Claude CLI writes transcripts 0600 in directories it creates 0700: before each walk the daemon (root in the
+ * sandbox) adds the group read bits the app needs, once per isolated home and poll cycle. A failure leaves that
+ * home as it was (logged once); the walk goes on.
+ */
+async function shareIsolatedHomes(share: (project: IsolatedProject) => Promise<unknown>): Promise<void> {
+  const homes = isolatedHomesRoot();
+  if (!homes) return;
+  let entries: fs.Dirent[];
+  try {
+    entries = await fsp.readdir(homes, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const project = isolationDb.getById(entry.name);
+    if (!project) continue;
+    try {
+      await share(project);
+    } catch (error) {
+      warnOnce(`share:${project.projectId}`, `Could not make the transcripts of ${project.projectId} readable: ${(error as Error).message}`);
+    }
+  }
+}
+
 /** How often the isolated homes are walked for new or changed transcripts (the main watcher polls as often). */
 export const ISOLATED_TRANSCRIPT_POLL_MS = 6_000;
 
@@ -318,13 +351,20 @@ export const ISOLATED_TRANSCRIPT_POLL_MS = 6_000;
  */
 export function startIsolatedTranscriptPoller(
   onChange: (event: 'add' | 'change', filePath: string) => void,
-  options: { intervalMs?: number; limits?: { maxDepth?: number; maxEntries?: number } } = {},
+  options: {
+    intervalMs?: number;
+    limits?: { maxDepth?: number; maxEntries?: number };
+    /** Has the daemon make one home's transcripts readable for the app (tests replace it). */
+    share?: (project: IsolatedProject) => Promise<unknown>;
+  } = {},
 ): { tick(): Promise<void>; stop(): Promise<void> } {
   let known: Map<string, string> | null = null;
   let running: Promise<void> | null = null;
   let stopped = false;
+  const share = options.share ?? shareThroughDaemon;
 
   const walk = async () => {
+    await shareIsolatedHomes(share);
     const seen = new Map<string, string>();
     for (const root of claudeTranscriptRoots().slice(1)) {
       for (const file of await findIsolatedTranscripts(root, null, options.limits)) {

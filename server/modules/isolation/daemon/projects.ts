@@ -302,3 +302,166 @@ function adoptOne(projectReal: string, parts: string[], opts: TreeOptions): void
     fs.closeSync(dirFd);
   }
 }
+
+export type ShareInput = { projectId: string; uid: number };
+export type ShareResult = { changed: number; visited: number; truncated: boolean; warnings: string[] };
+
+/** Same bounds as the app's own walk over a home's transcripts (isolation-transcripts.ts). */
+export const SHARE_LIMITS = { maxDepth: 6, maxEntries: 5000 };
+const MAX_SHARE_WARNINGS = 20;
+
+/**
+ * Makes the Claude transcripts in a project's home readable for the app. The CLI writes them 0600 in directories it
+ * creates 0700, so the setgid group (the app's gid) alone gives the app nothing. Only `<home>/.claude` and
+ * `<home>/.claude/projects/**` are touched: files get g+r, directories g+rx and setgid; owner and owner bits stay.
+ * The tree is the agent's, so the walk works like applyTree — every step on an fd opened with O_NOFOLLOW, children
+ * through /proc/self/fd/<dirfd> — and is bounded (depth, entries per call). Symlinks, FIFOs and anything else that
+ * is not a regular file or directory are skipped; in production also entries not owned by the project uid and files
+ * with more than one link.
+ */
+export function shareTranscripts(
+  input: ShareInput,
+  config: PathConfig & {
+    dev: boolean;
+    mainGid?: number;
+    /** Tests: pretend /proc/self/fd is (not) there. */
+    procFd?: boolean;
+    limits?: { maxDepth?: number; maxEntries?: number };
+  },
+): ShareResult {
+  if (!Number.isInteger(input.uid) || input.uid < MIN_ISOLATED_UID) throw new RejectedError(`uid below ${MIN_ISOLATED_UID}`);
+  const prod = !config.dev;
+  const procFd = config.procFd ?? hasProcFd;
+  if (prod && !procFd) throw new RejectedError('/proc/self/fd is unavailable: refusing to walk an agent-writable tree');
+  const maxDepth = config.limits?.maxDepth ?? SHARE_LIMITS.maxDepth;
+  const maxEntries = config.limits?.maxEntries ?? SHARE_LIMITS.maxEntries;
+  const result: ShareResult = { changed: 0, visited: 0, truncated: false, warnings: [] };
+  const warn = (message: string) => {
+    if (result.warnings.length < MAX_SHARE_WARNINGS) result.warnings.push(message);
+  };
+  const mainGid = prod ? config.mainGid : undefined;
+  const DIR_FLAGS = fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | fs.constants.O_NONBLOCK | NOFOLLOW;
+  const at = (dirFd: number, dirPath: string, name: string) => (procFd ? `/proc/self/fd/${dirFd}/${name}` : path.join(dirPath, name));
+
+  /** g+rx and setgid on an opened directory (and the app's group). False when it is not the project's. */
+  const shareDir = (fd: number, display: string): boolean => {
+    const st = fs.fstatSync(fd);
+    if (prod && st.uid !== input.uid) {
+      warn(`${display}: not owned by the project uid, skipped`);
+      return false;
+    }
+    if (mainGid !== undefined && st.gid !== mainGid) {
+      fs.fchownSync(fd, st.uid, mainGid);
+      result.changed += 1;
+    }
+    const want = (st.mode & 0o777) | 0o2050;
+    if ((st.mode & 0o7777) !== want) {
+      fs.fchmodSync(fd, want);
+      result.changed += 1;
+    }
+    return true;
+  };
+
+  /** A directory below `parentFd`, never through a symlink; null when it is missing or not a real directory. */
+  const openDir = (parentFd: number, parentPath: string, name: string): number | null => {
+    try {
+      return fs.openSync(at(parentFd, parentPath, name), DIR_FLAGS);
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== 'ENOENT') warn(`${path.join(parentPath, name)}: ${code === 'ELOOP' || code === 'ENOTDIR' ? 'not a directory, skipped' : (error as Error).message}`);
+      return null;
+    }
+  };
+
+  const shareFile = (child: string, display: string): void => {
+    const fd = fs.openSync(child, fs.constants.O_RDONLY | fs.constants.O_NONBLOCK | NOFOLLOW);
+    try {
+      const st = fs.fstatSync(fd);
+      if (!st.isFile()) return;
+      if (prod && (st.uid !== input.uid || st.nlink > 1)) {
+        warn(`${display}: not the project's own file, skipped`);
+        return;
+      }
+      if (mainGid !== undefined && st.gid !== mainGid) {
+        fs.fchownSync(fd, st.uid, mainGid);
+        result.changed += 1;
+      }
+      const want = (st.mode & 0o777) | 0o040; // g+r; setuid/setgid dropped
+      if ((st.mode & 0o7777) !== want) {
+        fs.fchmodSync(fd, want);
+        result.changed += 1;
+      }
+    } finally {
+      fs.closeSync(fd);
+    }
+  };
+
+  const walk = (dirFd: number, dirPath: string, depth: number): void => {
+    const listing = fs.opendirSync(procFd ? `/proc/self/fd/${dirFd}` : dirPath);
+    try {
+      for (let entry = listing.readSync(); entry !== null; entry = listing.readSync()) {
+        if (result.visited >= maxEntries) {
+          result.truncated = true;
+          return;
+        }
+        result.visited += 1;
+        const child = at(dirFd, dirPath, entry.name);
+        const display = path.join(dirPath, entry.name);
+        try {
+          const st = fs.lstatSync(child);
+          if (st.isDirectory()) {
+            if (depth >= maxDepth) continue;
+            const fd = openDir(dirFd, dirPath, entry.name);
+            if (fd === null) continue;
+            try {
+              if (shareDir(fd, display)) walk(fd, display, depth + 1);
+            } finally {
+              fs.closeSync(fd);
+            }
+            if (result.truncated) return;
+          } else if (st.isFile()) {
+            // Nothing to do (the common case on later passes): not even opened.
+            if ((st.mode & 0o040) && (mainGid === undefined || st.gid === mainGid) && !(st.mode & 0o6000)) continue;
+            shareFile(child, display);
+          }
+          // Symlinks, FIFOs, sockets, devices: never touched.
+        } catch (error) {
+          const code = (error as NodeJS.ErrnoException).code;
+          if (code !== 'ENOENT') warn(`${display}: ${(error as Error).message}`);
+        }
+      }
+    } finally {
+      listing.closeSync();
+    }
+  };
+
+  const home = expectedHome(input.projectId, config);
+  let homeFd: number;
+  try {
+    homeFd = fs.openSync(home, DIR_FLAGS);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return result;
+    throw new RejectedError(`homeDir: ${(error as Error).message}`);
+  }
+  try {
+    const claudeFd = openDir(homeFd, home, '.claude');
+    if (claudeFd === null) return result;
+    const claudePath = path.join(home, '.claude');
+    try {
+      if (!shareDir(claudeFd, claudePath)) return result;
+      const projectsFd = openDir(claudeFd, claudePath, 'projects');
+      if (projectsFd === null) return result;
+      const projectsPath = path.join(claudePath, 'projects');
+      try {
+        if (shareDir(projectsFd, projectsPath)) walk(projectsFd, projectsPath, 0);
+      } finally {
+        fs.closeSync(projectsFd);
+      }
+    } finally {
+      fs.closeSync(claudeFd);
+    }
+  } finally {
+    fs.closeSync(homeFd);
+  }
+  return result;
+}

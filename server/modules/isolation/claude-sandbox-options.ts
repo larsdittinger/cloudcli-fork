@@ -241,6 +241,12 @@ export function applySandboxOptions(sdkOptions: Record<string, any>, ctx: Sandbo
       lastError = error.message;
     });
     proc.once('exit', release);
+    // The CLI wrote its transcript 0600: the daemon adds the group read the app needs (history, titles, search).
+    proc.once('exit', () => {
+      void daemonClient.shareTranscripts(project).catch((error: unknown) => {
+        console.warn(`[Isolation] could not share the transcripts of ${project.projectId}: ${(error as Error).message}`);
+      });
+    });
     const signal = spawnOptions.signal;
     if (signal) {
       const onAbort = () => proc.kill('SIGTERM');

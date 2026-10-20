@@ -325,6 +325,12 @@ export function createDaemonClient(resolveEndpoint: () => DaemonEndpoint) {
       return { ok: Boolean(body?.ok), warnings: body?.warnings ?? [] };
     },
 
+    /** Makes the transcripts the CLI wrote 0600 in the project's home group-readable for the app. */
+    async shareTranscripts(project: Pick<IsolatedProject, 'projectId' | 'uid'>): Promise<{ changed: number }> {
+      const body = expectOk(await callJson<{ changed?: number }>(resolveEndpoint(), 'POST', projectPath(project.projectId, 'share-transcripts'), { uid: project.uid }));
+      return { changed: typeof body?.changed === 'number' ? body.changed : 0 };
+    },
+
     /** `env`: the env the app runs Claude with (buildSandboxEnv), which the probe checks for leaked credentials. */
     async selfCheck(projectId: string, runToken: string, projectDir: string, env?: Record<string, string>): Promise<SelfCheckResult> {
       const body = expectOk(await callJson<SelfCheckResult>(resolveEndpoint(), 'POST', projectPath(projectId, 'self-check'), { runToken, projectDir, ...(env ? { env } : {}) }, SELF_CHECK_TIMEOUT_MS));

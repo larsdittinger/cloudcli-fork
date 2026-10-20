@@ -212,6 +212,11 @@ test('spawnClaudeCodeProcess goes to the daemon as the project uid and releases 
       seen.push(request);
       return proc as never;
     });
+    const shared: string[] = [];
+    const shareMock = mock.method(daemonClient, 'shareTranscripts', async (p: { projectId: string }) => {
+      shared.push(p.projectId);
+      return { changed: 0 };
+    });
     try {
       const sdkOptions: Record<string, any> = { cwd: project.projectPath, env: {} };
       const run = applySandboxOptions(sdkOptions, { projectPath: project.projectPath, sessionId: 's1' })!;
@@ -248,9 +253,13 @@ test('spawnClaudeCodeProcess goes to the daemon as the project uid and releases 
       assert.deepEqual(proc.kills, ['SIGTERM']);
 
       assert.ok(runTokens.resolve(token));
+      assert.deepEqual(shared, []);
       proc.emit('exit', 1, null);
       assert.equal(runTokens.resolve(token), null);
+      // The CLI writes its transcript 0600: on exit the daemon makes it readable for the app.
+      assert.deepEqual(shared, [project.projectId]);
     } finally {
+      shareMock.mock.restore();
       spawnMock.mock.restore();
     }
   });
