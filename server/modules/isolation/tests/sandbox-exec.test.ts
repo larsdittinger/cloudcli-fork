@@ -80,6 +80,8 @@ test('runInSandbox: exec in the daemon with the sandbox env (no Claude login), o
       assert.deepEqual(request.args, ['echo hi']);
       assert.equal(request.env.CLOUDCLI_SCHEDULE_ID, 's1');
       assert.equal(request.env.SECRET_X, undefined);
+      assert.equal(request.env.TMPDIR, path.join(project.homeDir, '.tmp'));
+      assert.equal(request.env.CLAUDE_CODE_TMPDIR, request.env.TMPDIR);
       for (const key of NO_CLAUDE_KEYS) assert.equal(request.env[key], undefined, key);
       assert.equal(request.env.HTTPS_PROXY, `http://${project.projectId}:${project.proxySecret}@127.0.0.1:7702`);
       assert.equal(runTokens.resolve(request.env.CLOUDCLI_RUN_TOKEN)?.purpose, 'exec');

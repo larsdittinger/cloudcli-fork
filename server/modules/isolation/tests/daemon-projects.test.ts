@@ -20,6 +20,7 @@ let root: string;
 let homes: string;
 let daemon: RunningDaemon;
 let ownerUid = UID;
+const selfCheckEnvs: Array<Record<string, string>> = [];
 
 function call(method: string, urlPath: string, body?: unknown): Promise<{ status: number; body: any }> {
   return new Promise((resolve, reject) => {
@@ -57,9 +58,10 @@ before(async () => {
     isolatedRoot: root,
     isolatedHomes: homes,
     statOwner: () => ownerUid,
-    selfCheckRunner: async (ctx) => ({
-      checks: [{ id: 'no-workspace', ok: true, detail: `uid ${ctx.request.uid} token ${ctx.runToken}` }],
-    }),
+    selfCheckRunner: async (ctx) => {
+      selfCheckEnvs.push(ctx.request.env);
+      return { checks: [{ id: 'no-workspace', ok: true, detail: `uid ${ctx.request.uid} token ${ctx.runToken}` }] };
+    },
   });
   const put = await call('PUT', '/v1/projects/proj', { uid: UID, name: 'P', allowlist: ['example.org'], proxySecret: 's3' });
   assert.equal(put.status, 200);
@@ -180,6 +182,9 @@ test('self-check runs the runner as the project uid with the run token', async (
   const res = await call('POST', '/v1/projects/proj/self-check', { runToken: 'tok-1', projectDir: path.join(root, 'proj') });
   assert.equal(res.status, 200);
   assert.deepEqual(res.body, { checks: [{ id: 'no-workspace', ok: true, detail: `uid ${UID} token tok-1` }] });
+  // The probe runs with the project's own TMPDIR, like every other process of the project.
+  assert.equal(selfCheckEnvs.at(-1)!.TMPDIR, path.join(homes, 'proj', '.tmp'));
+  assert.equal(selfCheckEnvs.at(-1)!.CLAUDE_CODE_TMPDIR, path.join(homes, 'proj', '.tmp'));
   assert.equal((await call('POST', '/v1/projects/proj/self-check', { projectDir: path.join(root, 'proj') })).status, 400);
   assert.equal((await call('POST', '/v1/projects/ghost/self-check', { runToken: 'a', projectDir: root })).status, 404);
 });
@@ -240,4 +245,32 @@ test('prepare fails closed in production without /proc/self/fd', () => {
 test('prepare requires a project that was pushed', async () => {
   const body = { uid: 20077, projectDir: path.join(root, 'proj'), homeDir: path.join(homes, 'ghost') };
   assert.equal((await call('POST', '/v1/projects/ghost/prepare', body)).status, 409);
+});
+
+test('prepare gives the project a private temp dir in its home; a planted symlink there is replaced, not followed', async () => {
+  const projectDir = path.join(root, 'proj');
+  const homeDir = path.join(homes, 'proj');
+  fs.mkdirSync(homeDir, { recursive: true });
+  const target = path.join(tmp, 'outside', 'tmp-target');
+  fs.mkdirSync(target, { recursive: true });
+  fs.chmodSync(target, 0o755);
+  fs.rmSync(path.join(homeDir, '.tmp'), { recursive: true, force: true });
+  fs.symlinkSync(target, path.join(homeDir, '.tmp'));
+
+  const res = await call('POST', '/v1/projects/proj/prepare', { uid: UID, projectDir, homeDir });
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  const st = fs.lstatSync(path.join(homeDir, '.tmp'));
+  assert.equal(st.isDirectory(), true);
+  assert.equal(st.mode & 0o7777, 0o700);
+  assert.equal(fs.statSync(target).mode & 0o7777, 0o755);
+
+  // A file in its place is replaced too; an existing directory is kept with its content.
+  fs.rmSync(path.join(homeDir, '.tmp'), { recursive: true });
+  fs.writeFileSync(path.join(homeDir, '.tmp'), 'x');
+  assert.equal((await call('POST', '/v1/projects/proj/prepare', { uid: UID, projectDir, homeDir })).status, 200);
+  assert.equal(fs.lstatSync(path.join(homeDir, '.tmp')).isDirectory(), true);
+  fs.writeFileSync(path.join(homeDir, '.tmp', 'keep'), 'k');
+  assert.equal((await call('POST', '/v1/projects/proj/prepare', { uid: UID, projectDir, homeDir })).status, 200);
+  assert.equal(fs.readFileSync(path.join(homeDir, '.tmp', 'keep'), 'utf8'), 'k');
+  assert.equal(fs.statSync(path.join(homeDir, '.tmp')).mode & 0o7777, 0o700);
 });

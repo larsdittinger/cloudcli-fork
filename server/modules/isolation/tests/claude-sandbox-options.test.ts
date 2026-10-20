@@ -18,7 +18,7 @@ import { runTokens } from '@/modules/isolation/run-tokens.js';
 import { isolationEnvFor, withIsolatedDatabase, withIsolationEnv } from '@/modules/isolation/tests/helpers.js';
 
 const CLAUDE_ENV_KEYS = [
-  'PATH', 'LANG', 'TERM', 'HOME',
+  'PATH', 'LANG', 'TERM', 'HOME', 'TMPDIR', 'CLAUDE_CODE_TMPDIR',
   'HTTPS_PROXY', 'HTTP_PROXY', 'NO_PROXY', 'https_proxy', 'http_proxy', 'no_proxy', 'NODE_USE_ENV_PROXY',
   'ANTHROPIC_BASE_URL', 'CLAUDE_CODE_OAUTH_TOKEN',
   'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC', 'DISABLE_AUTOUPDATER',
@@ -89,6 +89,9 @@ test('isolated: allowlisted env only, project settings only, sandbox MCP servers
       assert.equal(env.SECRET_X, undefined);
       assert.equal(env.CLAUDE_CODE_ENABLE_CFC, undefined);
       assert.equal(env.HOME, project.homeDir);
+      // Its own temp dir: in the shared /tmp another isolated uid could squat the CLI's per-uid directory.
+      assert.equal(env.TMPDIR, path.join(project.homeDir, '.tmp'));
+      assert.equal(env.CLAUDE_CODE_TMPDIR, env.TMPDIR);
       assert.equal(env.LANG, 'C.UTF-8');
       assert.equal(env.HTTPS_PROXY, `http://${project.projectId}:${project.proxySecret}@127.0.0.1:7702`);
       assert.equal(env.HTTP_PROXY, env.HTTPS_PROXY);
@@ -182,6 +185,8 @@ test('buildSandboxEnv without Claude keys (scripts, terminal)', async () => {
     assert.equal(env.ENABLE_CLAUDEAI_MCP_SERVERS, undefined);
     assert.equal(env.CLOUDCLI_RUN_TOKEN, 'tok');
     assert.equal(env.HOME, project.homeDir);
+    assert.equal(env.TMPDIR, path.join(project.homeDir, '.tmp'));
+    assert.equal(env.CLAUDE_CODE_TMPDIR, env.TMPDIR);
     assert.equal(env.EXTRA, '1');
     assert.ok(env.HTTPS_PROXY);
   });

@@ -24,6 +24,7 @@ import {
   adoptPaths,
   defaultStatOwner,
   expectedHome,
+  HOME_TMP_DIR,
   prepareProject,
   validateSpawn,
   type PathConfig,
@@ -278,12 +279,14 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           if (typeof body.runToken !== 'string' || !body.runToken) return json(400, { error: 'runToken is required' });
           if (!netState.ok) return json(503, { error: netState.reason ?? 'Network not ready' });
           if (typeof body.projectDir !== 'string') return json(400, { error: 'projectDir is required' });
+          const homeDir = expectedHome(projectId, pathConfig);
+          const tmp = path.join(homeDir, HOME_TMP_DIR);
           const request = {
             kind: 'exec' as const,
             projectId,
             uid: project.uid,
             projectDir: body.projectDir,
-            homeDir: expectedHome(projectId, pathConfig),
+            homeDir,
             cwd: body.projectDir,
             args: [],
             env: {
@@ -291,6 +294,8 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
               HTTP_PROXY: `http://${projectId}:${project.proxySecret}@127.0.0.1:${boundProxyPort}`,
               NO_PROXY: '127.0.0.1,localhost',
               CLOUDCLI_RUN_TOKEN: body.runToken,
+              TMPDIR: tmp,
+              CLAUDE_CODE_TMPDIR: tmp,
             },
           };
           request.projectDir = request.cwd = validateSpawn(request, store, pathConfig); // same checks as any spawn

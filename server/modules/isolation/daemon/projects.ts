@@ -179,7 +179,39 @@ export function prepareProject(
 
   applyTree(home, opts);
   applyTree(real, opts);
+  ensurePrivateTmp(home, opts);
   return { warnings: opts.warnings };
+}
+
+/** Name of the project's own temp dir in its home (TMPDIR / CLAUDE_CODE_TMPDIR of every process of the project). */
+export const HOME_TMP_DIR = '.tmp';
+
+/**
+ * <home>/.tmp as a real directory, mode 0700, owned by the project uid. The home is agent-writable: a symlink or
+ * any other non-directory found there is removed (never followed) and the directory created in its place.
+ */
+function ensurePrivateTmp(home: string, opts: TreeOptions): void {
+  const homeFd = fs.openSync(home, fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | NOFOLLOW);
+  try {
+    const at = `${opts.procFd ? `/proc/self/fd/${homeFd}` : home}/${HOME_TMP_DIR}`;
+    const flags = fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | fs.constants.O_NONBLOCK | NOFOLLOW;
+    let fd: number;
+    try {
+      fd = fs.openSync(at, flags);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') fs.unlinkSync(at); // symlink, file, FIFO: the entry itself goes
+      fs.mkdirSync(at, { mode: 0o700 });
+      fd = fs.openSync(at, flags);
+    }
+    try {
+      if (opts.chown) fs.fchownSync(fd, opts.uid, opts.gid);
+      fs.fchmodSync(fd, 0o700);
+    } finally {
+      fs.closeSync(fd);
+    }
+  } finally {
+    fs.closeSync(homeFd);
+  }
 }
 
 export type AdoptInput = { projectId: string; uid: number; projectDir: string; paths: string[] };

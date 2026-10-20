@@ -60,6 +60,9 @@ export function sandboxMcpDir(env: NodeJS.ProcessEnv = process.env): string {
   return env.CLOUDCLI_SANDBOX_MCP_DIR?.trim() || DEFAULT_SANDBOX_MCP_DIR;
 }
 
+/** The project's private temp dir (0700, created by the daemon's prepare): TMPDIR of every process of the project. */
+export const sandboxTmpDir = (homeDir: string) => path.posix.join(homeDir, '.tmp');
+
 /**
  * The complete environment of a process in the sandbox. An allowlist: nothing of the app's own env goes in.
  * `extra` adds run-specific values (Channels sender/message).
@@ -71,11 +74,15 @@ export function buildSandboxEnv(
   options: SandboxEnvOptions = {},
 ): Record<string, string> {
   const proxy = `http://${project.projectId}:${project.proxySecret}@${SANDBOX_PROXY_HOST}`;
+  // The sandbox's /tmp is shared by every isolated uid: another project could squat the CLI's per-uid temp dir.
+  const tmp = sandboxTmpDir(project.homeDir);
   const env: Record<string, string> = {
     PATH: process.env.CLOUDCLI_SANDBOX_PATH?.trim() || DEFAULT_SANDBOX_PATH,
     LANG: 'C.UTF-8',
     TERM: 'xterm-256color',
     HOME: project.homeDir,
+    TMPDIR: tmp,
+    CLAUDE_CODE_TMPDIR: tmp,
     HTTPS_PROXY: proxy,
     HTTP_PROXY: proxy,
     NO_PROXY: '127.0.0.1,localhost',
