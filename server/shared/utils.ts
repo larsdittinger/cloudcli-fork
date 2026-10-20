@@ -16,7 +16,7 @@ import path from 'node:path';
 import readline from 'node:readline';
 import { fileURLToPath } from 'node:url';
 
-import type { NextFunction, Request, RequestHandler, Response } from 'express';
+import type { ErrorRequestHandler, NextFunction, Request, RequestHandler, Response } from 'express';
 
 import { parseFrontMatter } from '@/shared/frontmatter.js';
 import type {
@@ -88,6 +88,46 @@ export function asyncHandler(
     void Promise.resolve(handler(req, res, next)).catch(next);
   };
 }
+
+/**
+ * The app's last Express middleware: turns any error into the API error envelope.
+ *
+ * - A body that is not valid JSON answers 400 `INVALID_JSON`. body-parser attaches the raw body to that error
+ *   (`err.body`) — a pasted Claude token, a login password — so it is never logged: only method and path.
+ * - `AppError` keeps its status, code and details.
+ * - Anything else is logged and answers a generic 500.
+ *
+ * Mounted once by the server entrypoint, after every route.
+ */
+export const globalErrorHandler: ErrorRequestHandler = (err: unknown, req, res, _next) => {
+  if (err && typeof err === 'object' && (err as { type?: unknown }).type === 'entity.parse.failed') {
+    console.warn(`[http] invalid JSON body: ${req.method} ${req.originalUrl.split('?')[0]}`);
+    res.status(400).json({ success: false, error: { code: 'INVALID_JSON', message: 'Invalid JSON' } });
+    return;
+  }
+
+  if (err instanceof AppError) {
+    res.status(err.statusCode).json({
+      success: false,
+      error: {
+        code: err.code,
+        message: err.message,
+        details: err.details,
+      },
+    });
+    return;
+  }
+
+  console.error(err);
+
+  res.status(500).json({
+    success: false,
+    error: {
+      code: 'INTERNAL_ERROR',
+      message: 'Internal server error',
+    },
+  });
+};
 
 // ---------------------------
 //----------------- SHARED ERROR UTILITIES ------------
