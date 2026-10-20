@@ -11,6 +11,7 @@ import express from 'express';
 
 import { projectsDb } from '@/modules/database/index.js';
 import { fileTreeRoutes } from '@/modules/file-tree/index.js';
+import { createProject } from '@/modules/projects/services/project-management.service.js';
 import { isolationDb } from '@/modules/isolation/index.js';
 import { withIsolationDirs, withTempDatabase } from '@/modules/projects/tests/copy-helpers.js';
 import { validateWorkspacePath } from '@/shared/utils.js';
@@ -65,6 +66,21 @@ test('file tree browse and project listing work for an isolated project outside 
       } finally {
         server.close();
       }
+    });
+  });
+});
+
+test('create-project refuses a path inside an isolated project and creates nothing', async () => {
+  await withTempDatabase(async (dir) => {
+    await withIsolationDirs(dir, async () => {
+      const agent = path.join(dir, 'isolated', 'agent');
+      fs.mkdirSync(agent, { recursive: true });
+      const id = projectsDb.createProjectPath(agent, 'agent').project!.project_id;
+      isolationDb.markIsolated(id, isolationDb.allocateUid());
+      const nested = path.join(agent, 'sub');
+      await assert.rejects(createProject({ projectPath: nested }), (error: any) => error.statusCode === 409);
+      assert.equal(fs.existsSync(nested), false);
+      assert.equal(projectsDb.getProjectPath(nested), null);
     });
   });
 });

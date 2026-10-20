@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { projectsDb } from '@/modules/database/index.js';
+import { assertOutsideIsolatedArea } from '@/modules/isolation/index.js';
 import type {
   CreateProjectPathResult,
   ProjectRepositoryRow,
@@ -107,6 +108,8 @@ export async function createProject(
   }
 
   const resolvedProjectPath = normalizeProjectPath(pathValidation.resolvedPath);
+  // Isolated trees are agent-controlled; a plain mkdir/register there would follow planted symlinks.
+  assertOutsideIsolatedArea([normalizedPath, resolvedProjectPath], 'Creating a project');
   await dependencies.ensureWorkspaceDirectory(resolvedProjectPath);
 
   const normalizedCustomName = resolveDisplayName(input.customName ?? null, resolvedProjectPath);

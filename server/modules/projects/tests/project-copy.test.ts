@@ -390,10 +390,7 @@ test('a non-isolated copy of an isolated source is allowed and lands in the work
 test('a plain source that contains an isolation area is refused', async () => {
   await withTempDatabase(async (dir) => {
     await withIsolationDirs(dir, async () => {
-      const sourcePath = path.join(dir, 'work', 'zdroj');
-      fs.mkdirSync(sourcePath, { recursive: true });
       const projectId = projectsDb.createProjectPath(dir, 'whole').project!.project_id; // contains isolated/, homes/, iso/
-      void sourcePath;
       await assert.rejects(startCopy(projectId, input(), { validatePath }), (error: any) => error.statusCode === 400 && /isolat/i.test(error.message));
       assert.equal(fs.existsSync(path.join(path.dirname(dir), 'kopie')), false);
     });
