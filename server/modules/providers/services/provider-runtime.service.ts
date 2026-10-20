@@ -1,3 +1,4 @@
+import { ISOLATED_CLAUDE_ONLY_TEXT, isIsolatedPath } from '@/modules/isolation/index.js';
 import { providerRegistry } from '@/modules/providers/provider.registry.js';
 import { providerModelsService } from '@/modules/providers/services/provider-models.service.js';
 import { sessionsService } from '@/modules/providers/services/sessions.service.js';
@@ -68,6 +69,11 @@ export function createProviderRuntimeService(
     options: AnyRecord,
     writer: ProviderRuntimeWriter,
   ): Promise<unknown> => {
+    // Every caller (chat, external agent API, git messages) ends here: an isolated project runs Claude in the
+    // sandbox, and no other provider at all.
+    if (providerName !== 'claude' && [options?.projectPath, options?.cwd].some((candidate) => typeof candidate === 'string' && candidate && isIsolatedPath(candidate))) {
+      return Promise.reject(new Error(ISOLATED_CLAUDE_ONLY_TEXT));
+    }
     const provider = dependencies.resolveProvider(providerName);
     return provider.runtime.run(command, options, writer, createRuntimeContext(provider));
   };

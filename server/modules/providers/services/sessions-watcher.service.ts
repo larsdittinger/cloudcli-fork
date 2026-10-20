@@ -4,6 +4,7 @@ import { promises as fsPromises } from 'node:fs';
 
 import chokidar, { type FSWatcher } from 'chokidar';
 
+import { isIsolatedHomeWatchPath, isolatedHomesRoot } from '@/modules/isolation/index.js';
 import { sessionSynchronizerService } from '@/modules/providers/services/session-synchronizer.service.js';
 import { broadcastSessionUpsertedBatch } from '@/modules/websocket/index.js';
 import type { LLMProvider } from '@/shared/types.js';
@@ -204,12 +205,19 @@ export async function initializeSessionsWatcher(): Promise<void> {
     failures: initialSync.failures,
   });
 
-  for (const { provider, rootPath } of PROVIDER_WATCH_PATHS) {
+  // Isolated projects keep their transcripts in their own homes, which appear at runtime (a copy creates one):
+  // the homes root itself is one more Claude root, narrowed to <home>/.claude/projects.
+  const homesRoot = isolatedHomesRoot();
+  const watchPaths = homesRoot
+    ? [...PROVIDER_WATCH_PATHS, { provider: 'claude' as const, rootPath: homesRoot, isolatedHomes: true }]
+    : PROVIDER_WATCH_PATHS;
+
+  for (const { provider, rootPath, isolatedHomes } of watchPaths as Array<{ provider: LLMProvider; rootPath: string; isolatedHomes?: boolean }>) {
     try {
       await fsPromises.mkdir(rootPath, { recursive: true });
 
       const watcher = chokidar.watch(rootPath, {
-        ignored: WATCHER_IGNORED_PATTERNS,
+        ignored: isolatedHomes ? (filePath: string) => !isIsolatedHomeWatchPath(filePath) : WATCHER_IGNORED_PATTERNS,
         persistent: true,
         ignoreInitial: true,
         followSymlinks: false,

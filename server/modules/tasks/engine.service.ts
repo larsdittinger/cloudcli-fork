@@ -203,7 +203,7 @@ function startTaskRun(task: TaskRow, now: Date): boolean {
     try {
       await broadcastSessionUpserted(sessionId);
       const result = await runDetachedChatTurn(
-        { sessionId, userId: task.owner_user_id, content: prompt, options: runOptions(task) },
+        { sessionId, userId: task.owner_user_id, content: prompt, options: runOptions(task), runContext: { taskId: task.id } },
         { runtime: execute },
       );
       error = result.started ? (result.error ?? reportedError(sessionId)) : (result.error ?? 'The chat turn did not start.');

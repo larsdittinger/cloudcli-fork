@@ -242,7 +242,15 @@ export async function resolvePathUnderRoots(targetPath: string, roots: string[])
  * or `null` when it does not.
  */
 export function resolveReadOnlyRootPath(targetPath: string): Promise<string | null> {
-  return resolvePathUnderRoots(targetPath, READ_ONLY_ROOTS);
+  return resolvePathUnderRoots(targetPath, [...new Set([...READ_ONLY_ROOTS, ...extraReadOnlyRoots.flatMap((source) => source())])]);
+}
+
+// More transcript directories that only exist at runtime (the homes of isolated projects); the isolation module
+// registers them, so this file does not depend on it.
+const extraReadOnlyRoots: Array<() => string[]> = [];
+
+export function registerReadOnlyRoots(source: () => string[]): void {
+  extraReadOnlyRoots.push(source);
 }
 
 function stripWindowsLongPathPrefix(inputPath: string): string {

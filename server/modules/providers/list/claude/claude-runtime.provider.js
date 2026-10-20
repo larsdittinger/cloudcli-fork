@@ -29,6 +29,7 @@ import {
   CLAUDE_ULTRACODE_EFFORT
 } from '@/modules/providers/list/claude/claude-models.provider.js';
 import { resolveClaudeCodeExecutablePath } from '@/shared/claude-cli-path.js';
+import { applySandboxOptions, stageForSandbox } from '@/modules/isolation/index.js';
 import {
   createNotificationEvent,
   notifyBackgroundWorkCompleted,
@@ -1193,6 +1194,8 @@ async function queryClaudeSDK(command, options = {}, ws, context) {
   // Hoisted above the try so the catch's cleanup can tell whether this run
   // still owns the activeSessions entry (or was superseded by a newer run).
   let queryInstance = null;
+  // Set when the project is isolated: the CLI then runs in the sandbox (see applySandboxOptions).
+  let sandboxRun = null;
 
   try {
     const resolvedModel = await context.resolveResumeModel(sessionId, options.model);
@@ -1215,10 +1218,23 @@ async function queryClaudeSDK(command, options = {}, ws, context) {
       sdkOptions.mcpServers = mcpServers;
     }
 
+    // An isolated project's CLI runs in the sandbox, never here: this rewrites the options for the
+    // sandbox or throws (fail closed). Null, and nothing changed, for every other project.
+    sandboxRun = applySandboxOptions(sdkOptions, {
+      projectPath: options.projectPath,
+      sessionId,
+      channelContext: options.channelContext,
+      taskId: options.taskId,
+    });
+    // The sandbox cannot see the upload store: the agent reads copies inside its project.
+    const promptFiles = sandboxRun
+      ? await stageForSandbox(sandboxRun.project.projectPath, 'uploads', Array.isArray(options.files) ? options.files : [])
+      : options.files;
+
     // Every turn uses streaming input so stdin stays open past the turn's
     // `result`. The message list is reusable, but each query attempt needs its
     // own stream because an async generator cannot be replayed once consumed.
-    const promptMessages = await buildPromptMessages(command, options.images, options.files, options.cwd);
+    const promptMessages = await buildPromptMessages(command, options.images, promptFiles, options.cwd);
 
     sdkOptions.hooks = {
       Notification: [{
@@ -1364,6 +1380,11 @@ async function queryClaudeSDK(command, options = {}, ws, context) {
       if (!canTakeTurn()) {
         return false;
       }
+      // A sandbox process was started with one run token and env (Channels sender, task): a turn from
+      // another context needs a process of its own.
+      if (sandboxRun && !sandboxRun.accepts(nextOptions)) {
+        return false;
+      }
 
       const nextSdkOptions = mapCliOptionsToSDK({
         ...nextOptions,
@@ -1376,8 +1397,17 @@ async function queryClaudeSDK(command, options = {}, ws, context) {
       if (nextSdkOptions.effort !== sdkOptions.effort && !runsBoundedWork()) {
         return false;
       }
+      let nextFiles = nextOptions.files;
+      if (sandboxRun) {
+        try {
+          nextFiles = await stageForSandbox(sandboxRun.project.projectPath, 'uploads', Array.isArray(nextOptions.files) ? nextOptions.files : []);
+        } catch {
+          // A fresh run reports the failure in the chat.
+          return false;
+        }
+      }
       const nextMessages = await buildPromptMessages(
-        nextCommand, nextOptions.images, nextOptions.files, nextOptions.cwd || options.cwd
+        nextCommand, nextOptions.images, nextFiles, nextOptions.cwd || options.cwd
       );
       if (!canTakeTurn()) {
         return false;
@@ -1691,11 +1721,13 @@ async function queryClaudeSDK(command, options = {}, ws, context) {
       return;
     }
 
-    // Check if Claude CLI is installed for a clearer error message
-    const installed = await context.isProviderInstalled();
-    const errorContent = !installed
-      ? 'Claude Code is not installed. Please install it first: https://docs.anthropic.com/en/docs/claude-code'
-      : error.message;
+    // The sandbox's own reason beats the SDK's "exited with code 1". An isolated run never
+    // depends on the CLI installed here.
+    const installed = sandboxRun ? true : await context.isProviderInstalled();
+    const errorContent = sandboxRun?.error()
+      || (!installed
+        ? 'Claude Code is not installed. Please install it first: https://docs.anthropic.com/en/docs/claude-code'
+        : error.message);
 
     // Send error to WebSocket, then the terminal complete. A run that already
     // reported completion and then failed during its post-turn hold still
@@ -1717,6 +1749,8 @@ async function queryClaudeSDK(command, options = {}, ws, context) {
     processEnded = true;
     clearIdleRelease();
     releasePromptStream();
+    // The process is gone; so is its run token (already revoked on exit, this is the backstop).
+    sandboxRun?.release();
     // Whatever still ran in the background ended with the process.
     backgroundTasks = [];
     sendBackgroundTasks();

@@ -4,6 +4,7 @@ import type { WebSocket } from 'ws';
 
 import { canAccessSession, canReadSession, resolveSessionOwnerScope } from '@/modules/auth/index.js';
 import { sessionsDb, userDb } from '@/modules/database/index.js';
+import { ISOLATED_CLAUDE_ONLY_TEXT, isIsolatedPath } from '@/modules/isolation/index.js';
 import { providerModelsService, sessionsService } from '@/modules/providers/index.js';
 import { chatRunRegistry } from '@/modules/websocket/services/chat-run-registry.service.js';
 import { connectedClients, connectionUsers, WS_OPEN_STATE } from '@/modules/websocket/services/websocket-state.service.js';
@@ -270,6 +271,15 @@ async function dispatchRun(
 ): Promise<{ started: boolean; error: string | null }> {
   const provider = session.provider as LLMProvider;
 
+  // v1 of isolated projects runs Claude only (in the sandbox); every other provider would run here.
+  const requestedCwd = typeof data.options?.cwd === 'string' ? data.options.cwd : null;
+  if (provider !== 'claude' && [session.project_path, requestedCwd].some((candidate) => candidate && isIsolatedPath(candidate))) {
+    if (ws) {
+      sendProtocolError(ws, 'ISOLATED_PROVIDER_UNSUPPORTED', ISOLATED_CLAUDE_ONLY_TEXT, sessionId);
+    }
+    return { started: false, error: ISOLATED_CLAUDE_ONLY_TEXT };
+  }
+
   const run = chatRunRegistry.startRun({
     appSessionId: sessionId,
     provider,
@@ -290,7 +300,9 @@ async function dispatchRun(
     return { started: false, error: 'A run is already in progress for this session.' };
   }
 
-  const clientOptions = (data.options ?? {}) as AnyRecord;
+  // Run context (Channels message, agent task) only ever comes from the server (extraRuntimeOptions):
+  // it scopes the sandbox's run token, so a client must not be able to set it.
+  const { channelContext: _channelContext, taskId: _taskId, ...clientOptions } = (data.options ?? {}) as AnyRecord;
   const command = typeof data.content === 'string' ? data.content : '';
 
   // Record what this turn runs with so reopening the session later restores the
@@ -728,6 +740,8 @@ export async function runDetachedChatTurn(
      * land mid-run, so the timer outranks whatever is running.
      */
     interruptActiveRun?: boolean;
+    /** What started the run, set by the server (Channels dispatcher, agent tasks); scopes an isolated run. */
+    runContext?: { channelContext?: { messageId: string; threadKey: string; sender: string }; taskId?: number };
   },
   dependencies: ChatWebSocketDependencies,
 ): Promise<{ started: boolean; error: string | null }> {
@@ -772,6 +786,7 @@ export async function runDetachedChatTurn(
     session,
     { sessionId: input.sessionId, content: input.content, options: input.options ?? {} },
     dependencies,
+    input.runContext ?? {},
   );
 }
 

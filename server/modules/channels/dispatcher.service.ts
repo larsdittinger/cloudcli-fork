@@ -12,6 +12,7 @@ import {
   channelThreadsDb,
   sessionsDb,
 } from '@/modules/database/index.js';
+import { stageForSandbox } from '@/modules/isolation/index.js';
 import { broadcastSessionUpserted, chatRunRegistry, runDetachedChatTurn } from '@/modules/websocket/index.js';
 import type { ProviderRuntimeGateway } from '@/modules/websocket/index.js';
 
@@ -142,9 +143,17 @@ export async function dispatchMessage(
     return { started: false, sessionId, error: null };
   }
 
+  // An isolated agent cannot see the app's attachment store: it gets copies in its project, under these paths.
+  const inbound = rowToInboundMessage(message);
+  try {
+    inbound.attachments = await stageForSandbox(rule.project_path, message.id, inbound.attachments);
+  } catch (error) {
+    return fail(messageId, `Attachments could not be copied into the isolated project: ${error instanceof Error ? error.message : String(error)}`);
+  }
+
   const rendered = renderPromptTemplate(
     rule.prompt_template.trim() || DEFAULT_PROMPT_TEMPLATE,
-    buildTemplateVars({ message: rowToInboundMessage(message), accountLabel: account.label, replyMode: rule.reply_mode, allowEscalation: parseJson<Record<string, unknown>>(account.config, {}).allowEscalation === true }),
+    buildTemplateVars({ message: inbound, accountLabel: account.label, replyMode: rule.reply_mode, allowEscalation: parseJson<Record<string, unknown>>(account.config, {}).allowEscalation === true }),
   );
   const warning = injectionGuard.promptWarning(channelMessagesDb.get(messageId) ?? message);
   const prompt = warning ? `${warning}\n\n${rendered}` : rendered;
@@ -158,7 +167,13 @@ export async function dispatchMessage(
   let result: { started: boolean; error: string | null };
   try {
     result = await runDetachedChatTurn(
-      { sessionId, userId: rule.owner_user_id, content: prompt, options: runOptions(rule) },
+      {
+        sessionId,
+        userId: rule.owner_user_id,
+        content: prompt,
+        options: runOptions(rule),
+        runContext: { channelContext: { messageId: message.id, threadKey: message.thread_key, sender: message.from_address } },
+      },
       { runtime },
     );
   } catch (error) {

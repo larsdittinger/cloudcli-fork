@@ -3,6 +3,7 @@ import path from 'node:path';
 
 import { forkSession as forkClaudeSession } from '@anthropic-ai/claude-agent-sdk';
 
+import { isIsolatedPath } from '@/modules/isolation/index.js';
 import type { IProviderFork } from '@/shared/interfaces.js';
 import { AppError } from '@/shared/utils.js';
 
@@ -22,6 +23,14 @@ export class ClaudeForkProvider implements IProviderFork {
     upToAnchorId?: string;
     title?: string;
   }): Promise<{ providerSessionId: string; jsonlPath: string }> {
+    // The SDK reads and writes transcripts under the app's own ~/.claude (no per-call config dir), and a copy
+    // made by the app would not belong to the project's uid in the sandbox.
+    if (isIsolatedPath(input.projectPath)) {
+      throw new AppError('Izolovaný projekt zatím neumí rozvětvit konverzaci.', {
+        code: 'FORK_UNSUPPORTED_ISOLATED',
+        statusCode: 409,
+      });
+    }
     // `dir` is the session's working directory, which the SDK encodes into the
     // `~/.claude/projects/<encoded>` folder name itself — passing that folder
     // makes it encode an already-encoded path and find nothing.

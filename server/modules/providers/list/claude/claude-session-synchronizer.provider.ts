@@ -3,6 +3,7 @@ import path from 'node:path';
 import { readFile } from 'node:fs/promises';
 
 import { sessionsDb } from '@/modules/database/index.js';
+import { acceptTranscript, claudeTranscriptRoots, isReadableTranscript } from '@/modules/isolation/index.js';
 import {
   buildLookupMap,
   extractFirstValidJsonlData,
@@ -43,15 +44,14 @@ export class ClaudeSessionSynchronizer implements IProviderSessionSynchronizer {
   }
 
   /**
-   * Scans ~/.claude/projects and upserts discovered sessions into DB.
+   * Scans ~/.claude/projects (and the homes of isolated projects) and upserts discovered sessions into DB.
    */
   async synchronize(since?: Date): Promise<number> {
     const nameMap = await buildLookupMap(path.join(this.claudeHome, 'history.jsonl'), 'sessionId', 'display');
-    const files = await findFilesRecursivelyCreatedAfter(
-      path.join(this.claudeHome, 'projects'),
-      '.jsonl',
-      since ?? null
-    );
+    const files: string[] = [];
+    for (const root of claudeTranscriptRoots()) {
+      await findFilesRecursivelyCreatedAfter(root, '.jsonl', since ?? null, files);
+    }
 
     let processed = 0;
     for (const filePath of files) {
@@ -116,6 +116,10 @@ export class ClaudeSessionSynchronizer implements IProviderSessionSynchronizer {
     filePath: string,
     nameMap: Map<string, string>
   ): Promise<ParsedSession | null> {
+    // An isolated agent writes its own transcripts: only a session of its own project counts.
+    if (!isReadableTranscript(filePath)) {
+      return null;
+    }
     const parsed = await extractFirstValidJsonlData(filePath, (rawData) => {
       const data = rawData as Record<string, unknown>;
       const sessionId = typeof data.sessionId === 'string' ? data.sessionId : undefined;
@@ -131,7 +135,7 @@ export class ClaudeSessionSynchronizer implements IProviderSessionSynchronizer {
       };
     });
 
-    if (!parsed) {
+    if (!parsed || !acceptTranscript(filePath, parsed)) {
       return null;
     }
 

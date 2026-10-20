@@ -91,7 +91,14 @@ const isInside = (child: string, parent: string) =>
   Boolean(parent) && (child === parent || child.startsWith(parent.endsWith(path.sep) ? parent : `${parent}${path.sep}`));
 
 function isolatedRows(): IsolationRow[] {
-  return getConnection().prepare(`SELECT ${COLUMNS} FROM projects WHERE isolated = 1`).all() as IsolationRow[];
+  try {
+    return getConnection().prepare(`SELECT ${COLUMNS} FROM projects WHERE isolated = 1`).all() as IsolationRow[];
+  } catch (error) {
+    // A database without the projects table or the isolation columns (not migrated yet) holds no isolated
+    // project. Any other failure stays an error: the caller must not guess "not isolated".
+    if (/no such (table|column)/i.test((error as Error).message)) return [];
+    throw error;
+  }
 }
 
 export const isolationDb = {

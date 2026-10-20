@@ -2,6 +2,14 @@ import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
+import { sessionsDb } from '@/modules/database/index.js';
+import { isIsolatedPath } from '@/modules/isolation/index.js';
+import {
+  getActiveClaudeSDKSessions,
+  getClaudeSDKSessionStartTime,
+  isClaudeSDKSessionMidTurn,
+} from '@/modules/providers/list/claude/claude-runtime.provider.js';
+
 /**
  * One Claude CLI process that is currently producing a response.
  *
@@ -102,14 +110,15 @@ async function readLiveBusySession(filePath: string): Promise<LiveClaudeCliSessi
  * the PTY map rather than the chat-run registry. Liveness is ephemeral, so it
  * is recomputed on every read instead of being cached or persisted.
  */
-export async function listBusyClaudeCliSessions(): Promise<LiveClaudeCliSession[]> {
+export async function listBusyClaudeCliSessions(isolated: IsolatedLiveSource = runtimeLiveSource): Promise<LiveClaudeCliSession[]> {
+  const fromRuntime = listBusyIsolatedSessions(isolated);
   let entries: string[];
   try {
     entries = await fsp.readdir(registryDirectory());
   } catch {
     // No registry directory at all is the normal case for an install that has
     // never run the CLI, and an unreadable one is not worth failing a poll for.
-    return [];
+    return fromRuntime;
   }
 
   const registryFiles = entries.filter((entry) => entry.endsWith('.json')).slice(0, MAX_REGISTRY_FILES);
@@ -117,5 +126,36 @@ export async function listBusyClaudeCliSessions(): Promise<LiveClaudeCliSession[
     registryFiles.map((entry) => readLiveBusySession(path.join(registryDirectory(), entry))),
   );
 
-  return sessions.filter((session): session is LiveClaudeCliSession => session !== null);
+  return [...sessions.filter((session): session is LiveClaudeCliSession => session !== null), ...fromRuntime];
+}
+
+/** What the runtime knows about its live processes (injectable for tests). */
+export type IsolatedLiveSource = {
+  liveSessionIds: () => string[];
+  isMidTurn: (sessionId: string) => boolean;
+  session: (sessionId: string) => { provider_session_id?: string | null; project_path?: string | null } | null | undefined;
+  startedAt?: (sessionId: string) => number | null;
+};
+
+const runtimeLiveSource: IsolatedLiveSource = {
+  liveSessionIds: () => getActiveClaudeSDKSessions(),
+  isMidTurn: (sessionId) => isClaudeSDKSessionMidTurn(sessionId),
+  session: (sessionId) => sessionsDb.getSessionById(sessionId),
+  startedAt: (sessionId) => getClaudeSDKSessionStartTime(sessionId),
+};
+
+/**
+ * Isolated projects' CLI processes run in the sandbox: their registry files are in the sandbox home and their
+ * pids in another pid namespace, so neither is read here. The runtime owns every such process and says itself
+ * when one answers on its own (a follow-up turn after a background task settled).
+ */
+function listBusyIsolatedSessions(source: IsolatedLiveSource): LiveClaudeCliSession[] {
+  const busy: LiveClaudeCliSession[] = [];
+  for (const sessionId of source.liveSessionIds()) {
+    if (!source.isMidTurn(sessionId)) continue;
+    const row = source.session(sessionId);
+    if (!row?.provider_session_id || !row.project_path || !isIsolatedPath(row.project_path)) continue;
+    busy.push({ providerSessionId: row.provider_session_id, startedAt: source.startedAt?.(sessionId) ?? Date.now() });
+  }
+  return busy;
 }

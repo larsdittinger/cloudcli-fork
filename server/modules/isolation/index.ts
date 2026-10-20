@@ -1,5 +1,8 @@
 // Isolation — agents of isolated projects run in the sibling sandbox container (daemon/), under their own uid,
 // with a network allowlist and only run-token scoped access back to the app (main.sock).
+import { registerReadOnlyRoots } from '@/shared/utils.js';
+
+import { claudeTranscriptRoots } from './isolation-transcripts.js';
 
 // isolationRoutes: mounted by the server entrypoint at /api/isolation behind authenticateToken + requireAdmin.
 export { default as isolationRoutes } from './isolation.routes.js';
@@ -20,3 +23,22 @@ export type { RunChannelContext, RunTokenInfo, RunTokenInput, RunTokenPurpose } 
 export { registerSandboxMcpRouter, requireRunToken } from './sandbox-api.server.js';
 export type { SandboxApiRequest, SandboxMcpKind } from './sandbox-api.server.js';
 export { CLAUDE_LOGIN_MISSING, ISOLATION_CLAUDE_TOKEN_KEY } from './claude-proxy.js';
+// Claude runs of isolated projects (runtime hook) and what they need around them.
+export {
+  applySandboxOptions,
+  buildSandboxEnv,
+  ISOLATED_CLAUDE_ONLY_TEXT,
+  sandboxMcpDir,
+} from './claude-sandbox-options.js';
+export type { SandboxEnvOptions, SandboxRun, SandboxRunContext } from './claude-sandbox-options.js';
+export { ATTACHMENTS_DIR, stageForSandbox } from './sandbox-attachments.js';
+export {
+  acceptTranscript,
+  claudeTranscriptRoots,
+  isIsolatedHomeWatchPath,
+  isolatedHomesRoot,
+  isReadableTranscript,
+} from './isolation-transcripts.js';
+
+// The file viewer follows transcript paths (background agent outputs) into isolated homes too.
+registerReadOnlyRoots(() => claudeTranscriptRoots().slice(1));
