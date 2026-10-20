@@ -324,8 +324,6 @@ test('an isolated source is read without following symlinks or blocking on FIFOs
       mock.method(daemonClient, 'putProject', async () => ({ ok: true as const }));
       mock.method(daemonClient, 'prepare', async () => ({ ok: true, warnings: [] }));
       try {
-        // An isolated project cannot be copied out of the sandbox.
-        await assert.rejects(startCopy(projectId, input(), { validatePath }), (error: any) => error.statusCode === 400);
         const job = await Promise.race([
           finish(projectId, input({ isolated: true })),
           new Promise<never>((_resolve, reject) => setTimeout(() => reject(new Error('copy blocked')), 5000)),
@@ -342,5 +340,83 @@ test('an isolated source is read without following symlinks or blocking on FIFOs
         mock.restoreAll();
       }
     });
+  });
+});
+
+const fakeDaemon = () => {
+  mock.method(daemonClient, 'status', async () => ({ running: true, ok: true }));
+  mock.method(daemonClient, 'putProject', async () => ({ ok: true as const }));
+  mock.method(daemonClient, 'prepare', async () => ({ ok: true, warnings: [] }));
+};
+
+test('isolated copy passes the REAL path validator with ISOLATED_ROOT outside WORKSPACES_ROOT', async () => {
+  await withTempDatabase(async (dir) => {
+    await withIsolationDirs(dir, async () => {
+      const { projectId } = makeSource(dir);
+      fakeDaemon();
+      try {
+        const job = await finish(projectId, input({ isolated: true }), { validatePath: undefined });
+        assert.equal(job.error, undefined);
+        assert.equal(job.project?.fullPath, path.join(dir, 'isolated', 'kopie'));
+      } finally {
+        mock.restoreAll();
+      }
+    });
+  });
+});
+
+test('a non-isolated copy of an isolated source is allowed and lands in the workspaces root', async () => {
+  await withTempDatabase(async (dir) => {
+    await withIsolationDirs(dir, async () => {
+      const sourcePath = path.join(dir, 'isolated', 'agent');
+      fs.mkdirSync(sourcePath, { recursive: true });
+      fs.writeFileSync(path.join(sourcePath, 'a.txt'), 'hello');
+      fs.writeFileSync(path.join(dir, 'app-secret'), 'SECRET');
+      fs.symlinkSync(path.join(dir, 'app-secret'), path.join(sourcePath, 'leak'));
+      const projectId = projectsDb.createProjectPath(sourcePath, 'agent').project!.project_id;
+      isolationDb.markIsolated(projectId, isolationDb.allocateUid());
+      const workspacesRoot = path.join(dir, 'ws');
+      fs.mkdirSync(workspacesRoot);
+      const job = await finish(projectId, input({ name: 'Venku' }), { workspacesRoot });
+      assert.equal(job.error, undefined);
+      assert.equal(job.project?.fullPath, path.join(workspacesRoot, 'venku'));
+      assert.equal(fs.readFileSync(path.join(workspacesRoot, 'venku', 'a.txt'), 'utf8'), 'hello');
+      assert.equal(fs.lstatSync(path.join(workspacesRoot, 'venku', 'leak'), { throwIfNoEntry: false }), undefined);
+      assert.equal(isolationDb.getByPath(workspacesRoot), null);
+    });
+  });
+});
+
+test('a plain source that contains an isolation area is refused', async () => {
+  await withTempDatabase(async (dir) => {
+    await withIsolationDirs(dir, async () => {
+      const sourcePath = path.join(dir, 'work', 'zdroj');
+      fs.mkdirSync(sourcePath, { recursive: true });
+      const projectId = projectsDb.createProjectPath(dir, 'whole').project!.project_id; // contains isolated/, homes/, iso/
+      void sourcePath;
+      await assert.rejects(startCopy(projectId, input(), { validatePath }), (error: any) => error.statusCode === 400 && /isolat/i.test(error.message));
+      assert.equal(fs.existsSync(path.join(path.dirname(dir), 'kopie')), false);
+    });
+  });
+});
+
+test('excluding a directory skips the whole subtree', async () => {
+  await withTempDatabase(async (dir) => {
+    const { projectId, sourcePath } = makeSource(dir);
+    fs.mkdirSync(path.join(sourcePath, 'keys'));
+    fs.writeFileSync(path.join(sourcePath, 'keys', 'x.txt'), 'x');
+    const job = await finish(projectId, input({ excludeSecretFiles: ['keys'] }));
+    assert.equal(job.error, undefined);
+    assert.equal(fs.existsSync(path.join(path.dirname(sourcePath), 'kopie', 'keys')), false);
+    assert.equal(fs.existsSync(path.join(path.dirname(sourcePath), 'kopie', 'a.txt')), true);
+  });
+});
+
+test('preview flags credentials dotfiles and ssh private keys', async () => {
+  await withTempDatabase(async (dir) => {
+    const { projectId, sourcePath } = makeSource(dir);
+    for (const name of ['.credentials.json', 'id_rsa', 'id_ed25519', 'sub/id_ecdsa', 'id_rsa.pub']) fs.writeFileSync(path.join(sourcePath, name), 'k');
+    const preview = await previewCopy(projectId);
+    assert.deepEqual([...preview.secretFiles].sort(), ['.credentials.json', 'id_ed25519', 'id_rsa', 'sub/id_ecdsa']);
   });
 });

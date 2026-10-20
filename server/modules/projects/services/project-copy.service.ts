@@ -19,7 +19,7 @@ import {
   SANDBOX_DOWN_TEXT,
 } from '@/modules/isolation/index.js';
 import type { ProjectRepositoryRow, WorkspacePathValidationResult } from '@/shared/types.js';
-import { AppError, normalizeProjectPath, validateWorkspacePath } from '@/shared/utils.js';
+import { AppError, normalizeProjectPath, validateWorkspacePath, WORKSPACES_ROOT } from '@/shared/utils.js';
 
 export type CopyInput = {
   name: string;
@@ -33,6 +33,8 @@ export type CopyDependencies = {
   claudeJsonPath?: string;
   /** Called after every copied entry (relative path); a throw fails the copy. Tests only. */
   afterEntry?: (rel: string) => void | Promise<void>;
+  /** Where a plain copy of an isolated project goes (default `WORKSPACES_ROOT`). */
+  workspacesRoot?: string;
   /** Workspace path check; tests replace it (the temp directories sit under forbidden system paths on macOS). */
   validatePath?: (candidate: string) => Promise<WorkspacePathValidationResult>;
 };
@@ -187,7 +189,8 @@ function readerFor(sourcePath: string): SourceReader {
 // Walking
 
 type Visitor = {
-  dir?(rel: string): Promise<void>;
+  /** Return false to skip the directory's contents. */
+  dir?(rel: string): Promise<void | boolean>;
   file?(rel: string, entry: SourceEntry): Promise<void>;
   symlink?(rel: string, entry: SourceEntry): Promise<void>;
   other?(rel: string, entry: SourceEntry): Promise<void>;
@@ -201,7 +204,7 @@ async function walk(reader: SourceReader, visitor: Visitor, isCancelled: () => b
     if (isCancelled()) throw new AppError('Copy was cancelled.', { code: 'COPY_CANCELLED', statusCode: 409 });
     const childRel = rel ? `${rel}/${entry.name}` : entry.name;
     if (entry.kind === 'dir') {
-      await visitor.dir?.(childRel);
+      if ((await visitor.dir?.(childRel)) === false) continue;
       await walk(reader, visitor, isCancelled, childRel, depth + 1);
     } else if (entry.kind === 'file') await visitor.file?.(childRel, entry);
     else if (entry.kind === 'symlink') await visitor.symlink?.(childRel, entry);
@@ -212,9 +215,13 @@ async function walk(reader: SourceReader, visitor: Visitor, isCancelled: () => b
 // ---------------------------------------------------------------------------------------------------------------
 // Secrets and MCP servers
 
+const SSH_PRIVATE_KEYS = new Set(['id_rsa', 'id_dsa', 'id_ecdsa', 'id_ed25519']);
+
 const isSecretName = (name: string) => {
   const lower = name.toLowerCase();
-  return lower.startsWith('.env') || lower.endsWith('.pem') || lower.endsWith('.key') || (lower.startsWith('credentials') && lower.endsWith('.json'));
+  const bare = lower.replace(/^\./, '');
+  return lower.startsWith('.env') || lower.endsWith('.pem') || lower.endsWith('.key')
+    || (bare.startsWith('credentials') && bare.endsWith('.json')) || SSH_PRIVATE_KEYS.has(lower);
 };
 
 const hasNonEmptyObject = (value: unknown) => Boolean(value) && typeof value === 'object' && Object.keys(value as object).length > 0;
@@ -264,6 +271,7 @@ function requireSource(projectId: string) {
 
 export async function previewCopy(projectId: string, deps: CopyDependencies = {}): Promise<CopyPreview> {
   const row = requireSource(projectId);
+  assertSourceHoldsNoIsolationArea(row.project_path, isolatedAreaOf(row.project_path) !== null);
   const reader = readerFor(row.project_path);
   let sizeBytes = 0;
   let fileCount = 0;
@@ -336,6 +344,42 @@ function normalizeInput(raw: CopyInput): CopyInput {
   };
 }
 
+/** An isolated target must be a direct child of the isolated root (validateWorkspacePath only knows WORKSPACES_ROOT). */
+function isolatedTargetCheck(root: string): NonNullable<CopyDependencies['validatePath']> {
+  return async (candidate) => {
+    const resolved = path.resolve(candidate);
+    if (path.dirname(resolved) !== path.resolve(root) || !/^[a-z0-9_-]+$/.test(path.basename(resolved))) {
+      return { valid: false, error: `An isolated copy must be a direct child of ${root}` };
+    }
+    return { valid: true, resolvedPath: resolved };
+  };
+}
+
+/**
+ * A plain source that contains the isolated root, the homes or the isolation dir would be walked with the
+ * symlink-following reader into agent-controlled trees (and into its own output).
+ */
+function assertSourceHoldsNoIsolationArea(sourcePath: string, sourceIsolated: boolean): void {
+  if (sourceIsolated) return;
+  const config = isolationConfig();
+  const areas = [config.isolatedRoot, config.isolatedHomes, config.isolationDir];
+  for (const project of isolationDb.listIsolated()) areas.push(project.projectPath, project.homeDir);
+  const forms = (p: string) => {
+    const resolved = path.resolve(p);
+    try {
+      return [resolved, fs.realpathSync(resolved)];
+    } catch {
+      return [resolved];
+    }
+  };
+  const sources = forms(sourcePath);
+  for (const area of areas.filter(Boolean)) {
+    if (forms(area).some((areaPath) => sources.some((source) => isInside(areaPath, source)))) {
+      throw new AppError('This project contains isolated projects or their data and cannot be copied as a whole.', { code: 'SOURCE_CONTAINS_ISOLATION_AREA', statusCode: 400 });
+    }
+  }
+}
+
 /** Reserves `<parent>/<slug>[-n]` by creating it (mkdir is atomic, so two copies never share a directory). */
 async function reserveTarget(parent: string, slug: string, validate: NonNullable<CopyDependencies['validatePath']>): Promise<string> {
   for (let attempt = 1; attempt < 1000; attempt += 1) {
@@ -369,9 +413,6 @@ export async function startCopy(projectId: string, rawInput: CopyInput, deps: Co
   const input = normalizeInput(rawInput);
   const sourcePath = row.project_path;
   const sourceIsolated = isolatedAreaOf(sourcePath) !== null;
-  if (sourceIsolated && !input.isolated) {
-    throw new AppError('A copy of an isolated project stays isolated.', { code: 'ISOLATED_COPY_REQUIRED', statusCode: 400 });
-  }
 
   if (input.isolated) {
     const config = isolationConfig();
@@ -389,8 +430,14 @@ export async function startCopy(projectId: string, rawInput: CopyInput, deps: Co
     carried[name] = servers[name];
   }
 
-  const parent = input.isolated ? isolationConfig().isolatedRoot : path.dirname(sourcePath);
-  const target = await reserveTarget(parent, slugifyProjectName(input.name), deps.validatePath ?? validateWorkspacePath);
+  assertSourceHoldsNoIsolationArea(sourcePath, sourceIsolated);
+  // A plain copy of an isolated project (un-isolating it) goes to the workspaces root, not next to the source.
+  const parent = input.isolated
+    ? isolationConfig().isolatedRoot
+    : sourceIsolated
+      ? (deps.workspacesRoot ?? WORKSPACES_ROOT)
+      : path.dirname(sourcePath);
+  const target = await reserveTarget(parent, slugifyProjectName(input.name), input.isolated ? isolatedTargetCheck(parent) : (deps.validatePath ?? validateWorkspacePath));
 
   const jobId = randomUUID();
   const job: Job = {
@@ -430,6 +477,9 @@ async function runCopy(job: Job, context: RunContext): Promise<void> {
     // Pass 1: the size, so the progress has a total.
     let total = 0;
     await walk(reader, {
+      async dir(rel) {
+        return !exclude.has(rel);
+      },
       async file(rel, entry) {
         if (!exclude.has(rel)) total += entry.size;
       },
@@ -446,8 +496,9 @@ async function runCopy(job: Job, context: RunContext): Promise<void> {
     // Pass 2: the copy.
     await walk(reader, {
       async dir(rel) {
-        if (exclude.has(rel)) return;
+        if (exclude.has(rel)) return false;
         await fsp.mkdir(path.join(target, rel));
+        return true;
       },
       async file(rel, entry) {
         if (exclude.has(rel)) return;
@@ -457,6 +508,7 @@ async function runCopy(job: Job, context: RunContext): Promise<void> {
         await deps.afterEntry?.(rel);
       },
       async symlink(rel) {
+        if (exclude.has(rel)) return;
         let linkText: string;
         try {
           linkText = await reader.readlink(rel);

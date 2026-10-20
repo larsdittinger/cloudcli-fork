@@ -136,6 +136,16 @@ export function getGitErrorDetails(error: unknown): string {
 export const WORKSPACES_ROOT = process.env.WORKSPACES_ROOT || os.homedir();
 
 /**
+ * Paths that may lie outside `WORKSPACES_ROOT` (docker: isolated projects live in /isolated, workspaces in
+ * /workspace). Registered by the isolation module; the predicate gets the resolved path and must accept only
+ * registered isolated projects (and their subdirectories), nothing else.
+ */
+const workspaceExemptions: Array<(resolvedPath: string) => boolean> = [];
+export function registerWorkspaceExemption(predicate: (resolvedPath: string) => boolean): void {
+  workspaceExemptions.push(predicate);
+}
+
+/**
  * System-critical paths that must never be used as workspace roots.
  *
  * The validation helper blocks these values directly and also blocks paths
@@ -382,6 +392,9 @@ export async function validateWorkspacePath(requestedPath: string): Promise<Work
     }
 
     const resolvedWorkspaceRoot = normalizeProjectPath(await realpath(WORKSPACES_ROOT));
+    if (workspaceExemptions.some((isExempt) => isExempt(resolvedPath))) {
+      return { valid: true, resolvedPath };
+    }
     if (
       !resolvedPath.startsWith(`${resolvedWorkspaceRoot}${path.sep}`)
       && resolvedPath !== resolvedWorkspaceRoot

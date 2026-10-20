@@ -2,9 +2,10 @@
 // with a network allowlist and only run-token scoped access back to the app (main.sock).
 import path from 'node:path';
 
-import { registerProjectFileGuard, registerReadOnlyRoots } from '@/shared/utils.js';
+import { registerProjectFileGuard, registerReadOnlyRoots, registerWorkspaceExemption } from '@/shared/utils.js';
 
 import { isolatedAreaOf, isolatedFs } from './isolated-fs.js';
+import { isolationDb } from './isolation.db.js';
 import { claudeTranscriptRoots } from './isolation-transcripts.js';
 
 // isolationRoutes: mounted by the server entrypoint at /api/isolation behind authenticateToken + requireAdmin.
@@ -71,6 +72,9 @@ export { GIT_ISOLATED_REFUSED_TEXT, guardIsolatedGit } from './isolated-git.js';
 
 // The file viewer follows transcript paths (background agent outputs) into isolated homes too.
 registerReadOnlyRoots(() => claudeTranscriptRoots().slice(1));
+
+// Registered isolated projects live outside WORKSPACES_ROOT (docker: /isolated); other paths there stay refused.
+registerWorkspaceExemption((resolvedPath) => isolationDb.getByPath(resolvedPath) !== null);
 
 // Config files, manifests and skills the app reads (and the MCP config it writes) inside isolated trees.
 registerProjectFileGuard({
