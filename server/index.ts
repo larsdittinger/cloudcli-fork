@@ -68,6 +68,7 @@ import {
     tasksMcpRoutes,
     tasksRoutes,
 } from './modules/tasks/index.js';
+import { closeIsolation, initializeIsolation, isolationRoutes } from './modules/isolation/index.js';
 import browserUseRoutes from './modules/browser-use/browser-use.routes.js';
 import { assetsRoutes } from './modules/assets/index.js';
 import { fileTreeRoutes } from './modules/file-tree/index.js';
@@ -242,6 +243,8 @@ app.use('/api/schedules', authenticateToken, requireAdmin, schedulesRoutes);
 // Tasks: MCP bridge (local token) and admin API for long-running agent tasks
 app.use('/api/tasks-mcp', tasksMcpRoutes);
 app.use('/api/tasks', authenticateToken, requireAdmin, tasksRoutes);
+// Isolated projects (admin). The sandbox's own API is not here: it listens on <ISOLATION_DIR>/main.sock only.
+app.use('/api/isolation', authenticateToken, requireAdmin, isolationRoutes);
 
 // Agent API Routes (uses API key authentication)
 app.use('/api/agent', agentRoutes);
@@ -414,6 +417,10 @@ async function startServer() {
 
             // Start watching the projects folder for changes
             await initializeSessionsWatcher();
+            // Sandbox API (main.sock) and isolated project configs for the sandbox daemon; no-op without isolation.
+            await initializeIsolation().catch(err => {
+                console.error('[Isolation] Error during startup:', getErrorMessage(err));
+            });
             // Sends anything that came due while the server was not running,
             // then keeps polling.
             initializeScheduledMessageDispatcher(providerRuntimeService);
@@ -456,6 +463,11 @@ async function startServer() {
                 await closeTasks();
             } catch (err) {
                 console.error('[Tasks] Error stopping tasks during shutdown:', getErrorMessage(err));
+            }
+            try {
+                await closeIsolation();
+            } catch (err) {
+                console.error('[Isolation] Error stopping the sandbox API during shutdown:', getErrorMessage(err));
             }
             try {
                 await browserUseService.stopAllSessions();

@@ -500,6 +500,22 @@ const addProviderModelEffortColumns = (db: Database): void => {
   addColumnToTableIfNotExists(db, 'provider_models', columnNames, 'effort_default', 'TEXT DEFAULT NULL');
 };
 
+/**
+ * Isolated projects (server/modules/isolation): their agents run in the sandbox
+ * under their own uid, with a network allowlist and a narrowed set of CloudCLI tools.
+ * Every existing project stays non-isolated.
+ */
+const addProjectIsolationColumns = (db: Database): void => {
+  const columnNames = getTableInfo(db, 'projects').map((column) => column.name);
+  addColumnToTableIfNotExists(db, 'projects', columnNames, 'isolated', 'INTEGER NOT NULL DEFAULT 0');
+  addColumnToTableIfNotExists(db, 'projects', columnNames, 'isolation_uid', 'INTEGER');
+  addColumnToTableIfNotExists(db, 'projects', columnNames, 'isolation_allowlist', "TEXT NOT NULL DEFAULT '[]'");
+  addColumnToTableIfNotExists(db, 'projects', columnNames, 'isolation_tools', `TEXT NOT NULL DEFAULT '{"channels":true,"tasks":true}'`);
+  addColumnToTableIfNotExists(db, 'projects', columnNames, 'isolation_proxy_secret', 'TEXT');
+  // Two projects sharing a uid would see each other's files: the database refuses it, not only the code.
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_isolation_uid ON projects(isolation_uid) WHERE isolation_uid IS NOT NULL');
+};
+
 const ensureProjectsForSessionPaths = (db: Database): void => {
   if (!tableExists(db, 'sessions')) {
     return;
@@ -562,6 +578,7 @@ export const runMigrations = (db: Database) => {
 
     db.exec(PROJECTS_TABLE_SCHEMA_SQL);
     rebuildProjectsTableWithPrimaryKeySchema(db);
+    addProjectIsolationColumns(db);
 
     migrateLegacyWorkspaceTableIntoProjects(db);
     rebuildSessionsTableWithProjectSchema(db);
