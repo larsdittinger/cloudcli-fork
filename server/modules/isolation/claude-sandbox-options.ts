@@ -95,6 +95,8 @@ export function buildSandboxEnv(
       DISABLE_AUTOUPDATER: '1',
       CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS: options.bgWaitCeilingMs ?? DEFAULT_BG_WAIT_CEILING_MS,
       CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: '1',
+      // The owner's claude.ai connectors (Gmail, Drive, ClickUp…) must never load for an isolated agent.
+      ENABLE_CLAUDEAI_MCP_SERVERS: 'false',
     });
   }
   return { ...env, ...extra };

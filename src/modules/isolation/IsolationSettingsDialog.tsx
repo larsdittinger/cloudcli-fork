@@ -8,6 +8,7 @@ import { cn } from '@/shared/utils';
 import type { Project } from '@/shared/types';
 import {
   allowlistLineFor,
+  isClaudeServiceHost,
   errorMessage,
   useIsolationStatus,
   type BlockedEntry,
@@ -208,9 +209,13 @@ export default function IsolationSettingsDialog({ project, open, onOpenChange }:
                       <time className="mr-2 text-xs tabular-nums text-muted-foreground" dateTime={entry.at}>{timeOf(entry.at)}</time>
                       <span className="font-mono text-xs">{entry.host}:{entry.port}</span>
                     </span>
-                    <Button variant="outline" size="sm" disabled={already || line === null} onClick={() => allow(entry)}>
-                      {already ? t('settings.allowed') : t('settings.allow')}
-                    </Button>
+                    {isClaudeServiceHost(entry.host) ? (
+                      <span className="shrink-0 text-xs text-muted-foreground">{t('settings.blockedClaudeService')}</span>
+                    ) : (
+                      <Button variant="outline" size="sm" disabled={already || line === null} onClick={() => allow(entry)}>
+                        {already ? t('settings.allowed') : t('settings.allow')}
+                      </Button>
+                    )}
                   </li>
                 );
               })}

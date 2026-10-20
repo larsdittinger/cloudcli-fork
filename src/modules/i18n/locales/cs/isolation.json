@@ -64,6 +64,7 @@
     "blockedTarget": "Adresa",
     "allow": "Povolit",
     "allowed": "Povoleno",
+    "blockedClaudeService": "Služba Clauda: jde přes aplikaci, přímo se nepovoluje",
     "blockedError": "Seznam zablokovaných se nepodařilo načíst: {{message}}",
     "check": "Zkontrolovat izolaci",
     "checking": "Kontroluji…",

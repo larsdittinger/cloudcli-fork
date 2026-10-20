@@ -21,10 +21,15 @@ const DEFAULT_UPSTREAM = 'https://api.anthropic.com';
 const OAUTH_BETA = 'oauth-2025-04-20';
 
 /**
- * Only what the CLI needs to talk to the model. Anything else (account and OAuth endpoints, e.g. creating an
- * API key) would let an agent act as the owner's Claude account.
+ * Only what the CLI needs to talk to the model. Anything else would let an agent act as the owner's Claude account
+ * — account and OAuth endpoints (creating an API key), and other /v1 APIs such as /v1/mcp_servers (the owner's
+ * claude.ai connectors), /v1/sessions or /v1/files. Checked before any token is chosen, so the credentials
+ * fallback (a full-scope OAuth login) reaches exactly these paths too. The query string is not part of the check.
  */
-const ALLOWED_PATH = /^\/(v1\/.+|api\/hello)$/;
+const ALLOWED_PATHS = [/^\/v1\/messages(\/count_tokens)?$/, /^\/v1\/models(\/[^/]+)?$/, /^\/api\/hello$/];
+const MAX_LOGGED_PATHS = 200;
+
+export const isAllowedClaudePath = (pathname: string) => ALLOWED_PATHS.some((pattern) => pattern.test(pathname));
 
 const DROP_REQUEST_HEADERS = new Set([
   'host', 'authorization', 'x-api-key', 'cookie', 'connection', 'keep-alive', 'proxy-authorization',
@@ -42,6 +47,8 @@ export type ClaudeProxyOptions = {
   /** Fallback login of the app itself; defaults to ~/.claude/.credentials.json. */
   credentialsPath?: string;
   now?: () => number;
+  /** Called once per refused path (default: a warning in the log), so E2E shows what the CLI would need. */
+  onRefused?: (pathname: string) => void;
 };
 
 function anthropicError(res: Response, status: number, type: string, message: string): void {
@@ -91,6 +98,14 @@ export function createClaudeProxy(options: ClaudeProxyOptions = {}): RequestHand
   const upstream = new URL(options.upstreamUrl ?? DEFAULT_UPSTREAM);
   const transport = upstream.protocol === 'https:' ? https : http;
   const resolveRunToken = options.resolveRunToken ?? runTokens.resolve;
+  const onRefused = options.onRefused ?? ((pathname: string) => console.warn(`[Isolation] Claude proxy refused ${pathname} (not an inference path)`));
+  const logged = new Set<string>();
+  const refusedOnce = (pathname: string) => {
+    // Bounded: the agent chooses the paths.
+    if (logged.has(pathname) || logged.size >= MAX_LOGGED_PATHS) return;
+    logged.add(pathname);
+    onRefused(pathname);
+  };
 
   return (req: Request, res: Response) => {
     void (async () => {
@@ -101,7 +116,8 @@ export function createClaudeProxy(options: ClaudeProxyOptions = {}): RequestHand
 
       // req.url is relative to the /anthropic mount. Resolve dot segments before checking the path.
       const target = new URL(req.url || '/', 'http://proxy');
-      if (!ALLOWED_PATH.test(target.pathname)) {
+      if (!isAllowedClaudePath(target.pathname)) {
+        refusedOnce(target.pathname.slice(0, 200));
         return anthropicError(res, 403, 'permission_error', `CloudCLI sandbox: ${target.pathname} is not available to isolated agents.`);
       }
 

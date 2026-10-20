@@ -28,6 +28,7 @@ vi.mock('@/shared/hooks/useIsAdmin', () => ({ useIsAdmin: () => true }));
 // The assertions read the English texts.
 await import('@/modules/i18n');
 const { IsolationBadge, IsolationSettingsDialog, CopyProjectDialog, ProjectOptionsMenu } = await import('@/modules/isolation');
+const { allowlistLineFor } = await import('@/modules/isolation/hooks/useIsolation');
 
 const project = (isolated: boolean): Project => ({
   projectId: isolated ? 'p-iso' : 'p-plain',
@@ -144,6 +145,22 @@ test('Povolit is offered only for a valid hostname or IP with a non-web port', a
   assert.equal(enabled.length, 1, 'only the IP with port 993');
   fireEvent.click(enabled[0]);
   assert.equal((screen.getByLabelText('Allowed addresses') as HTMLTextAreaElement).value, 'ethia.cz\n10.0.0.5:993');
+});
+
+test('Anthropic and claude.ai hosts are never offered to allow, only explained', async () => {
+  apiMock.isolation.blocked.mockResolvedValue(json({ success: true, data: [
+    { at: '2026-10-20T10:00:00.000Z', host: 'mcp-proxy.anthropic.com', port: 443, kind: 'connect' },
+    { at: '2026-10-20T10:00:01.000Z', host: 'claude.ai', port: 443, kind: 'connect' },
+    { at: '2026-10-20T10:00:02.000Z', host: 'API.Anthropic.com.', port: 443, kind: 'connect' },
+    { at: '2026-10-20T10:00:03.000Z', host: 'notanthropic.com', port: 443, kind: 'connect' },
+  ] }));
+  render(<IsolationSettingsDialog project={project(true)} open onOpenChange={() => {}} />);
+  const buttons = await screen.findAllByRole('button', { name: /^Allow/ });
+  assert.equal(buttons.length, 1, 'only notanthropic.com');
+  assert.equal(screen.getAllByText('Claude service: goes through the app, never allowed directly').length, 3);
+  assert.equal(allowlistLineFor({ host: 'mcp-proxy.anthropic.com', port: 443, kind: 'connect' }), null);
+  assert.equal(allowlistLineFor({ host: 'x.claude.ai', port: 8443, kind: 'connect' }), null);
+  assert.equal(allowlistLineFor({ host: 'notanthropic.com', port: 443, kind: 'connect' }), 'notanthropic.com');
 });
 
 test('a failing cancel shows an error instead of an unhandled rejection', async () => {

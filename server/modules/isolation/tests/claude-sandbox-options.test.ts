@@ -22,7 +22,7 @@ const CLAUDE_ENV_KEYS = [
   'HTTPS_PROXY', 'HTTP_PROXY', 'NO_PROXY', 'https_proxy', 'http_proxy', 'no_proxy', 'NODE_USE_ENV_PROXY',
   'ANTHROPIC_BASE_URL', 'CLAUDE_CODE_OAUTH_TOKEN',
   'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC', 'DISABLE_AUTOUPDATER',
-  'CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS', 'CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS',
+  'CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS', 'CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS', 'ENABLE_CLAUDEAI_MCP_SERVERS',
   'CLOUDCLI_RUN_TOKEN',
 ].sort();
 
@@ -104,6 +104,8 @@ test('isolated: allowlisted env only, project settings only, sandbox MCP servers
       assert.equal(env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS, '1');
       assert.equal(env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC, '1');
       assert.equal(env.DISABLE_AUTOUPDATER, '1');
+      // The owner's claude.ai connectors (Gmail, Drive…) never load in the sandbox.
+      assert.equal(env.ENABLE_CLAUDEAI_MCP_SERVERS, 'false');
 
       const token = runTokens.resolve(env.CLOUDCLI_RUN_TOKEN);
       assert.deepEqual({ ...token, issuedAt: 0 }, { projectId: project.projectId, sessionId: 's1', purpose: 'claude', issuedAt: 0 });
@@ -177,6 +179,7 @@ test('buildSandboxEnv without Claude keys (scripts, terminal)', async () => {
     const env = buildSandboxEnv(project, 'tok', { EXTRA: '1' }, { claude: false });
     assert.equal(env.CLAUDE_CODE_OAUTH_TOKEN, undefined);
     assert.equal(env.ANTHROPIC_BASE_URL, undefined);
+    assert.equal(env.ENABLE_CLAUDEAI_MCP_SERVERS, undefined);
     assert.equal(env.CLOUDCLI_RUN_TOKEN, 'tok');
     assert.equal(env.HOME, project.homeDir);
     assert.equal(env.EXTRA, '1');

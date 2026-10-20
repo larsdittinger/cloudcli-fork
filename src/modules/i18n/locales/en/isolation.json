@@ -64,6 +64,7 @@
     "blockedTarget": "Address",
     "allow": "Allow",
     "allowed": "Allowed",
+    "blockedClaudeService": "Claude service: goes through the app, never allowed directly",
     "blockedError": "Could not load the blocked list: {{message}}",
     "check": "Check isolation",
     "checking": "Checking…",

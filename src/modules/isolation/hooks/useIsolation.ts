@@ -51,6 +51,15 @@ const IPV4 = /^\d{1,3}(\.\d{1,3}){3}$/;
 const IPV6 = /^[0-9a-f:]+$/i;
 
 /**
+ * Anthropic's own services (API, MCP proxy of the claude.ai connectors…). The agent's Claude traffic goes through
+ * the app's proxy; letting one of these through directly could hand it the owner's claude.ai connectors.
+ */
+export function isClaudeServiceHost(host: string): boolean {
+  const name = host.trim().toLowerCase().replace(/\.+$/, '');
+  return ['anthropic.com', 'claude.ai', 'claude.com'].some((domain) => name === domain || name.endsWith(`.${domain}`));
+}
+
+/**
  * The allowlist line that lets a blocked request through, or null when none is safe to offer. The host comes
  * from the agent, so only a plain hostname (with a dot, no wildcard) or an IP with a non-web port qualifies:
  * a bare host for HTTP(S) ports, host:port otherwise.
@@ -58,6 +67,7 @@ const IPV6 = /^[0-9a-f:]+$/i;
 export function allowlistLineFor(entry: Pick<BlockedEntry, 'host' | 'port' | 'kind'>): string | null {
   const { host, port } = entry;
   if (!Number.isInteger(port) || port < 1 || port > 65535) return null;
+  if (isClaudeServiceHost(host)) return null;
   const web = port === 80 || port === 443;
   if (IPV4.test(host)) return web ? null : `${host}:${port}`;
   if (host.includes(':')) return IPV6.test(host) && !web ? `[${host}]:${port}` : null;

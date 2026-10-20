@@ -26,7 +26,7 @@ before(async () => {
     req.on('data', (chunk: Buffer) => chunks.push(chunk));
     req.on('end', () => {
       seen.push({ method: req.method ?? '', url: req.url ?? '', headers: req.headers, body: Buffer.concat(chunks).toString() });
-      if (req.url?.startsWith('/v1/messages')) {
+      if (/^\/v1\/messages(\?|$)/.test(req.url ?? '')) {
         res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' });
         res.write('event: one\ndata: {"n":1}\n\n');
         // The second event only goes out once the client has seen the first: a buffering proxy deadlocks here.
@@ -163,6 +163,40 @@ test('paths outside the Messages API are refused (no account endpoints with the 
     runTokens.revoke(token);
   }
   assert.equal(seen.length, before);
+});
+
+test('only inference paths are forwarded, with the setup token and the credentials fallback alike; refusals logged once per path', async () => {
+  const credentialsPath = path.join(tmp, 'valid-narrow.json');
+  fs.writeFileSync(credentialsPath, JSON.stringify({ claudeAiOauth: { accessToken: 'live-access', expiresAt: Date.now() + 3_600_000 } }));
+  const token = runTokens.mint({ projectId: 'p1', sessionId: 's1', purpose: 'claude' });
+  const refused = [
+    '/anthropic/v1/mcp_servers', '/anthropic/v1/mcp_servers?limit=1000', '/anthropic/v1/sessions', '/anthropic/v1/files',
+    '/anthropic/v1/messages/batches', '/anthropic/v1/messagesx', '/anthropic/v1/models/a/b', '/anthropic/v1/', '/anthropic/api/oauth/profile',
+  ];
+  const allowed = ['/anthropic/v1/models', '/anthropic/v1/models/claude-opus-5-5', '/anthropic/api/hello', '/anthropic/v1/models?limit=5'];
+  try {
+    for (const tokenSource of [{ storedToken: () => SETUP_TOKEN }, { storedToken: () => null, credentialsPath }]) {
+      const logged: string[] = [];
+      await withSandboxApi({ upstreamUrl, ...tokenSource, onRefused: (pathname: string) => logged.push(pathname) }, async (socketPath) => {
+        const before = seen.length;
+        for (const urlPath of [...refused, '/anthropic/v1/files']) {
+          const res = await call(socketPath, 'GET', urlPath, { Authorization: `Bearer ${token}` });
+          assert.equal(res.status, 403, urlPath);
+        }
+        assert.equal(seen.length, before, 'nothing refused reaches Anthropic');
+        assert.equal(logged.filter((entry) => entry === '/v1/files').length, 1, 'one log line per path');
+        for (const urlPath of allowed) {
+          const res = await call(socketPath, 'GET', urlPath, { Authorization: `Bearer ${token}` });
+          assert.equal(res.status, 200, urlPath);
+        }
+        const counted = await call(socketPath, 'POST', '/anthropic/v1/messages/count_tokens?beta=true', { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, '{}');
+        assert.equal(counted.status, 200);
+        assert.equal(seen.length, before + allowed.length + 1);
+      });
+    }
+  } finally {
+    runTokens.revoke(token);
+  }
 });
 
 test('exec run tokens (schedule scripts) cannot use the Claude API', async () => {
