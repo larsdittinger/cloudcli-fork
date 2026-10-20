@@ -14,11 +14,17 @@ export type FirewallOptions = { proxyPort: number; forwardPort: number; family?:
 
 /**
  * Input for `iptables-restore --noflush` (or ip6tables-restore): refills CLOUDCLI_SANDBOX from scratch.
- * Per isolated uid: loopback to the forward/proxy ports, its own TCP allowlist IPs, everything else DROP
- * (incl. UDP/53). Root and uids without a project never match an owner rule.
+ * Per isolated uid: loopback to the forward/proxy ports, its own TCP allowlist IPs, everything else REJECT
+ * (incl. UDP/53). Root and uids without a project never match an owner rule. Rejected, not dropped: a tool that
+ * ignores the proxy fails at once (TCP reset / ICMP prohibited) instead of hanging until its timeout.
  */
 export function buildFirewallRules(projects: FirewallProject[], opts: FirewallOptions): string[] {
   const family = opts.family ?? 4;
+  const icmp = family === 6 ? 'icmp6-adm-prohibited' : 'icmp-admin-prohibited';
+  const reject = (owner: string) => [
+    `-A ${FIREWALL_CHAIN} ${owner} -p tcp -j REJECT --reject-with tcp-reset`,
+    `-A ${FIREWALL_CHAIN} ${owner} -j REJECT --reject-with ${icmp}`,
+  ];
   const lines = ['*filter', `:${FIREWALL_CHAIN} - [0:0]`, `-F ${FIREWALL_CHAIN}`];
   for (const project of projects) {
     if (!Number.isInteger(project.uid) || project.uid < MIN_ISOLATED_UID) {
@@ -32,10 +38,10 @@ export function buildFirewallRules(projects: FirewallProject[], opts: FirewallOp
       if (net.isIP(target.ip) !== family) continue;
       lines.push(`-A ${FIREWALL_CHAIN} ${owner} -d ${target.ip} -p tcp --dport ${target.port} -j ACCEPT`);
     }
-    lines.push(`-A ${FIREWALL_CHAIN} ${owner} -j DROP`);
+    lines.push(...reject(owner));
   }
   // Any isolated uid without a pushed config (or a stale one) gets no network at all.
-  lines.push(`-A ${FIREWALL_CHAIN} -m owner --uid-owner ${MIN_ISOLATED_UID}-4294967294 -j DROP`);
+  lines.push(...reject(`-m owner --uid-owner ${MIN_ISOLATED_UID}-4294967294`));
   lines.push('COMMIT');
   return lines;
 }
