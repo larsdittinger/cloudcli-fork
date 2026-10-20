@@ -212,3 +212,38 @@ test('terminal: a Claude command gets the Claude login and a claude token bound 
     }
   });
 });
+
+test('terminal: a signal or lost daemon is a non-zero exit code', async () => {
+  await withIsolation(async (dir) => {
+    const project = makeIsolated(dir);
+    const { proc, restore } = stubSpawn();
+    try {
+      const term = startSandboxTerminal({ projectPath: project.projectPath, command: 'x', cols: 80, rows: 24, claude: false });
+      const exits: number[] = [];
+      term.onExit((e) => exits.push(e.exitCode));
+      proc.end(null, 'SIGKILL');
+      await new Promise((r) => setImmediate(r));
+      assert.deepEqual(exits, [137]);
+    } finally {
+      restore();
+    }
+  });
+});
+
+test('runInSandbox: stderr written right before exit is not lost', async () => {
+  await withIsolation(async (dir) => {
+    const project = makeIsolated(dir);
+    const { proc, restore } = stubSpawn();
+    try {
+      const err: string[] = [];
+      const pending = runInSandbox({ projectPath: project.projectPath, command: 'x', timeoutMs: 5000, onStdout: () => {}, onStderr: (t) => err.push(t) });
+      proc.stderr.write('late\n');
+      proc.stderr.end();
+      proc.end(1);
+      await pending;
+      assert.equal(err.join(''), 'late\n');
+    } finally {
+      restore();
+    }
+  });
+});

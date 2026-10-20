@@ -1,6 +1,8 @@
 // Schedule scripts and terminals of isolated projects: run by the sandbox daemon as the project's uid (kinds
 // 'exec' and 'pty'), with the allowlisted sandbox env. Callers decide with isIsolatedPath; anything that goes wrong
 // for an isolated project is an error, never a local process.
+import os from 'node:os';
+
 import { buildSandboxEnv } from '@/modules/isolation/claude-sandbox-options.js';
 import { daemonClient, SANDBOX_DOWN_TEXT, type SandboxProcess } from '@/modules/isolation/daemon-client.js';
 import { isolationConfig } from '@/modules/isolation/isolation.config.js';
@@ -11,6 +13,7 @@ const DEFAULT_KILL_GRACE_MS = 5_000;
 /** After the process ended, how long its remaining output may still arrive. */
 const DRAIN_MS = 500;
 
+export const TERMINAL_UNAVAILABLE_TEXT = 'Terminál izolovaného projektu zatím není k dispozici';
 const NOT_A_PROJECT_TEXT = 'Tato cesta patří do izolované oblasti, ale nepatří k izolovanému projektu — nespustí se.';
 
 /** The isolated project for `projectPath`, or a thrown error (fail closed) when it cannot run in the sandbox. */
@@ -92,15 +95,15 @@ export async function runInSandbox(opts: {
       const { code, signal } = await new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => {
         proc.once('exit', (code, signal) => resolve({ code, signal }));
       });
-      // stdout ends before 'exit' is emitted, but its last chunks may still be queued.
-      await new Promise<void>((resolve) => {
-        if (proc.stdout.readableEnded) return resolve();
+      // stdout/stderr end before 'exit' is emitted, but their last chunks may still be queued.
+      await Promise.all([proc.stdout, proc.stderr].map((stream) => new Promise<void>((resolve) => {
+        if (stream.readableEnded) return resolve();
         const timer = setTimeout(resolve, DRAIN_MS);
-        proc.stdout.once('end', () => {
+        stream.once('end', () => {
           clearTimeout(timer);
           resolve();
         });
-      });
+      })));
       return { exitCode: code, signal, timedOut, aborted };
     } finally {
       clearTimeout(timeoutTimer);
@@ -173,9 +176,17 @@ export function startSandboxTerminal(opts: {
   proc.stdout.setEncoding('utf8');
   proc.stdout.on('data', (data: string) => dataListeners.forEach((listener) => listener(data)));
   proc.stderr.on('data', () => {});
-  // A rejected spawn or a lost daemon: show why in the terminal itself.
-  proc.on('error', (error: Error) => dataListeners.forEach((listener) => listener(`\r\n\x1b[31m${error.message}\x1b[0m\r\n`)));
-  proc.once('exit', (code) => exitListeners.forEach((listener) => listener({ exitCode: code ?? 0 })));
+  // A rejected spawn or a lost daemon: show why in the terminal itself. A daemon without pty support gets the
+  // plain refusal text, the technical detail on a second line.
+  proc.on('error', (error: Error) => {
+    const text = /pty not supported/i.test(error.message) ? `${TERMINAL_UNAVAILABLE_TEXT}\r\n${error.message}` : error.message;
+    dataListeners.forEach((listener) => listener(`\r\n\x1b[31m${text}\x1b[0m\r\n`));
+  });
+  // A signal or a lost daemon is never reported as success.
+  proc.once('exit', (code, signal) => {
+    const exitCode = code ?? (signal ? 128 + (os.constants.signals[signal] ?? 0) : 1);
+    exitListeners.forEach((listener) => listener({ exitCode }));
+  });
 
   return {
     process: proc,

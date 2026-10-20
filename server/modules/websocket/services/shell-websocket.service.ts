@@ -623,7 +623,10 @@ export function handleShellConnection(
         }
 
         const resolvedProjectPath = path.resolve(projectPath);
+        // The directory the shell really starts in: a symlink must not decide "local" while the target is isolated.
+        let realProjectPath = resolvedProjectPath;
         try {
+          realProjectPath = fs.realpathSync(resolvedProjectPath);
           const stats = fs.statSync(resolvedProjectPath);
           if (!stats.isDirectory()) {
             throw new Error('Not a directory');
@@ -639,7 +642,7 @@ export function handleShellConnection(
           return;
         }
 
-        const isolated = isIsolatedPath(resolvedProjectPath);
+        const isolated = isIsolatedPath(resolvedProjectPath) || isIsolatedPath(realProjectPath);
         // The light-theme launch flag points at a settings file in the app's data folder, which the sandbox
         // cannot read, so an isolated project's Claude CLI keeps its own theme.
         const { command: shellCommand, claudeFollowsAppTheme } = buildShellCommand(
@@ -667,7 +670,7 @@ export function handleShellConnection(
           }
           try {
             shellProcess = startSandboxTerminal({
-              projectPath: resolvedProjectPath,
+              projectPath: realProjectPath,
               command: shellCommand,
               cols: termCols,
               rows: termRows,
@@ -684,7 +687,7 @@ export function handleShellConnection(
             name: 'xterm-256color',
             cols: termCols,
             rows: termRows,
-            cwd: resolvedProjectPath,
+            cwd: realProjectPath,
             env: {
               ...process.env,
               [prioritizedPath.key]: prioritizedPath.value,

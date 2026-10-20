@@ -238,3 +238,37 @@ test('production mode rejects uid below 20000 before spawning', async () => {
   assert.match(frames[0].payload.toString(), /uid below isolated range/);
   assert.equal(fs.existsSync(marker), false);
 });
+
+// Needs root on Linux (real uid/gid drop). The controller runs it in a Linux container.
+const rootLinux = process.platform === 'linux' && process.getuid?.() === 0;
+test('production daemon: exec and pty children drop uid, gid and all supplementary groups', { skip: !rootLinux }, async () => {
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'sbx-root-')));
+  fs.mkdirSync(path.join(dir, 'isolated', 'p1'), { recursive: true });
+  fs.chownSync(path.join(dir, 'isolated', 'p1'), 20001, 20001);
+  fs.chmodSync(dir, 0o755);
+  const prod = await startDaemon({
+    token: TOKEN, isolationDir: dir, dev: false, mainGid: 0,
+    isolatedRoot: path.join(dir, 'isolated'), isolatedHomes: path.join(dir, 'homes'),
+  });
+  try {
+    const body = JSON.stringify({ uid: 20001, name: 'P', allowlist: [], proxySecret: 's' });
+    await new Promise<void>((resolve, reject) => {
+      const req = http.request({ socketPath: prod.socketPath, method: 'PUT', path: '/v1/projects/p1', headers: { Authorization: `Bearer ${TOKEN}` } }, (res) => { res.resume(); res.on('end', resolve); });
+      req.on('error', reject);
+      req.end(body);
+    });
+    for (const kind of ['exec', 'pty'] as const) {
+      const socket = await connectSpawn(prod.socketPath, TOKEN, request({
+        kind, uid: 20001, projectDir: path.join(dir, 'isolated', 'p1'), cwd: path.join(dir, 'isolated', 'p1'),
+        homeDir: path.join(dir, 'homes', 'p1'), args: ['grep -E "^(Uid|Gid|Groups):" /proc/self/status'],
+      }));
+      const out = text(await collect(socket), 'stdout');
+      assert.match(out, /Uid:\s+20001\s+20001\s+20001\s+20001/, kind);
+      assert.match(out, /Gid:\s+20001\s+20001\s+20001\s+20001/, kind);
+      assert.match(out, /Groups:\s*\r?\n/, `${kind}: no supplementary groups`);
+    }
+  } finally {
+    await prod.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

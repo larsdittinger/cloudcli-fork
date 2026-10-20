@@ -176,3 +176,42 @@ test('isolated project: isolation unavailable on the instance refuses the termin
     assert.equal(localSpawns.length, 0);
   });
 });
+
+test('isolated project: a daemon without pty support shows the refusal text', async () => {
+  await withIsolatedProject(async (projectPath) => {
+    const proc = fakeProcess();
+    const spawn = mock.method(daemonClient, 'spawn', (() => proc as never) as never);
+    try {
+      const socket = connect({ projectPath, sessionId: `iso-nopty-${Date.now()}`, provider: 'plain-shell', isPlainShell: true, initialCommand: 'ls' });
+      await tick();
+      proc.emit('error', new Error('Sandbox: pty not supported: node-pty is not available in the sandbox'));
+      await tick();
+      assert.match(outputOf(socket), /Terminál izolovaného projektu zatím není k dispozici\r\n.*pty not supported/);
+    } finally {
+      spawn.mock.restore();
+      proc.stdout.end();
+      proc.emit('exit', 1, null);
+    }
+  });
+});
+
+test('isolated project reached through a symlink still runs in the sandbox, never a local pty', async () => {
+  await withIsolatedProject(async (projectPath) => {
+    const link = path.join(path.dirname(path.dirname(projectPath)), 'link-to-shop');
+    fs.symlinkSync(projectPath, link);
+    const proc = fakeProcess();
+    const requests: SpawnRequest[] = [];
+    const spawn = mock.method(daemonClient, 'spawn', ((request: SpawnRequest) => { requests.push(request); return proc as never; }) as never);
+    const localSpawns: unknown[] = [];
+    try {
+      connect({ projectPath: link, sessionId: `iso-link-${Date.now()}`, provider: 'plain-shell', isPlainShell: true, initialCommand: 'ls' }, localSpawns);
+      await tick();
+      assert.equal(localSpawns.length, 0);
+      assert.equal(requests.length, 1);
+      assert.equal(requests[0].cwd, projectPath);
+    } finally {
+      spawn.mock.restore();
+      proc.emit('exit', 0, null);
+    }
+  });
+});

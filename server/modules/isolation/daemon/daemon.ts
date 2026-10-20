@@ -36,6 +36,8 @@ export type DaemonOptions = {
   token: string;
   isolationDir: string;
   mainGid?: number;
+  /** Tests only: replaces `process.setgroups([])` at production startup. */
+  clearGroups?: () => void;
   isolatedRoot?: string;
   isolatedHomes?: string;
   dev?: boolean;
@@ -135,6 +137,15 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
   const dev = Boolean(options.dev);
   if (!dev && (options.mainGid === undefined || !Number.isInteger(options.mainGid))) {
     throw new Error('CLOUDCLI_MAIN_GID is required outside SANDBOX_DEV (socket group would be root)');
+  }
+  if (!dev) {
+    // node-pty's child switches uid/gid but not the supplementary groups; with none set on the daemon, every
+    // child (pty or libuv) starts without the daemon's root groups. Refuse to start if that cannot be done.
+    try {
+      (options.clearGroups ?? (() => process.setgroups?.([])))();
+    } catch (error) {
+      throw new Error(`Cannot clear supplementary groups: ${(error as Error).message}`);
+    }
   }
   const socketPath = options.socketPath ?? path.join(options.isolationDir, 'daemon.sock');
   const live = new Set<ChildProcess>();

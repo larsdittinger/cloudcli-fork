@@ -226,7 +226,7 @@ test('spawn is refused (503) while the firewall is initializing, then allowed', 
   const socketPath = path.join(dir, 'daemon.sock');
   const starting = startDaemon({
     token: TOKEN, isolationDir: dir, socketPath, mainGid: process.getgid?.() ?? 0, proxyPort: 0, forwardPort: 0,
-    applyNetwork: () => gate,
+    applyNetwork: () => gate, clearGroups: () => {},
   });
   const spawnReq = { kind: 'exec' as const, projectId: 'p', uid: 20001, projectDir: dir, homeDir: dir, args: ['true'], env: {}, cwd: dir };
   let refused: unknown;
