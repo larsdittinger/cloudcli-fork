@@ -9,6 +9,7 @@ import type {
   RuleConditions,
   RuleInput,
 } from '@/modules/channels/types.js';
+import { isIsolatedPath } from '@/modules/isolation/index.js';
 import { AppError } from '@/shared/utils.js';
 
 const PERMISSION_MODES = new Set(['default', 'bypassPermissions', 'acceptEdits', 'plan']);
@@ -135,8 +136,9 @@ export function validateRuleInput(input: RuleInput, account: ChannelAccountRow |
   }
 
   if (!isOpenRule(conditions)) return;
-  // Open to anyone who can reach the mailbox or number: a stranger's message must not drive an agent without prompts.
-  if (input.permissionMode && input.permissionMode !== 'default') {
+  // Open to anyone who can reach the mailbox or number: a stranger's message must not drive an agent without prompts
+  // — unless the project is isolated: its sandbox is the boundary, and running on its own is the point of it.
+  if (input.permissionMode && input.permissionMode !== 'default' && !isIsolatedPath(input.projectPath)) {
     fail(
       'A rule without a sender filter may not bypass permissions: anyone who writes in would steer the agent. Add the senders you trust, or keep the default permission mode.',
       'RULE_OPEN_AUTONOMY',

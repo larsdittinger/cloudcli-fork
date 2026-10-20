@@ -3,6 +3,7 @@ import path from 'node:path';
 
 import { appConfigDb, channelOutboxDb, taskAttentionKey, taskEventsDb, tasksDb } from '@/modules/database/index.js';
 import type { TaskEventAuthor, TaskEventRow, TaskPatch, TaskRow, TaskStatus } from '@/modules/database/index.js';
+import { isIsolatedPath } from '@/modules/isolation/index.js';
 import { notifyTaskOwner } from '@/modules/tasks/owner-notify.service.js';
 import { broadcastTasksUpdated } from '@/modules/tasks/tasks-broadcast.js';
 import { abortTaskRun, queueWake } from '@/modules/tasks/wake-queue.js';
@@ -337,7 +338,8 @@ export const tasksService = {
     };
   },
 
-  create(input: TaskInput, origin: { by: 'owner'; userId?: number | null } | { by: 'agent'; cwd?: string | null; userId?: number | null }): PublicTask {
+  /** `isolated`: an isolated project's agent (main.sock) — its task is always a proposal the owner starts. */
+  create(input: TaskInput, origin: { by: 'owner'; userId?: number | null } | { by: 'agent'; cwd?: string | null; userId?: number | null; isolated?: boolean }): PublicTask {
     const title = requiredText(input.title, 'Title', 200);
     const brief = requiredText(input.brief, 'Brief', 20_000);
     const mandate = optionalText(input.mandate, 'Mandate', 5_000);
@@ -350,21 +352,23 @@ export const tasksService = {
     // A task's own run may not start further tasks: one task could otherwise spawn
     // others without end, past the per-task loop guard. It proposes them instead.
     const proposedBy = origin.by === 'agent' && origin.cwd ? tasksDb.listRunningIn(origin.cwd)[0] ?? null : null;
-    const proposal: TaskQuestion | null = proposedBy
-      ? {
-        text: `An agent created this task while task #${proposedBy.id} (${proposedBy.title}) was running in the same project, so it waits for you. Start it?`,
-        options: ['Start', 'Cancel task'],
-        by: 'system',
-        askedAt: new Date().toISOString(),
-      }
+    // An isolated agent may be steered by whoever wrote to it: what it starts waits for the owner, too.
+    const byIsolated = origin.by === 'agent' && origin.isolated === true;
+    const proposalText = proposedBy
+      ? `An agent created this task while task #${proposedBy.id} (${proposedBy.title}) was running in the same project, so it waits for you. Start it?`
+      : byIsolated ? 'An isolated agent proposed this task; it would run in its isolated project. Start it?' : null;
+    const proposal: TaskQuestion | null = proposalText
+      ? { text: proposalText, options: ['Start', 'Cancel task'], by: 'system', askedAt: new Date().toISOString() }
       : null;
+    // The owner's trust in agents' mandates does not cover an isolated project's agents.
+    const trusted = this.trustAgentMandates() && !byIsolated && !isIsolatedPath(projectPath);
     const row = tasksDb.create({
       title,
       brief,
       mandate,
       // An agent writes the mandate from what it understood; the owner confirms it before anything leaves on its own
       // — unless the owner chose to trust agents' mandates.
-      mandate_confirmed: origin.by === 'owner' || this.trustAgentMandates() ? 1 : 0,
+      mandate_confirmed: origin.by === 'owner' || trusted ? 1 : 0,
       status: proposal ? 'waiting_owner' : 'new',
       project_path: projectPath,
       provider: optionalName(input.provider, 'Provider') ?? 'claude',
@@ -381,7 +385,7 @@ export const tasksService = {
       : row.mandate_confirmed === 1 ? 'Task created by an agent (agents\' mandates are trusted).' : 'Task created by an agent; the mandate waits for your confirmation.');
     if (proposal) {
       logEvent(row.id, 'system', 'question', `${proposal.text}\nOptions: ${proposal.options.join(' / ')}`);
-      notifyTaskOwner(row, { message: `Proposed by task #${proposedBy?.id}: start it?`, needsAction: true, kind: 'proposal' });
+      notifyTaskOwner(row, { message: proposedBy ? `Proposed by task #${proposedBy.id}: start it?` : 'Proposed by an isolated agent: start it?', needsAction: true, kind: 'proposal' });
       return changed(row.id);
     }
     // A delayed start (agent-created with a check time) just waits for that time.

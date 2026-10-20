@@ -8,6 +8,8 @@ import type { ProviderRuntimeGateway } from '@/modules/websocket/index.js';
 export { default as tasksRoutes } from '@/modules/tasks/tasks.routes.js';
 // tasksMcpRoutes: the local bridge the cloudcli-tasks MCP server calls (own token, no user session).
 export { default as tasksMcpRoutes } from '@/modules/tasks/tasks-mcp.routes.js';
+// tasksSandboxMcpRoutes: the same tools for isolated agents, registered on main.sock (run-token scope only).
+export { tasksSandboxMcpRoutes } from '@/modules/tasks/tasks-mcp.routes.js';
 
 /**
  * Used by the server entrypoint once at start, after Channels: links task

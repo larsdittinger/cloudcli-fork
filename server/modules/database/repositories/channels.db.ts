@@ -249,10 +249,11 @@ export const channelMessagesDb = {
     return (getConnection().prepare(`SELECT ${MESSAGE_COLUMNS} FROM channel_messages WHERE account_id = ? AND external_id = ?`).get(accountId, externalId) as ChannelMessageRow | undefined) ?? null;
   },
 
-  list(filter: { accountId?: string; status?: MessageStatus; limit?: number; before?: string } = {}): ChannelMessageRow[] {
+  list(filter: { accountId?: string; status?: MessageStatus; limit?: number; before?: string; sessionId?: string } = {}): ChannelMessageRow[] {
     const clauses: string[] = [];
     const params: unknown[] = [];
     if (filter.accountId) { clauses.push('account_id = ?'); params.push(filter.accountId); }
+    if (filter.sessionId) { clauses.push('session_id = ?'); params.push(filter.sessionId); }
     if (filter.status) { clauses.push('status = ?'); params.push(filter.status); }
     if (filter.before) { clauses.push('received_at < ?'); params.push(filter.before); }
     const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';

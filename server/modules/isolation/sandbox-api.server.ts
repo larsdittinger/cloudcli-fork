@@ -8,12 +8,32 @@ import path from 'node:path';
 import express, { type NextFunction, type Request, type RequestHandler, type Response } from 'express';
 
 import { createClaudeProxy } from '@/modules/isolation/claude-proxy.js';
-import { runTokens, type RunTokenInfo } from '@/modules/isolation/run-tokens.js';
+import { isolationDb } from '@/modules/isolation/isolation.db.js';
+import { runTokens, type RunChannelContext, type RunTokenInfo } from '@/modules/isolation/run-tokens.js';
 
 export type SandboxMcpKind = 'channels' | 'tasks';
 
+/** The text every MCP refusal on main.sock carries: a tool or a record outside the agent's own run. */
+export const ISOLATED_DENIED_TEXT = 'Not available to isolated agents.';
+
+/**
+ * What an MCP router on main.sock may act on: the run's own project (from the DB, never from the body),
+ * session, and — when a Channels message or an agent task started the run — that message or task.
+ */
+export type SandboxMcpScope = {
+  projectId: string;
+  projectPath: string;
+  sessionId: string;
+  channel?: RunChannelContext;
+  taskId?: number;
+};
+
 /** What a request on main.sock carries after the run-token check; MCP routers scope everything by it. */
-export type SandboxApiRequest = Request & { isolationRun?: RunTokenInfo; isolationRunToken?: string };
+export type SandboxApiRequest = Request & {
+  isolationRun?: RunTokenInfo;
+  isolationRunToken?: string;
+  isolationScope?: SandboxMcpScope;
+};
 
 const MCP_MOUNTS: Record<SandboxMcpKind, string> = {
   channels: '/api/channels-mcp',
@@ -49,6 +69,29 @@ export function requireRunToken(resolve: (token: string) => RunTokenInfo | null 
   };
 }
 
+/**
+ * Only an agent's own run reaches the MCP bridges: a script (`exec`), terminal or self-check token does not,
+ * nor a token of a project that is no longer isolated or has the tool switched off.
+ */
+function requireMcpScope(kind: SandboxMcpKind): RequestHandler {
+  return (req, res, next) => {
+    const run = (req as SandboxApiRequest).isolationRun;
+    const project = run?.purpose === 'claude' ? isolationDb.getById(run.projectId) : null;
+    if (!run || !project || !project.tools[kind]) {
+      res.status(403).json({ success: false, error: ISOLATED_DENIED_TEXT });
+      return;
+    }
+    (req as SandboxApiRequest).isolationScope = {
+      projectId: project.projectId,
+      projectPath: project.projectPath,
+      sessionId: run.sessionId,
+      ...(run.channel ? { channel: { ...run.channel } } : {}),
+      ...(run.taskId !== undefined ? { taskId: run.taskId } : {}),
+    };
+    next();
+  };
+}
+
 export type SandboxApiOptions = {
   claudeProxy?: RequestHandler;
   resolveRunToken?: (token: string) => RunTokenInfo | null;
@@ -67,11 +110,12 @@ export function createSandboxApiApp(options: SandboxApiOptions = {}): express.Ex
       mount,
       (req, res, next) => (req.method === 'POST' ? next() : res.status(404).json({ success: false, error: 'Not Found' })),
       requireRunToken(options.resolveRunToken),
+      requireMcpScope(kind),
       express.json({ limit: '50mb' }),
       (req, res, next) => {
         const router = mcpRouters.get(kind);
         if (!router) {
-          res.status(404).json({ success: false, error: 'Not available to isolated agents.' });
+          res.status(404).json({ success: false, error: ISOLATED_DENIED_TEXT });
           return;
         }
         router(req, res, next);

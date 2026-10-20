@@ -53,6 +53,7 @@ import {
     channelsRoutes,
     channelsWebhookRoutes,
     channelsMcpRoutes,
+    channelsSandboxMcpRoutes,
     initializeChannels,
     closeChannels,
 } from './modules/channels/index.js';
@@ -67,8 +68,9 @@ import {
     initializeTasks,
     tasksMcpRoutes,
     tasksRoutes,
+    tasksSandboxMcpRoutes,
 } from './modules/tasks/index.js';
-import { closeIsolation, initializeIsolation, isolationRoutes } from './modules/isolation/index.js';
+import { closeIsolation, initializeIsolation, isolationRoutes, registerSandboxMcpRouter } from './modules/isolation/index.js';
 import browserUseRoutes from './modules/browser-use/browser-use.routes.js';
 import { assetsRoutes } from './modules/assets/index.js';
 import { fileTreeRoutes } from './modules/file-tree/index.js';
@@ -243,8 +245,11 @@ app.use('/api/schedules', authenticateToken, requireAdmin, schedulesRoutes);
 // Tasks: MCP bridge (local token) and admin API for long-running agent tasks
 app.use('/api/tasks-mcp', tasksMcpRoutes);
 app.use('/api/tasks', authenticateToken, requireAdmin, tasksRoutes);
-// Isolated projects (admin). The sandbox's own API is not here: it listens on <ISOLATION_DIR>/main.sock only.
+// Isolated projects (admin). The sandbox's own API is not here: it listens on <ISOLATION_DIR>/main.sock only,
+// with the Channels / Tasks MCP tools scoped to the agent's run token.
 app.use('/api/isolation', authenticateToken, requireAdmin, isolationRoutes);
+registerSandboxMcpRouter('channels', channelsSandboxMcpRoutes);
+registerSandboxMcpRouter('tasks', tasksSandboxMcpRoutes);
 
 // Agent API Routes (uses API key authentication)
 app.use('/api/agent', agentRoutes);
