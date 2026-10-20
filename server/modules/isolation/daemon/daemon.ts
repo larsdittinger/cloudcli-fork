@@ -6,17 +6,28 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import net from 'node:net';
+import { execFile } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 
+import { encodeFrame } from './frames.js';
 import { createEgressProxy, BlockedLog } from './egress-proxy.js';
 import {
   applyFirewallRules,
   applyHostsFile,
   buildFirewallRules,
+  MIN_ISOLATED_UID,
   resolveHost,
   type FirewallProject,
 } from './firewall.js';
 import { createMainForward } from './main-forward.js';
+import {
+  defaultStatOwner,
+  expectedHome,
+  prepareProject,
+  validateSpawn,
+  type PathConfig,
+} from './projects.js';
+import { buildProbeConfig, runProbeScript, type SelfCheckContext, type SelfCheckResult } from './self-check.js';
 import { PROJECT_ID, ProjectStore, validateProjectConfig } from './project-store.js';
 import { hostProcess, killGroup, parseSpawnRequest, type ProcessHostOptions } from './process-host.js';
 
@@ -43,6 +54,14 @@ export type DaemonOptions = {
   resolveIntervalMs?: number;
   /** Resolves a TCP allowlist name to IPs; defaults to direct DNS (not /etc/hosts). */
   resolver?: (host: string) => Promise<string[]>;
+  /** Owner uid of a path for the spawn check; tests simulate foreign owners. Defaults to a real stat. */
+  statOwner?: (p: string) => number;
+  /** Runs the isolation self-check; tests mock the probes. Defaults to the built-in script run as the project uid. */
+  selfCheckRunner?: (ctx: SelfCheckContext) => Promise<SelfCheckResult>;
+  /** Extra paths the project must not read (the main app's home), besides the built-in /home/cloudcli/.cloudcli/auth.db. */
+  mainHome?: string;
+  /** Daemon build/commit string for /v1/status. */
+  version?: string;
 };
 
 export type NetworkState = {
@@ -88,6 +107,25 @@ function tokenMatches(header: string | undefined, token: string): boolean {
   return given.length === expected.length && crypto.timingSafeEqual(given, expected);
 }
 
+/** `claude --version`, cached for the daemon's life once it worked (failures are retried after a minute). */
+function cachedClaudeVersion(claudeBin: string): () => Promise<string> {
+  let value: string | undefined;
+  let failedAt = 0;
+  return () =>
+    new Promise((resolve) => {
+      if (value) return resolve(value);
+      if (failedAt && Date.now() - failedAt < 60_000) return resolve('unknown');
+      execFile(claudeBin, ['--version'], { timeout: 5000, env: { PATH: process.env.PATH ?? '' } }, (error, stdout) => {
+        if (error || !stdout.trim()) {
+          failedAt = Date.now();
+          return resolve('unknown');
+        }
+        value = stdout.trim();
+        resolve(value);
+      });
+    });
+}
+
 export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon> {
   if (!options.token) throw new Error('SANDBOX_DAEMON_TOKEN is required');
   const dev = Boolean(options.dev);
@@ -109,7 +147,13 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
 
   const forwardPort = options.forwardPort ?? (dev ? 0 : DEFAULT_FORWARD_PORT);
   const proxyPort = options.proxyPort ?? (dev ? 0 : DEFAULT_PROXY_PORT);
+  const pathConfig: PathConfig = {
+    isolatedRoot: options.isolatedRoot ?? '/isolated',
+    isolatedHomes: options.isolatedHomes ?? '/isolated-homes',
+    statOwner: options.statOwner ?? defaultStatOwner,
+  };
   const store = new ProjectStore(options.isolationDir);
+  const claudeVersion = cachedClaudeVersion(hostOptions.claudeBin);
   const blocked = new BlockedLog(200);
   const applyNetwork = options.applyNetwork ?? (dev ? async () => undefined : applyRealNetwork);
   // Fail closed until the first successful apply: no spawn before the firewall exists.
@@ -161,6 +205,8 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     return refreshChain;
   };
 
+  let boundForwardPort = 0;
+  let boundProxyPort = 0;
   const sockets = new Set<import('node:net').Socket>();
   const server = http.createServer((req, res) => {
     const json = (status: number, body: unknown) => {
@@ -171,7 +217,71 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     const url = new URL(req.url ?? '/', 'http://daemon');
     const projectMatch = /^\/v1\/projects\/([^/]+)$/.exec(url.pathname);
     if (req.method === 'GET' && url.pathname === '/v1/status') {
-      return json(netState.ok ? 200 : 503, netState);
+      void claudeVersion().then((claude) =>
+        json(netState.ok ? 200 : 503, {
+          ...netState,
+          version: options.version ?? 'dev',
+          claudeVersion: claude,
+          projects: store.all().length,
+        }),
+      );
+      return;
+    }
+    const actionMatch = /^\/v1\/projects\/([^/]+)\/(prepare|self-check)$/.exec(url.pathname);
+    if (req.method === 'POST' && actionMatch) {
+      const projectId = decodeURIComponent(actionMatch[1]);
+      if (!PROJECT_ID.test(projectId)) return json(400, { error: 'Invalid projectId' });
+      void (async () => {
+        try {
+          const body = JSON.parse((await readBody(req)) || '{}') as Record<string, unknown>;
+          if (actionMatch[2] === 'prepare') {
+            const uid = body.uid;
+            if (typeof uid !== 'number' || typeof body.projectDir !== 'string' || typeof body.homeDir !== 'string') {
+              return json(400, { error: 'uid, projectDir and homeDir are required' });
+            }
+            if (!Number.isInteger(uid) || uid < MIN_ISOLATED_UID) return json(400, { error: `uid must be an integer >= ${MIN_ISOLATED_UID}` });
+            const clash = store.uidOwner(uid, projectId);
+            if (clash) return json(409, { error: `uid ${uid} is already used by project ${clash}` });
+            const known = store.get(projectId);
+            if (known && known.uid !== uid) return json(409, { error: 'uid does not match the project' });
+            const { warnings } = prepareProject({ projectId, uid, projectDir: body.projectDir, homeDir: body.homeDir }, { ...pathConfig, dev, mainGid: options.mainGid });
+            return json(200, { ok: true, warnings });
+          }
+          const project = store.get(projectId);
+          if (!project) return json(404, { error: 'Unknown project' });
+          if (typeof body.runToken !== 'string' || !body.runToken) return json(400, { error: 'runToken is required' });
+          if (!netState.ok) return json(503, { error: netState.reason ?? 'Network not ready' });
+          if (typeof body.projectDir !== 'string') return json(400, { error: 'projectDir is required' });
+          const request = {
+            kind: 'exec' as const,
+            projectId,
+            uid: project.uid,
+            projectDir: body.projectDir,
+            homeDir: expectedHome(projectId, pathConfig),
+            cwd: body.projectDir,
+            args: [`exec '${process.execPath.replace(/'/g, "'\\''")}' -`],
+            env: {
+              HTTPS_PROXY: `http://${projectId}:${project.proxySecret}@127.0.0.1:${boundProxyPort}`,
+              HTTP_PROXY: `http://${projectId}:${project.proxySecret}@127.0.0.1:${boundProxyPort}`,
+              NO_PROXY: '127.0.0.1,localhost',
+              CLOUDCLI_RUN_TOKEN: body.runToken,
+            },
+          };
+          validateSpawn(request, store, pathConfig); // same checks as any spawn
+          const mainHome = options.mainHome ?? process.env.CLOUDCLI_MAIN_HOME;
+          const mainHomePaths = ['/home/cloudcli/.cloudcli/auth.db', ...(mainHome ? [mainHome] : [])];
+          const ctx: SelfCheckContext = {
+            projectId,
+            request,
+            runToken: body.runToken,
+            config: buildProbeConfig({ request, allowlist: project.allowlist, isolatedRoot: pathConfig.isolatedRoot, isolationDir: options.isolationDir, forwardPort: boundForwardPort, mainHomePaths }),
+          };
+          json(200, await (options.selfCheckRunner ?? ((c) => runProbeScript(c, hostOptions)))(ctx));
+        } catch (error) {
+          json(400, { error: (error as Error).message });
+        }
+      })();
+      return;
     }
     if (req.method === 'GET' && url.pathname === '/v1/blocked') {
       return json(200, blocked.list(url.searchParams.get('projectId') ?? ''));
@@ -224,6 +334,13 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     socket.write('HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: cloudcli-sandbox\r\n\r\n');
     sockets.add(socket);
     socket.on('close', () => sockets.delete(socket));
+    try {
+      validateSpawn(spawnRequest, store, pathConfig); // synchronous: no client frame can slip past before the host attaches
+    } catch (error) {
+      socket.write(encodeFrame('error', `Rejected: ${(error as Error).message}`));
+      socket.end();
+      return;
+    }
     hostProcess(socket, spawnRequest, hostOptions);
   });
 
@@ -233,6 +350,8 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
   });
   const boundForward = await listenLoopback(forward, forwardPort);
   const boundProxy = await listenLoopback(proxy, proxyPort);
+  boundForwardPort = boundForward;
+  boundProxyPort = boundProxy;
   await refreshNetwork();
   const timer = setInterval(() => void refreshNetwork(), options.resolveIntervalMs ?? 5 * 60_000);
   timer.unref();
@@ -270,6 +389,7 @@ if (isMain) {
     mainGid: gid ? Number(gid) : undefined, // validated in startDaemon
     isolatedRoot: process.env.ISOLATED_ROOT,
     isolatedHomes: process.env.ISOLATED_HOMES,
+    version: process.env.SANDBOX_VERSION,
     dev: process.env.SANDBOX_DEV === '1',
     forwardPort: DEFAULT_FORWARD_PORT,
     proxyPort: DEFAULT_PROXY_PORT,

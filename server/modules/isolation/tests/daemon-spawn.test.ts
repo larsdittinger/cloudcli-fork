@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import test, { after, before } from 'node:test';
@@ -14,9 +15,25 @@ const TOKEN = 'test-token';
 let tmp: string;
 let daemon: RunningDaemon;
 
+/** Dev daemon whose isolated root is <dir>/isolated and which knows project p1 (uid 20001). */
+async function devDaemon(dir: string): Promise<RunningDaemon> {
+  fs.mkdirSync(path.join(dir, 'isolated', 'p1'), { recursive: true });
+  const d = await startDaemon({
+    token: TOKEN, isolationDir: dir, dev: true,
+    isolatedRoot: path.join(dir, 'isolated'), isolatedHomes: path.join(dir, 'homes'), statOwner: () => 20001,
+  });
+  const body = JSON.stringify({ uid: 20001, name: 'P', allowlist: [], proxySecret: 's' });
+  await new Promise<void>((resolve, reject) => {
+    const req = http.request({ socketPath: d.socketPath, method: 'PUT', path: '/v1/projects/p1', headers: { Authorization: `Bearer ${TOKEN}` } }, (res) => { res.resume(); res.on('end', resolve); });
+    req.on('error', reject);
+    req.end(body);
+  });
+  return d;
+}
+
 before(async () => {
-  tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'sbx-'));
-  daemon = await startDaemon({ token: TOKEN, isolationDir: tmp, dev: true });
+  tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'sbx-')));
+  daemon = await devDaemon(tmp);
 });
 
 after(async () => {
@@ -27,12 +44,13 @@ after(async () => {
 function request(overrides: Partial<SpawnRequest> = {}): SpawnRequest {
   return {
     kind: 'exec',
+    projectId: 'p1',
     uid: 20001,
-    projectDir: tmp,
-    homeDir: tmp,
+    projectDir: path.join(tmp, 'isolated', 'p1'),
+    homeDir: path.join(tmp, 'homes', 'p1'),
     args: ['true'],
     env: {},
-    cwd: tmp,
+    cwd: path.join(tmp, 'isolated', 'p1'),
     ...overrides,
   };
 }
@@ -130,13 +148,16 @@ test('pty is reported as not supported yet', async () => {
 });
 
 test('close() kills every live process group, grandchildren included', async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sbx-close-'));
-  const local = await startDaemon({ token: TOKEN, isolationDir: dir, dev: true });
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'sbx-close-')));
+  const local = await devDaemon(dir);
   const pidFile = path.join(dir, 'pids');
   await connectSpawn(
     local.socketPath,
     TOKEN,
-    request({ args: [`sleep 60 & echo $! > ${pidFile}; exec sleep 60`] }),
+    request({
+      args: [`sleep 60 & echo $! > ${pidFile}; exec sleep 60`],
+      projectDir: path.join(dir, 'isolated', 'p1'), homeDir: path.join(dir, 'homes', 'p1'), cwd: path.join(dir, 'isolated', 'p1'),
+    }),
   );
   for (let i = 0; i < 50 && !fs.existsSync(pidFile); i += 1) await new Promise((r) => setTimeout(r, 50));
   await new Promise((r) => setTimeout(r, 100));

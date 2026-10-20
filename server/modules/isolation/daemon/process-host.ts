@@ -4,11 +4,13 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import type { Duplex } from 'node:stream';
 
 import { FrameDecoder, encodeFrame } from './frames.js';
+import { PROJECT_ID } from './project-store.js';
 
 export type SpawnKind = 'claude' | 'exec' | 'pty';
 
 export type SpawnRequest = {
   kind: SpawnKind;
+  projectId: string;
   uid: number;
   projectDir: string;
   homeDir: string;
@@ -40,6 +42,7 @@ export function parseSpawnRequest(raw: unknown): SpawnRequest {
   if (typeof req.uid !== 'number' || !Number.isInteger(req.uid) || req.uid < 0) {
     throw new Error('Invalid uid');
   }
+  if (typeof req.projectId !== 'string' || !PROJECT_ID.test(req.projectId)) throw new Error('Invalid projectId');
   for (const key of ['projectDir', 'homeDir', 'cwd'] as const) {
     if (typeof req[key] !== 'string' || !req[key]) throw new Error(`Invalid ${key}`);
   }

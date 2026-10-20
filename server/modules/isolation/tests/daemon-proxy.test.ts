@@ -205,7 +205,7 @@ test('fails closed: firewall failure refuses spawn and status reports it', async
   assert.equal(status.body.ok, false);
   assert.match(status.body.reason, /iptables missing/);
   await assert.rejects(
-    connectSpawn(d.socketPath, TOKEN, { kind: 'exec', uid: 20001, projectDir: dir, homeDir: dir, args: ['true'], env: {}, cwd: dir }),
+    connectSpawn(d.socketPath, TOKEN, { kind: 'exec', projectId: 'p', uid: 20001, projectDir: dir, homeDir: dir, args: ['true'], env: {}, cwd: dir }),
     DaemonRejectedError,
   );
   await d.close();
@@ -228,7 +228,7 @@ test('spawn is refused (503) while the firewall is initializing, then allowed', 
     token: TOKEN, isolationDir: dir, socketPath, mainGid: process.getgid?.() ?? 0, proxyPort: 0, forwardPort: 0,
     applyNetwork: () => gate,
   });
-  const spawnReq = { kind: 'exec' as const, uid: 20001, projectDir: dir, homeDir: dir, args: ['true'], env: {}, cwd: dir };
+  const spawnReq = { kind: 'exec' as const, projectId: 'p', uid: 20001, projectDir: dir, homeDir: dir, args: ['true'], env: {}, cwd: dir };
   let refused: unknown;
   for (let i = 0; i < 100 && !refused; i += 1) {
     await new Promise((r) => setTimeout(r, 20));
