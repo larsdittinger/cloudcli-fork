@@ -357,3 +357,34 @@ test('tasks_create from isolated → proposal in same project without trusted ma
     assert.equal(tasksDb.get(viaGlobal.json.data.task.id)!.mandate_confirmed, 0);
   });
 });
+
+test('tasks_send_message from an isolated run only through the project\'s own accounts', async () => {
+  await withHarness(async (h) => {
+    const { account: own, other } = await seedMessages(h);
+    // The owner's private account: auto-send, but no rule of the isolated project uses it.
+    const foreign = channelAccountsDb.create({ type: 'email', label: 'Lars', config: {}, secrets: {}, agentSend: 'auto' });
+    const task = makeTask(h.a.projectPath, 'answer the customer');
+    tasksDb.setRunning(task.id, 'sess-a', new Date().toISOString());
+    const token = h.mint({ taskId: task.id });
+
+    const viaForeign = await h.sandbox('tasks', 'tasks_send_message', { task_id: task.id, account_id: foreign.id, to: 'boss@example.com', subject: 's', text: 'leak' }, token);
+    assert.equal(viaForeign.status, 403);
+    assert.equal(viaForeign.json.error, DENIED);
+
+    // A reply picks the replied message's account: one of a foreign account is refused as well.
+    const foreignMessage = channelMessagesDb.insert({
+      id: `msg-foreign-${Math.random().toString(16).slice(2)}`, accountId: foreign.id, channel: 'email', externalId: 'ext-foreign',
+      threadKey: 't-foreign', from: { address: 'friend@example.com', name: 'Friend' }, to: [], subject: 'Private', text: 'hi',
+      isGroup: false, attachments: [], receivedAt: new Date().toISOString(), raw: {},
+    }, 'unmatched')!;
+    const replyForeign = await h.sandbox('tasks', 'tasks_send_message', { task_id: task.id, account_id: own.id, reply_to_message_id: foreignMessage.id, text: 'leak' }, token);
+    assert.equal(replyForeign.status, 403);
+    assert.equal(replyForeign.json.error, DENIED);
+
+    // The project's own account passes this check; the normal send path decides the rest (here: agentSend off).
+    const viaOwn = await h.sandbox('tasks', 'tasks_send_message', { task_id: task.id, reply_to_message_id: other.id, text: 'Thanks' }, token);
+    assert.notEqual(viaOwn.json.error, DENIED);
+    assert.match(viaOwn.json.error ?? '', /Agents may not send messages through "Hook"/);
+    assert.equal(own.id, other.account_id);
+  });
+});

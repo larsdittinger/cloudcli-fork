@@ -4,7 +4,7 @@ import path from 'node:path';
 import express, { type Request, type Response } from 'express';
 
 import { channelsService, isolatedProjectAccounts } from '@/modules/channels/index.js';
-import { channelAccountsDb, tasksDb } from '@/modules/database/index.js';
+import { channelAccountsDb, channelMessagesDb, tasksDb } from '@/modules/database/index.js';
 import { ISOLATED_DENIED_TEXT } from '@/modules/isolation/index.js';
 import type { SandboxApiRequest, SandboxMcpScope } from '@/modules/isolation/index.js';
 import { buildTasksGuide } from '@/modules/tasks/agent-guide.js';
@@ -222,6 +222,13 @@ async function runTool(caller: McpCaller, toolName: string, input: Record<string
       // The run token is this session's: a run of the same task in another session is not this run.
       if (scope && tasksDb.get(taskId)?.running_session_id !== scope.sessionId) {
         throw new AppError(`Task #${taskId} is not running in this session; messages go out only during the task's own run.`, { code: 'TASK_NOT_RUNNING', statusCode: 409 });
+      }
+      // An isolated agent sends only through the accounts its project's rules use (a reply goes out through the
+      // replied message's account): never through the owner's other mailboxes or WhatsApp.
+      if (scope) {
+        const replyTo = optionalString(input.reply_to_message_id);
+        const accountId = (replyTo ? channelMessagesDb.get(replyTo)?.account_id : undefined) ?? optionalString(input.account_id);
+        if (accountId && !isolatedProjectAccounts(scope.projectId).some((account) => account.id === accountId)) throw deniedToRun();
       }
       const text = typeof input.text === 'string' ? input.text : '';
       result = await sendTaskMessage({
