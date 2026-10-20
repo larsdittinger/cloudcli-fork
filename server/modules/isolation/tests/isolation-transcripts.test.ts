@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import test from 'node:test';
+import test, { mock } from 'node:test';
 
 import '@/modules/isolation/index.js'; // registers the isolated homes as read-only roots
 import {
@@ -145,6 +145,49 @@ test('the isolated walk is capped in depth and in files per home', async () => {
     assert.equal(all.length, 6);
     assert.ok(all.some((file) => file.endsWith('shallow.jsonl')));
     assert.equal(all.some((file) => file.endsWith('deep.jsonl')), false);
-    assert.equal((await findIsolatedTranscripts(projects, null, { maxFiles: 3 })).length, 3);
+    // The budget counts every entry visited (directories included), so a small one finds fewer files.
+    let visited = 0;
+    const capped = await findIsolatedTranscripts(projects, null, { maxEntries: 3, onEntry: () => { visited += 1; } });
+    assert.equal(visited, 3);
+    assert.ok(capped.length <= 2);
+  });
+});
+
+test('the budget also counts entries the since filter skips: a home full of old files stops the walk', async () => {
+  await withHomes(async ({ homeOf }) => {
+    const projects = path.join(homeOf('p2'), '.claude', 'projects');
+    fs.mkdirSync(path.join(projects, 'enc'), { recursive: true });
+    for (let index = 0; index < 60; index += 1) {
+      fs.writeFileSync(path.join(projects, 'enc', `old${index}.jsonl`), '{}');
+      fs.writeFileSync(path.join(projects, 'enc', `other${index}.txt`), 'x');
+    }
+    const since = new Date(Date.now() + 60_000); // everything is older
+    let visited = 0;
+    const warn = mock.method(console, 'warn', () => {});
+    try {
+      const found = await findIsolatedTranscripts(projects, since, { maxEntries: 10, onEntry: () => { visited += 1; } });
+      assert.deepEqual(found, []);
+      assert.equal(visited, 10);
+      await findIsolatedTranscripts(projects, since, { maxEntries: 10 });
+      assert.equal(warn.mock.calls.filter((call) => String(call.arguments[0]).includes(projects)).length, 1);
+    } finally {
+      warn.mock.restore();
+    }
+  });
+});
+
+test('the walk never follows a symlinked directory, not even as its root', async () => {
+  await withHomes(async ({ dir, homeOf }) => {
+    const elsewhere = path.join(dir, 'elsewhere');
+    fs.mkdirSync(path.join(elsewhere, 'enc'), { recursive: true });
+    fs.writeFileSync(path.join(elsewhere, 'enc', 's.jsonl'), '{}');
+    fs.mkdirSync(path.join(homeOf('p3'), '.claude'), { recursive: true });
+    fs.symlinkSync(elsewhere, path.join(homeOf('p3'), '.claude', 'projects'));
+    assert.deepEqual(await findIsolatedTranscripts(path.join(homeOf('p3'), '.claude', 'projects'), null), []);
+
+    const projects = path.join(homeOf('p4'), '.claude', 'projects');
+    fs.mkdirSync(projects, { recursive: true });
+    fs.symlinkSync(path.join(elsewhere, 'enc'), path.join(projects, 'linked'));
+    assert.deepEqual(await findIsolatedTranscripts(projects, null), []);
   });
 });

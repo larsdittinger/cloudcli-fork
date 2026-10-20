@@ -122,22 +122,23 @@ export function isIsolatedTranscriptPath(filePath: string): boolean {
 }
 
 /**
- * Opens a file in an isolated home without following a symlink anywhere below the homes root: every directory
- * is opened with O_NOFOLLOW relative to the previous one (through /proc/self/fd where it exists, i.e. Linux),
- * and the file itself must be a regular file. Returns the fd; throws TranscriptRefusedError otherwise.
+ * Opens a file or directory in an isolated home without following a symlink anywhere below the homes root: every
+ * directory is opened with O_NOFOLLOW relative to the previous one (through /proc/self/fd where it exists, i.e.
+ * Linux), and a file must be a regular file. Returns the fd; throws TranscriptRefusedError otherwise.
  */
-function openIsolatedFd(filePath: string): number {
+function openUnderHomes(target: string, kind: 'file' | 'dir'): number {
   const homes = path.resolve(isolatedHomesRoot()!);
-  const parts = path.relative(homes, path.resolve(filePath)).split(path.sep);
-  if (parts.length < 2 || parts.some((part) => !part || part === '.' || part === '..')) {
-    throw new TranscriptRefusedError(`Not a file in an isolated home: ${filePath}`);
+  const parts = path.relative(homes, path.resolve(target)).split(path.sep);
+  if (parts.length < (kind === 'file' ? 2 : 1) || parts.some((part) => !part || part === '.' || part === '..')) {
+    throw new TranscriptRefusedError(`Not inside an isolated home: ${target}`);
   }
   // The homes root itself belongs to the deployment, not to an agent.
   let dirFd = fs.openSync(homes, fs.constants.O_RDONLY | fs.constants.O_DIRECTORY);
   let dirPath = homes;
   const at = (name: string) => (hasProcFd ? `/proc/self/fd/${dirFd}/${name}` : path.join(dirPath, name));
+  const dirs = kind === 'dir' ? parts : parts.slice(0, -1);
   try {
-    for (const part of parts.slice(0, -1)) {
+    for (const part of dirs) {
       let next: number;
       try {
         next = fs.openSync(at(part), DIR_FLAGS);
@@ -148,21 +149,28 @@ function openIsolatedFd(filePath: string): number {
       dirFd = next;
       dirPath = path.join(dirPath, part);
     }
+    if (kind === 'dir') {
+      const fd = dirFd;
+      dirFd = -1; // handed to the caller
+      return fd;
+    }
     let fd: number;
     try {
       fd = fs.openSync(at(parts[parts.length - 1]), FILE_FLAGS);
     } catch (error) {
-      throw new TranscriptRefusedError(`${filePath}: not a plain file (${(error as NodeJS.ErrnoException).code ?? 'error'})`);
+      throw new TranscriptRefusedError(`${target}: not a plain file (${(error as NodeJS.ErrnoException).code ?? 'error'})`);
     }
     if (!fs.fstatSync(fd).isFile()) {
       fs.closeSync(fd);
-      throw new TranscriptRefusedError(`${filePath}: not a regular file`);
+      throw new TranscriptRefusedError(`${target}: not a regular file`);
     }
     return fd;
   } finally {
-    fs.closeSync(dirFd);
+    if (dirFd >= 0) fs.closeSync(dirFd);
   }
 }
+
+const openIsolatedFd = (filePath: string) => openUnderHomes(filePath, 'file');
 
 const warned = new Set<string>();
 
@@ -195,45 +203,73 @@ export async function readTranscriptText(filePath: string): Promise<string> {
   return Buffer.concat(chunks).toString('utf8');
 }
 
-/** Caps of the walk over one isolated home's transcripts (the agent decides how many files and how deep). */
-export const ISOLATED_TRANSCRIPT_LIMITS = { maxDepth: 6, maxFiles: 5000, maxFirstLineBytes: 1024 * 1024 };
+/** Caps of the walk over one isolated home's transcripts (the agent decides how many entries and how deep). */
+export const ISOLATED_TRANSCRIPT_LIMITS = { maxDepth: 6, maxEntries: 5000, maxFirstLineBytes: 1024 * 1024 };
 
 /**
- * The .jsonl files under one isolated home's `.claude/projects`, created after `since`: real directories only,
- * at most `maxDepth` levels deep and `maxFiles` files, without subagent transcripts and tool results.
+ * The .jsonl files under one isolated home's `.claude/projects`, created after `since`, without subagent
+ * transcripts and tool results. The tree is the agent's, so the walk
+ * - never follows a symlink: each directory is opened with O_DIRECTORY | O_NOFOLLOW relative to its parent's fd
+ *   and listed through that fd (streaming, so a huge directory is never loaded at once);
+ * - goes at most `maxDepth` levels deep;
+ * - spends one unit of a per-home budget on every entry it looks at (directories, skipped and non-matching files
+ *   too) and stops when `maxEntries` is spent — also on syncs where `since` skips everything.
  */
 export async function findIsolatedTranscripts(
   root: string,
   since: Date | null,
-  limits: { maxDepth?: number; maxFiles?: number } = {},
+  limits: { maxDepth?: number; maxEntries?: number; /** Tests: called for every entry visited. */ onEntry?: (entryPath: string) => void } = {},
 ): Promise<string[]> {
   const maxDepth = limits.maxDepth ?? ISOLATED_TRANSCRIPT_LIMITS.maxDepth;
-  const maxFiles = limits.maxFiles ?? ISOLATED_TRANSCRIPT_LIMITS.maxFiles;
+  let budget = limits.maxEntries ?? ISOLATED_TRANSCRIPT_LIMITS.maxEntries;
+  let exhausted = false;
   const files: string[] = [];
-  const walk = async (dir: string, depth: number): Promise<void> => {
-    let entries: fs.Dirent[];
+
+  let rootFd: number;
+  try {
+    rootFd = openUnderHomes(root, 'dir');
+  } catch {
+    return files;
+  }
+
+  const walk = async (dirFd: number, dirPath: string, depth: number): Promise<void> => {
+    let listing: fs.Dir;
     try {
-      entries = await fsp.readdir(dir, { withFileTypes: true });
+      listing = await fsp.opendir(hasProcFd ? `/proc/self/fd/${dirFd}` : dirPath);
     } catch {
-      return;
+      return; // unreadable: skipped, the rest of the home is still walked
     }
-    for (const entry of entries) {
-      if (files.length >= maxFiles) {
-        warnOnce(`max-files:${root}`, `${root} holds more than ${maxFiles} transcripts; the rest is not indexed.`);
-        return;
+    for await (const entry of listing) {
+      if (budget <= 0) {
+        exhausted = true;
+        break;
       }
-      const full = path.join(dir, entry.name);
+      budget -= 1;
+      const full = path.join(dirPath, entry.name);
+      limits.onEntry?.(full);
+      const at = hasProcFd ? `/proc/self/fd/${dirFd}/${entry.name}` : full;
       if (entry.isDirectory()) {
         if (entry.name === 'subagents' || entry.name === 'tool-results') continue;
         if (depth >= maxDepth) {
           warnOnce(`max-depth:${root}`, `${root} nests deeper than ${maxDepth} levels; deeper transcripts are not indexed.`);
           continue;
         }
-        await walk(full, depth + 1);
+        let childFd: number;
+        try {
+          childFd = fs.openSync(at, DIR_FLAGS); // swapped for a symlink since the listing: ELOOP, skipped
+        } catch {
+          continue;
+        }
+        try {
+          await walk(childFd, full, depth + 1);
+        } finally {
+          fs.closeSync(childFd);
+        }
+        if (exhausted) break;
       } else if (entry.isFile() && entry.name.endsWith('.jsonl')) {
         if (since) {
           try {
-            if ((await fsp.lstat(full)).birthtime <= since) continue;
+            if ((await fsp.lstat(at)).birthtime <= since) continue;
           } catch {
             continue;
           }
@@ -242,6 +278,16 @@ export async function findIsolatedTranscripts(
       }
     }
   };
-  await walk(root, 0);
+
+  try {
+    await walk(rootFd, path.resolve(root), 0);
+  } catch {
+    // An unreadable directory ends the walk of this home; what was found stays.
+  } finally {
+    fs.closeSync(rootFd);
+  }
+  if (exhausted) {
+    warnOnce(`max-entries:${root}`, `${root} holds more than ${limits.maxEntries ?? ISOLATED_TRANSCRIPT_LIMITS.maxEntries} entries; the walk stopped there.`);
+  }
   return files;
 }
