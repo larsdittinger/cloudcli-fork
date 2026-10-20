@@ -1,20 +1,69 @@
 // ISOLATED_ROOT lies outside WORKSPACES_ROOT (docker: /isolated vs /workspace). Registered isolated projects must
 // still pass the workspace path policy; nothing else under the isolated root may.
+//
+// Not under os.tmpdir(): on Linux that is /tmp, a forbidden workspace location, so every path would be refused
+// for the wrong reason. The test tree lives in the repository instead, with WORKSPACES_ROOT pointed at a sibling
+// directory of it — set before any app module reads it, hence the dynamic imports.
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import fs from 'node:fs';
 import type { AddressInfo } from 'node:net';
 import path from 'node:path';
-import test from 'node:test';
+import test, { after } from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import express from 'express';
 
-import { projectsDb } from '@/modules/database/index.js';
-import { fileTreeRoutes } from '@/modules/file-tree/index.js';
-import { createProject } from '@/modules/projects/services/project-management.service.js';
-import { isolationDb } from '@/modules/isolation/index.js';
-import { withIsolationDirs, withTempDatabase } from '@/modules/projects/tests/copy-helpers.js';
-import { validateWorkspacePath } from '@/shared/utils.js';
+const TEST_BASE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../../.test-tmp');
+fs.mkdirSync(TEST_BASE, { recursive: true });
+const RUN_DIR = fs.realpathSync(fs.mkdtempSync(path.join(TEST_BASE, 'isolated-workspace-')));
+process.env.WORKSPACES_ROOT = path.join(RUN_DIR, 'workspaces');
+fs.mkdirSync(process.env.WORKSPACES_ROOT);
+
+const { closeConnection, initializeDatabase, projectsDb } = await import('@/modules/database/index.js');
+const { fileTreeRoutes } = await import('@/modules/file-tree/index.js');
+const { createProject } = await import('@/modules/projects/services/project-management.service.js');
+const { isolationDb } = await import('@/modules/isolation/index.js');
+const { withIsolationDirs } = await import('@/modules/projects/tests/copy-helpers.js');
+const { validateWorkspacePath } = await import('@/shared/utils.js');
+
+after(() => {
+  fs.rmSync(RUN_DIR, { recursive: true, force: true });
+  try {
+    fs.rmdirSync(TEST_BASE); // only when no other run left anything there
+  } catch {
+    // not empty
+  }
+});
+
+let counter = 0;
+
+/** A fresh SQLite file in its own directory under the repository's test tree. */
+async function withTempDatabase(runTest: (dir: string) => Promise<void>): Promise<void> {
+  const previous = process.env.DATABASE_PATH;
+  counter += 1;
+  const dir = path.join(RUN_DIR, `case-${counter}`);
+  fs.mkdirSync(dir);
+  closeConnection();
+  process.env.DATABASE_PATH = path.join(dir, 'auth.db');
+  await initializeDatabase();
+  try {
+    await runTest(dir);
+  } finally {
+    closeConnection();
+    if (previous === undefined) delete process.env.DATABASE_PATH;
+    else process.env.DATABASE_PATH = previous;
+  }
+}
+
+test('the test tree is a legal location: neither under WORKSPACES_ROOT nor a forbidden system directory', async () => {
+  const outside = path.join(RUN_DIR, 'outside');
+  fs.mkdirSync(outside, { recursive: true });
+  const inRoot = path.join(process.env.WORKSPACES_ROOT!, 'inside');
+  fs.mkdirSync(inRoot, { recursive: true });
+  assert.equal((await validateWorkspacePath(inRoot)).valid, true);
+  assert.match((await validateWorkspacePath(outside)).error ?? '', /allowed workspace root/);
+});
 
 test('workspace policy accepts registered isolated projects (and their subdirectories) outside WORKSPACES_ROOT only', async () => {
   await withTempDatabase(async (dir) => {
@@ -59,7 +108,6 @@ test('file tree browse and project listing work for an isolated project outside 
       try {
         const browse = await fetch(`${base}/browse-filesystem?path=${encodeURIComponent(agent)}`);
         assert.equal(browse.status, 200);
-        // (A stray dir is not asserted here: the temp dir of this test is a read-only browse root.)
         const listing = await fetch(`${base}/projects/${id}/files`);
         assert.equal(listing.status, 200);
         assert.ok(JSON.stringify(await listing.json()).includes('a.txt'));
